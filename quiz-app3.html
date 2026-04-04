@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>経済史 道場クイズ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;background:#0d0d18}
+button:hover:not(:disabled){filter:brightness(1.14);cursor:pointer}
+input:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0 0 0 2px rgba(201,168,76,0.2) !important}
+.flashFade{animation:flashFade 3s ease forwards}
+@keyframes flashFade{0%{opacity:1}100%{opacity:0}}
+@keyframes timerPulse{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes comboPop{0%{transform:scale(1.6)}100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes wrongReveal{from{opacity:0;transform:scale(0.9) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes bounceIn{0%{transform:scale(0.3)}60%{transform:scale(1.18)}80%{transform:scale(0.93)}100%{transform:scale(1)}}
+@keyframes rankUpAnim{0%{transform:scale(0.5) translateY(20px);opacity:0}60%{transform:scale(1.08) translateY(-4px)}100%{transform:scale(1) translateY(0);opacity:1}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes dotPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.35;transform:scale(1.35)}}
+@keyframes blankWobble{0%,100%{transform:rotate(-2.5deg) scale(1.04)}25%{transform:rotate(2.5deg) scale(1.0)}75%{transform:rotate(-2deg) scale(1.02)}}
+@keyframes blankPop{0%{transform:scale(1)}35%{transform:scale(1.35)}65%{transform:scale(0.88)}100%{transform:scale(1)}}
+@keyframes correctRing{0%{transform:scale(0.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
+@keyframes wrongFlash{0%,100%{opacity:0}20%,60%{opacity:1}}
+@keyframes comboFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-80px) scale(1.4)}}
+@keyframes edgePulse{0%,100%{box-shadow:inset 0 0 0px rgba(239,68,68,0)}50%{box-shadow:inset 0 0 40px rgba(239,68,68,0.5)}}
+@keyframes rankBurst{0%{transform:scale(0.2);opacity:0}50%{transform:scale(1.3);opacity:1}80%{transform:scale(1.0);opacity:1}100%{transform:scale(1.6);opacity:0}}
+.shake{animation:shake 0.42s ease}
+.comboPop{animation:comboPop 0.4s ease}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#1a1a30}
+::-webkit-scrollbar-thumb{background:#3a3a58;border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useReducer, useEffect, useRef, useState, useMemo } = React;
+
+/* ══════════════════════════════════════════════════════════════
+   DEFAULT QUESTIONS
+══════════════════════════════════════════════════════════════ */
+const DK = window.innerWidth >= 768; // デスクトップ判定
+
+const DEFAULT_QS = [
+  {id:"a2c5e8f1",type:"fill",pts:1,q:"Japan holds a unique place in economic history as the first country outside ___ and North America to achieve sustained industrialization. Historian Penelope Francks argues that Japan pioneered an alternative \"labour-intensive\" path, distinct from the capital-intensive model of ___.",blanks:[{ans:["Europe","europe"]},{ans:["Britain","britain","England","england","UK","uk"]}],hint:"Francks's key argument: two geographic terms that anchor the comparative framework"},
+  {id:"b4d7f1a3",type:"fill",pts:1,q:"The Tokugawa shogunate ruled Japan for approximately ___ years, from 1603 to 1868 — longer than the ___ States has existed as an independent nation.",blanks:[{ans:["260"]},{ans:["United","united"]}],hint:"The comparison with the U.S. gives a sense of scale"},
+  {id:"c6e2f9d4",type:"fill",pts:1,q:"Under the Tokugawa system, Japan was governed by a shōgun at the top, with approximately 270 regional domains, each ruled by a feudal lord called a ___. Wealth and status were measured in units of ___.",blanks:[{ans:["daimyō","daimyo"]},{ans:["rice"]}],hint:"Two Tier 2 terms that define the Tokugawa political economy"},
+  {id:"d8f3a5b7",type:"fill",pts:1,q:"Although often described as a \"closed country,\" Tokugawa Japan maintained ___ official trade channels. The most important was Nagasaki, where trade with the Dutch and ___ was conducted.",blanks:[{ans:["four","4"]},{ans:["Chinese","chinese","China","china"]}],hint:"Corrects the misconception of total isolation — four channels, not zero"},
+  {id:"e1a4b6c8",type:"fill",pts:1,q:"In 1853, American Commodore ___ arrived in Japan with warships. The resulting treaties were \"unequal\" because Japan lost tariff ___ and had to accept extraterritoriality for foreign nationals.",blanks:[{ans:["Perry","perry"]},{ans:["autonomy"]}],hint:"\"Perry\" + \"tariff autonomy\" — the two key terms for the opening of Japan"},
+  {id:"f9b2c7d5",type:"fill",pts:1,q:"The Meiji government's two guiding slogans were fukoku kyōhei (\"rich country, strong ___\") and shokusan kōgyō (\"promote ___\"). These show that economic and military modernization were inseparable state goals.",blanks:[{ans:["army","military"]},{ans:["industry"]}],hint:"Completing the blanks internalizes the English translations of these foundational slogans"},
+  {id:"a3c6d8e1",type:"fill",pts:1,q:"The Meiji government built model factories and later sold many to private entrepreneurs at low prices. These entrepreneurs built large conglomerates known as ___, including Mitsui, Mitsubishi, ___, and Yasuda.",blanks:[{ans:["zaibatsu"]},{ans:["Sumitomo","sumitomo"]}],hint:"\"Zaibatsu\" is the most important Tier 2 term; know all four of the Big Four"},
+  {id:"b5d8e2f4",type:"fill",pts:1,q:"In just ___ years between the Meiji Restoration (1868) and Japan's defeat in 1945, the country fought five major wars. The last and most devastating was the ___ War (1941–45).",blanks:[{ans:["77"]},{ans:["Pacific","pacific"]}],hint:"\"77 years, five wars\" captures the extraordinary pace of militarization"},
+  {id:"c7e1f3a6",type:"fill",pts:1,q:"After World War II, GHQ implemented three major reforms: zaibatsu dissolution, ___ reform (redistributing farmland to tenant farmers), and ___ reform (guaranteeing workers' right to organize).",blanks:[{ans:["land","agrarian"]},{ans:["labor","labour"]}],hint:"Three major reforms: zaibatsu dissolution + ___ reform + ___ reform"},
+  {id:"d9f4a6b2",type:"fill",pts:1,q:"Japan's high-growth era (1955–73) saw GDP growth averaging nearly ___% per year. By 1968, Japan had become the world's ___-largest economy.",blanks:[{ans:["10"]},{ans:["second","2nd"]}],hint:"\"10% growth\" and \"second-largest economy\" — two numbers that define the postwar miracle"},
+  {id:"e8a3b5c7",type:"fill",pts:2,q:"The Dodge Line of 1949 set a fixed exchange rate of 1 dollar = ___ yen. This rate remained in place for over 20 years, until the ___ Shock of 1971 ended the Bretton Woods system.",blanks:[{ans:["360"]},{ans:["Nixon","nixon"]}],hint:"\"360 yen\" and \"Nixon Shock\" bookend the fixed exchange rate era"},
+  {id:"f2a6b9c4",type:"fill",pts:2,q:"Finance Minister ___ Korekiyo used deficit spending to recover from the Showa Depression in the early 1930s. His approach is often called \"Keynesianism before ___.\"",blanks:[{ans:["Takahashi","takahashi"]},{ans:["Keynes","keynes"]}],hint:"A proper noun + a famous economist's name — a phrase worth memorizing"},
+  {id:"a7b1c3d8",type:"fill",pts:2,q:"The Nikkei stock index peaked at 38,915 on December 29, ___. It did not surpass this level until ___ — a gap of 34 years that epitomizes Japan's \"Lost Decades\".",blanks:[{ans:["1989"]},{ans:["2024"]}],hint:"\"34 years to recover a stock index\" makes the stagnation tangible and current"},
+  {id:"b4c9d2e6",type:"fill",pts:2,q:"Japan's government debt currently exceeds ¥1,000 trillion, which is over ___% of GDP — the highest ratio among ___ nations.",blanks:[{ans:["200"]},{ans:["developed","advanced"]}],hint:"The standard English summary of Japan's fiscal position"},
+  {id:"c5d8e1f3",type:"fill",pts:2,q:"During World War I (1914–18), Japan's economy boomed as European factories turned to war production. Japan exported heavily to Asia and Africa and was transformed from a ___ nation to a ___ nation.",blanks:[{ans:["debtor","debt"]},{ans:["creditor"]}],hint:"\"From debtor to creditor\" — a two-word summary of Japan's WWI transformation"},
+];
+
+const MC_TIMER=20, FILL_TIMER=40;
+const qTimer=q=>q?.type==="fill"?FILL_TIMER:MC_TIMER;
+
+/* ══════════════════════════════════════════════════════════════
+   RANK & XP
+══════════════════════════════════════════════════════════════ */
+const TIERS=[
+  {xp:0,   name:"浪人",icon:"🗾",color:"#9b8ea0"},
+  {xp:30,  name:"農民",icon:"🌾",color:"#8fb87a"},
+  {xp:80,  name:"足軽",icon:"🥋",color:"#87ceeb"},
+  {xp:180, name:"武士",icon:"⚔️", color:"#c9a84c"},
+  {xp:350, name:"侍",  icon:"🗡️", color:"#e08040"},
+  {xp:600, name:"大名",icon:"🏯",color:"#d45060"},
+  {xp:950, name:"老中",icon:"📜",color:"#9060c0"},
+  {xp:1400,name:"将軍",icon:"👑",color:"#f0c040"},
+];
+const getRank=xp=>[...TIERS].reverse().find(t=>xp>=t.xp)||TIERS[0];
+const getNext=xp=>TIERS.find(t=>t.xp>xp)||null;
+const calcXP=({score,ftc,combo,perfect})=>score*3+ftc*2+Math.min(combo,10)+(perfect?30:0);
+
+/* ══════════════════════════════════════════════════════════════
+   STORAGE
+══════════════════════════════════════════════════════════════ */
+const SK="econ_quiz_v2";
+const DEF_ST={totalXP:0,plays:0,bestScore:0,bestCombo:0,history:[],
+              questionStats:{}};
+// questionStats shape: { [qId]: { sessions, firstTry, retryOk, wrong } }
+//   sessions  : このQが含まれたゲームの完了回数
+//   firstTry  : 一発正解した回数
+//   retryOk   : 再挑戦で正解した回数
+//   wrong     : 誤答の累計（タイムアウト含む）
+
+function loadSt(){
+  try{const v=localStorage.getItem(SK);const d=v?JSON.parse(v):DEF_ST;
+      return{...DEF_ST,...d};}
+  catch{return DEF_ST;}
+}
+function saveSt(st){try{localStorage.setItem(SK,JSON.stringify(st));}catch{}}
+
+// ── ゲームセーブ（一時停止用）──────────────────────────────
+const GK="econ_quiz_save";
+function saveGame(gameState,QS){
+  try{
+    // shuffled・feedback・inputsは再開時にリセットするので保存しない
+    const {feedback,inputs,showHint,...rest}=gameState;
+    localStorage.setItem(GK,JSON.stringify({
+      state:{...rest,phase:"question",timeLeft:null,feedback:null,showHint:false,inputs:[]},
+      QS,
+      savedAt:new Date().toISOString(),
+    }));
+  }catch{}
+}
+function loadGame(){
+  try{const v=localStorage.getItem(GK);return v?JSON.parse(v):null;}
+  catch{return null;}
+}
+function clearGame(){try{localStorage.removeItem(GK);}catch{}}
+
+
+// ── デッキストレージ ─────────────────────────────────────────────
+const DK_LIST_KEY="econ_decks_v1";
+const SRS_KEY="econ_srs_v1";
+
+function loadDecks(){
+  try{const v=localStorage.getItem(DK_LIST_KEY);return v?JSON.parse(v):[];}
+  catch{return[];}
+}
+function saveDecks(decks){try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(decks));}catch{}}
+
+function loadSRS(){
+  try{const v=localStorage.getItem(SRS_KEY);return v?JSON.parse(v):{};}
+  catch{return{};}
+}
+function saveSRS(srs){try{localStorage.setItem(SRS_KEY,JSON.stringify(srs));}catch{}}
+
+// 今日のISO日付（YYYY-MM-DD）
+function today(){return new Date().toISOString().slice(0,10);}
+function addDays(d,n){
+  const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);
+}
+
+// SRS更新
+// firstTry=true → 正解率高い → インターバル倍増
+// firstTry=false → ミスあり → インターバルリセット
+function updateSRS(srs,qId,firstTry){
+  const prev=srs[qId]||{interval:1,nextDue:today(),reps:0,lapses:0};
+  if(firstTry){
+    const newInterval=Math.min(Math.round((prev.interval||1)*2.1),90);
+    return{...srs,[qId]:{
+      interval:newInterval,
+      nextDue:addDays(today(),newInterval),
+      reps:(prev.reps||0)+1,
+      lapses:prev.lapses||0,
+    }};
+  }else{
+    return{...srs,[qId]:{
+      interval:1,
+      nextDue:addDays(today(),1),
+      reps:0,
+      lapses:(prev.lapses||0)+1,
+    }};
+  }
+}
+
+// 今日のデッキ：復習カードと新カードを分けて返す
+function shuffle(arr){return [...arr].sort(()=>Math.random()-0.5);}
+function buildTodaysDeck(decks,srs,limit=30){
+  const t=today();
+  const seen=new Set();
+  const review=[],newCards=[];
+  decks.forEach(dk=>{
+    (dk.questions||[]).forEach(q=>{
+      if(seen.has(q.id))return;seen.add(q.id);
+      const sr=srs[q.id];
+      if(!sr) newCards.push(q);           // 新カード（未回答）
+      else if(sr.nextDue<=t) review.push(q); // 復習カード（due）
+    });
+  });
+  // 復習カードをシャッフル（期限切れ優先は維持しつつランダム化）
+  const overdue=shuffle(review.filter(q=>srs[q.id].nextDue<t));
+  const dueToday=shuffle(review.filter(q=>srs[q.id].nextDue===t));
+  const reviewShuffled=[...overdue,...dueToday];
+  const newShuffled=shuffle(newCards);
+  // limitの半分ずつを上限に
+  const reviewSlice=reviewShuffled.slice(0,Math.ceil(limit*0.6));
+  const newSlice=newShuffled.slice(0,limit-reviewSlice.length);
+  return{review:reviewSlice,newCards:newSlice};
+}
+
+// 各デッキの今日due数
+function countDue(questions,srs){
+  const t=today();
+  return questions.filter(q=>{
+    const sr=srs[q.id];return!sr||sr.nextDue<=t;
+  }).length;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   FILE UTILS
+══════════════════════════════════════════════════════════════ */
+function downloadJSON(data,filename){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=filename;a.click();
+  URL.revokeObjectURL(url);
+}
+function readJSONFile(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=e=>{try{res(JSON.parse(e.target.result));}catch{rej(new Error("JSON解析エラー"));}};
+    r.onerror=()=>rej(new Error("読み込みエラー"));
+    r.readAsText(file);
+  });
+}
+function validateQS(qs){
+  if(!Array.isArray(qs)||qs.length===0)return"問題が空です";
+  for(const q of qs){
+    if(!q.id||!q.type||!q.pts||!q.q)return`問題ID ${q.id}: 必須フィールドが不足`;
+    if(q.type==="mc"&&(!Array.isArray(q.opts)||q.opts.length<2))return`問題ID ${q.id}: optsが不正`;
+    if(q.type==="fill"&&(!Array.isArray(q.blanks)||q.blanks.length===0))return`問題ID ${q.id}: blanksが不正`;
+  }
+  return null;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   AUDIO
+══════════════════════════════════════════════════════════════ */
+let _actx=null;
+const getCtx=()=>{
+  if(!_actx)_actx=new(window.AudioContext||window.webkitAudioContext)();
+  if(_actx.state==="suspended")_actx.resume().catch(()=>{});
+  return _actx;
+};
+
+// iOS サイレントスイッチ対策：最初のタッチで無音バッファを再生してアンロック
+const unlockAudio=()=>{
+  try{
+    const c=getCtx();
+    const buf=c.createBuffer(1,1,22050);
+    const src=c.createBufferSource();
+    src.buffer=buf;src.connect(c.destination);src.start(0);
+    c.resume().catch(()=>{});
+  }catch(_){}
+};
+document.addEventListener("touchstart",unlockAudio,{once:true});
+document.addEventListener("mousedown",unlockAudio,{once:true});
+const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25}={})=>{
+  try{
+    const c=getCtx();
+    freqs.forEach((f,i)=>{
+      if(!f)return;
+      const t=c.currentTime+i*gap/1000;
+      const o=c.createOscillator(),g=c.createGain();
+      o.connect(g);g.connect(c.destination);
+      o.type=type;o.frequency.value=f;
+      g.gain.setValueAtTime(vol,t);
+      g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+      o.start(t);o.stop(t+dur+0.05);
+    });
+  }catch(_){}
+};
+const SFX={
+  correct:()=>tone([523,659,784],{vol:0.18,dur:0.28}),
+  wrong:  ()=>tone([260,210],{type:"sawtooth",vol:0.16,gap:120,dur:0.38}),
+  combo3: ()=>tone([523,659,784,1047],{vol:0.22,gap:65}),
+  combo5: ()=>tone([784,988,1175,988,1175,1568],{vol:0.26,gap:58}),
+  tick:   ()=>tone([1100],{type:"square",vol:0.07,gap:0,dur:0.06}),
+  typeKey:()=>tone([1200+Math.random()*600],{type:"sine",vol:0.09,gap:0,dur:0.035}),
+  blankOk:()=>tone([660,880],{type:"sine",vol:0.13,gap:70,dur:0.1}),
+  start:  ()=>tone([392,523,659,784],{vol:0.18,gap:80}),
+  rankUp: ()=>{
+    tone([523,659,784,1047],{vol:0.22,gap:70});
+    setTimeout(()=>tone([1047,1175,1319,1568],{vol:0.26,gap:65}),310);
+    setTimeout(()=>tone([1568,2093],{type:"sine",vol:0.2,gap:200,dur:1.0}),700);
+  },
+  win:()=>{
+    const n=[261,329,392,523,659,784,1047,1319,1568];
+    n.forEach((f,i)=>setTimeout(()=>tone([f],{vol:0.28,dur:0.55}),i*82));
+    const d=n.length*82;
+    setTimeout(()=>tone([523,659,784,1047],{type:"triangle",vol:0.18,gap:0,dur:2.8}),d+80);
+    setTimeout(()=>tone([2093,2637],{type:"sine",vol:0.14,gap:260,dur:2.2}),d+350);
+    setTimeout(()=>tone([523,659,784,1047,1319],{type:"triangle",vol:0.1,gap:0,dur:3}),d+1200);
+  },
+  lose:()=>tone([523,494,440,392,349,294],{type:"triangle",vol:0.18,gap:115,dur:0.35}),
+};
+// ── BGM：3テーマからランダム選択、各4段階進化 ────────────────
+
+const _KICK     = new Set([0,8]);
+const _SNARE    = new Set([4,12]);
+const _HAT_STD  = new Set([2,6,10,14]);
+const _HAT_16   = new Set([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]);
+const _PAD_STEPS= new Set([0,8]);
+
+// Theme A：Dドリアン / 138BPM（クール・疾走感）
+const _A={
+  id:"A", stepMs:Math.round(60000/138/2), hatSteps:_HAT_STD, lv0:"pad",
+  bassWave:"sawtooth", bassDur:0.20, melWave:"triangle", melDur:0.24, arpDur:0.20,
+  bas:[[146.8,.22],null,null,[110,.14],[146.8,.18],null,[130.8,.14],null,
+       [146.8,.22],null,null,[110,.14],[174.6,.18],null,[130.8,.14],null],
+  mel:[[587.3,.14],null,[440,.10],[493.9,.12],[523.3,.14],[440,.10],null,[392,.10],
+       [587.3,.14],null,[523.3,.12],[493.9,.10],[440,.14],[392,.10],[329.6,.10],[349.2,.12]],
+  arp:[null,[293.7,.08],null,[349.2,.07],null,[392,.08],[440,.07],null,
+       null,[293.7,.08],null,[523.3,.07],[440,.08],null,[349.2,.07],null],
+};
+// Theme C：Gメジャー / 152BPM（ノリノリ）
+const _C={
+  id:"C", stepMs:Math.round(60000/152/2), hatSteps:_HAT_16, lv0:"groove",
+  bassWave:"sawtooth", bassDur:0.20, melWave:"triangle", melDur:0.24, arpDur:0.20,
+  bas:[[98,.22],null,[130.8,.15],null,[98,.18],[146.8,.15],null,[130.8,.14],
+       [98,.22],null,[130.8,.15],[146.8,.13],[196,.20],null,[146.8,.15],null],
+  mel:[[392,.14],null,[440,.12],null,[493.9,.14],null,[523.3,.12],[440,.10],
+       [523.3,.14],[587.3,.12],null,[523.3,.11],[493.9,.13],null,[440,.11],[392,.10]],
+  arp:[[784,.11],null,[880,.10],null,null,[784,.10],null,[659.3,.09],
+       [784,.11],null,[880,.10],null,[1047,.12],null,[880,.10],[784,.09]],
+};
+// Theme F：Aドリアン / 140BPM（クール・疾走感 別バージョン）
+// Aドリアン = A,B,C,D,E,F#,G — Dドリアンと同じモーダル感、旋律の輪郭を変えた
+const _F={
+  id:"F", stepMs:Math.round(60000/140/2), hatSteps:_HAT_STD, lv0:"pad",
+  bassWave:"sawtooth", bassDur:0.20, melWave:"triangle", melDur:0.24, arpDur:0.20,
+  bas:[[110,.22],null,null,[82.4,.14],
+       [110,.18],null,[130.8,.14],null,
+       [110,.22],null,null,[123.5,.14],
+       [146.8,.18],null,[110,.14],null],
+  mel:[[440,.14],null,[493.9,.11],[370,.10],
+       [392,.13],null,[440,.11],[493.9,.12],
+       [329.6,.12],[370,.10],null,[440,.12],
+       [493.9,.14],null,[440,.11],[392,.10]],
+  arp:[[659.3,.09],null,[587.3,.07],null,
+       null,[659.3,.09],[740,.08],null,
+       [659.3,.09],null,[587.3,.07],[659.3,.08],
+       [740,.10],null,[659.3,.08],null],
+};
+const _THEMES=[_A,_C,_F];
+
+const kick=(loud)=>{
+  try{
+    const c=getCtx();const t=c.currentTime;
+    const o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.type="sine";o.frequency.setValueAtTime(loud?180:150,t);
+    o.frequency.exponentialRampToValueAtTime(35,t+0.09);
+    g.gain.setValueAtTime(loud?.62:.42,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.20);
+    o.start(t);o.stop(t+0.22);
+  }catch(_){}
+};
+const snare=()=>{
+  try{
+    const c=getCtx();const t=c.currentTime;
+    [200,310,440].forEach(f=>{
+      const o=c.createOscillator(),g=c.createGain();
+      o.connect(g);g.connect(c.destination);
+      o.type="sawtooth";o.frequency.value=f*(1+(Math.random()-.5)*.12);
+      g.gain.setValueAtTime(0.08,t);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.13);
+      o.start(t);o.stop(t+0.15);
+    });
+  }catch(_){}
+};
+const hihat=(vol=0.032)=>{
+  try{
+    const c=getCtx();const t=c.currentTime;
+    const o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.type="square";o.frequency.value=7000+Math.random()*3000;
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.04);
+    o.start(t);o.stop(t+0.05);
+  }catch(_){}
+};
+const pad=()=>{
+  try{
+    const c=getCtx();const t=c.currentTime;
+    [55,110].forEach((f,i)=>{
+      const o=c.createOscillator(),g=c.createGain();
+      o.connect(g);g.connect(c.destination);
+      o.type="sine";o.frequency.value=f;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(i===0?.10:.06,t+0.3);
+      g.gain.exponentialRampToValueAtTime(0.001,t+1.6);
+      o.start(t);o.stop(t+1.7);
+    });
+  }catch(_){}
+};
+
+let _bgmOn=false,_bgmStep=0,_bgmTid=null,_bgmLevel=0,_bgmTheme=null;
+const _bgmTick=()=>{
+  if(!_bgmOn)return;
+  const th=_bgmTheme;
+  try{
+    const c=getCtx();
+    if(c.state==="running"){
+      const st=_bgmStep%16;
+      const lv=_bgmLevel;
+      if(lv===0){
+        if(_KICK.has(st)) kick(false);
+        if(th.lv0==="pad"){
+          if(_PAD_STEPS.has(st)) pad();
+        }else{
+          if(_SNARE.has(st)) snare();
+          if(th.hatSteps.has(st)) hihat(0.012);
+        }
+      }else{
+        if(_KICK.has(st)) kick(true);
+        const b=th.bas[st];
+        if(b) tone([b[0]],{type:th.bassWave||"sawtooth",vol:b[1],gap:0,dur:th.bassDur||0.20});
+        if(!th.noSnare&&_SNARE.has(st)) snare();
+        if(lv>=2){
+          if(th.hatSteps.has(st)) hihat(th.hatVol||0.032);
+          const m=th.mel[st];
+          if(m) tone([m[0]],{type:th.melWave||"triangle",vol:m[1],gap:0,dur:th.melDur||0.24});
+        }
+        if(lv>=3){
+          const a=th.arp[st];
+          if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:th.arpDur||0.20});
+        }
+      }
+    }
+  }catch(_){}
+  _bgmStep++;_bgmTid=setTimeout(_bgmTick,th.stepMs);
+};
+const BGM={
+  start:()=>{
+    if(_bgmOn)return;
+    _bgmTheme=_THEMES[Math.floor(Math.random()*_THEMES.length)];
+    _bgmOn=true;_bgmStep=0;_bgmTick();
+  },
+  stop: ()=>{_bgmOn=false;clearTimeout(_bgmTid);},
+  setLevel:(lv)=>{_bgmLevel=lv;},
+};
+
+// ── ビクトリーBGM：Cメジャー / 168BPM / 全レイヤー常時オン ──
+const _VS = Math.round(60000/168/2); // ≈ 178ms
+const _VBAS=[
+  [130.8,.22],null,[130.8,.14],null,
+  [196,.20],null,[196,.14],null,
+  [174.6,.20],null,[174.6,.14],null,
+  [130.8,.18],[164.8,.14],null,[130.8,.14],
+];
+const _VMEL=[
+  [523.3,.16],null,[659.3,.13],[523.3,.11],
+  [587.3,.15],[523.3,.12],null,[392,.11],
+  [523.3,.14],[659.3,.13],[784,.16],null,
+  [659.3,.15],null,[523.3,.13],[392,.11],
+];
+const _VARP=[
+  [1047,.12],[784,.09],[1047,.10],null,
+  [880,.11],[1047,.10],[880,.09],null,
+  [1047,.12],[1175,.11],[1047,.10],[880,.09],
+  [1047,.12],null,[784,.10],[659.3,.09],
+];
+let _vOn=false,_vStep=0,_vTid=null;
+const _vTick=()=>{
+  if(!_vOn)return;
+  try{
+    const c=getCtx();
+    if(c.state==="running"){
+      const st=_vStep%16;
+      if(_KICK.has(st))  kick(true);
+      if(_SNARE.has(st)) snare();
+      if(_HAT_STD.has(st)) hihat(0.04);
+      const b=_VBAS[st]; if(b) tone([b[0]],{type:"sawtooth",vol:b[1],gap:0,dur:0.18});
+      const m=_VMEL[st]; if(m) tone([m[0]],{type:"triangle",vol:m[1],gap:0,dur:0.22});
+      const a=_VARP[st]; if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:0.16});
+    }
+  }catch(_){}
+  _vStep++;_vTid=setTimeout(_vTick,_VS);
+};
+const VBGM={
+  start:()=>{if(_vOn)return;_vOn=true;_vStep=0;_vTick();},
+  stop: ()=>{_vOn=false;clearTimeout(_vTid);},
+};
+
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════════════ */
+const getCA=q=>q.type==="mc"?[q.opts[q.ans]]:q.blanks.map(b=>b.ans[0]);
+const chkFill=(blanks,inputs)=>blanks.map((b,i)=>b.ans.some(a=>a.toLowerCase()===(inputs[i]||"").trim().toLowerCase()));
+const emptyInputs=q=>q.type==="fill"?new Array(q.blanks.length).fill(""):[];
+function shuffleMC(q){
+  const txt=q.opts[q.ans];
+  const opts=[...q.opts].sort(()=>Math.random()-0.5);
+  return{opts,ans:opts.indexOf(txt)};
+}
+const scoreColor=s=>s>=18?"#f0c040":s>=14?"#4ade80":s>=10?"#60a5fa":"#f87171";
+const scoreBg   =s=>s>=18?"rgba(240,192,64,0.15)":s>=14?"rgba(74,222,128,0.12)":s>=10?"rgba(96,165,250,0.12)":"rgba(248,113,113,0.12)";
+const pct=(a,b)=>b===0?0:Math.round(a/b*100);
+const bar=(v,color)=>(
+  <div style={{height:4,background:"#1e1e32",borderRadius:2,overflow:"hidden",marginTop:3}}>
+    <div style={{height:"100%",width:`${v}%`,background:color,borderRadius:2,transition:"width 0.6s ease"}}/>
+  </div>
+);
+
+/* ══════════════════════════════════════════════════════════════
+   REDUCER
+══════════════════════════════════════════════════════════════ */
+function makeInit(QS){
+  return{phase:"start",queue:QS.map((_,i)=>i),
+    answeredCorrectly:[],attemptedIds:[],wrongCounts:{},questionKey:0,
+    score:0,combo:0,maxCombo:0,firstTryCorrectCount:0,
+    inputs:[],timeLeft:MC_TIMER,feedback:null,showHint:false,shuffled:null};
+}
+function reducer(s,a){
+  switch(a.type){
+    case"START":case"RESTART":{
+      const q=a.QS[0];
+      const base=makeInit(a.QS);
+      // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
+      if(a.pendingStart!=null&&a.pendingStart<a.QS.length){
+        return{...base,phase:"question",
+               queue:a.QS.slice(0,a.pendingStart).map((_,i)=>i),
+               pendingQueue:a.QS.slice(a.pendingStart).map((_,i)=>a.pendingStart+i),
+               inputs:emptyInputs(q),
+               shuffled:q.type==="mc"?shuffleMC(q):null,
+               timeLeft:qTimer(q),questionKey:1};
+      }
+      return{...base,phase:"question",inputs:emptyInputs(q),
+             shuffled:q.type==="mc"?shuffleMC(q):null,timeLeft:qTimer(q),questionKey:1};
+    }
+    case"TICK":
+      if(s.phase!=="question")return s;
+      return{...s,timeLeft:Math.max(0,s.timeLeft-1)};
+    case"SUBMIT":{
+      if(s.phase!=="question")return s;
+      const{correct,blankResults=null,QS}=a;
+      const qIdx=s.queue[0],cq=QS[qIdx];
+      const isFirst=!s.attemptedIds.includes(cq.id);
+      if(correct){
+        const nc=s.combo+1;
+        return{...s,phase:"feedback",queue:s.queue.slice(1),
+               answeredCorrectly:[...s.answeredCorrectly,cq.id],
+               attemptedIds:isFirst?[...s.attemptedIds,cq.id]:s.attemptedIds,
+               score:isFirst?s.score+cq.pts:s.score,
+               firstTryCorrectCount:isFirst?s.firstTryCorrectCount+1:s.firstTryCorrectCount,
+               combo:nc,maxCombo:Math.max(s.maxCombo,nc),
+               feedback:{correct:true,qId:cq.id,correctAns:getCA(cq),blankResults,isFirst}};
+      }else{
+        return{...s,phase:"feedback",
+               queue:[...s.queue.slice(1),qIdx],
+               attemptedIds:isFirst?[...s.attemptedIds,cq.id]:s.attemptedIds,
+               combo:0,maxCombo:Math.max(s.maxCombo,s.combo),
+               wrongCounts:{...s.wrongCounts,[cq.id]:(s.wrongCounts[cq.id]||0)+1},
+               feedback:{correct:false,qId:cq.id,correctAns:getCA(cq),blankResults}};
+      }
+    }
+    case"NEXT":{
+      const{QS}=a;
+      if(s.queue.length===0){
+        if(s.pendingQueue&&s.pendingQueue.length>0){
+          // 復習フェーズ完了 → 新カードフェーズへ
+          const nq=QS[s.pendingQueue[0]];
+          return{...s,phase:"question",feedback:null,showHint:false,
+                 queue:s.pendingQueue,pendingQueue:[],
+                 newPhaseStart:true,  // 新カード開始フラグ
+                 timeLeft:qTimer(nq),inputs:emptyInputs(nq),
+                 questionKey:s.questionKey+1,
+                 shuffled:nq.type==="mc"?shuffleMC(nq):null};
+        }
+        return{...s,phase:"complete",feedback:null};
+      }
+      const nq=QS[s.queue[0]];
+      return{...s,phase:"question",feedback:null,showHint:false,
+             newPhaseStart:false,
+             timeLeft:qTimer(nq),inputs:emptyInputs(nq),
+             questionKey:s.questionKey+1,
+             shuffled:nq.type==="mc"?shuffleMC(nq):null};
+    }
+    case"CLEAR_NEW_PHASE":return{...s,newPhaseStart:false};
+    case"INPUT":{const ni=[...s.inputs];ni[a.idx]=a.v;return{...s,inputs:ni};}
+    case"HINT":return{...s,showHint:true};
+    case"BACK":return{...makeInit(a.QS),phase:"start"};
+    case"RESUME":{
+      // セーブデータから復元。その問題のタイマーを全リセット
+      const q=a.QS[a.state.queue[0]];
+      return{...a.state,
+             phase:"question",
+             inputs:emptyInputs(q),
+             shuffled:q.type==="mc"?shuffleMC(q):null,
+             timeLeft:qTimer(q),
+             questionKey:(a.state.questionKey||0)+1};
+    }
+    default:return s;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   XPバー
+══════════════════════════════════════════════════════════════ */
+function XpBar({totalXP,compact=false}){
+  const rank=getRank(totalXP),next=getNext(totalXP);
+  const p=next?Math.min((totalXP-rank.xp)/(next.xp-rank.xp)*100,100):100;
+  return(
+    <div style={{width:"100%"}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:compact?11:12,color:"#888",marginBottom:4}}>
+        <span style={{color:rank.color,fontWeight:700}}>{rank.icon} {rank.name}</span>
+        {next?<span>{totalXP} XP → {next.name}まで {next.xp-totalXP}</span>
+             :<span style={{color:"#f0c040"}}>最高位！ {totalXP} XP</span>}
+      </div>
+      <div style={{height:compact?5:7,background:"#1e1e32",borderRadius:4,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${p}%`,background:rank.color,borderRadius:4,transition:"width 1s ease"}}/>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ドットマップ
+══════════════════════════════════════════════════════════════ */
+function DotMap({QS,queue,pendingQueue,answeredCorrectly,attemptedIds,wrongCounts,phase}){
+  const currentId = phase==="question"&&queue.length>0 ? QS[queue[0]]?.id : null;
+  const pendingIds=new Set((pendingQueue||[]).map(i=>QS[i]?.id));
+  const dotSize = QS.length<=20 ? (DK?14:11) : QS.length<=30 ? (DK?11:9) : (DK?9:7);
+  const gap = Math.max(3, dotSize-5);
+  return(
+    <div style={{padding:`6px ${DK?24:16}px 2px`,display:"flex",flexWrap:"wrap",gap:gap}}>
+      {QS.map(q=>{
+        const isCurrent = q.id===currentId;
+        const isCorrect = answeredCorrectly.includes(q.id);
+        const wrongs    = wrongCounts[q.id]||0;
+        const attempted = attemptedIds.includes(q.id);
+        const isPending = pendingIds.has(q.id);
+        let color;
+        if(isCurrent)          color="#c9a84c";
+        else if(isCorrect&&wrongs===0) color="#4ade80";
+        else if(isCorrect&&wrongs>0)   color="#60a5fa";
+        else if(attempted&&!isCorrect) color="#f97316";
+        else if(isPending)     color="#1e3a5f"; // 新カード（未到達）
+        else                   color="#2a2a44";
+        return(
+          <div key={q.id} style={{
+            width:dotSize,height:dotSize,borderRadius:"50%",background:color,flexShrink:0,
+            animation:isCurrent?"dotPulse 0.9s ease infinite":"none",
+            transition:"background 0.4s ease",
+          }}/>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   穴埋めコンポーネント（インライン式）
+══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   タイプライター Hook（キャラ音付き）
+══════════════════════════════════════════════════════════════ */
+const charTick=()=>{
+  try{
+    const c=getCtx();const t=c.currentTime;
+    const freq=900+Math.random()*400;
+    const o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.type="sine";o.frequency.value=freq;
+    g.gain.setValueAtTime(0.018,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.022);
+    o.start(t);o.stop(t+0.025);
+  }catch(_){}
+};
+
+const SENT_END=/[.。!?！？]/;
+
+function TypewriterText({text,qkey,style}){
+  const[shown,setShown]=useState(0);
+  useEffect(()=>{
+    setShown(0);if(!text)return;
+    let i=0;
+    const id=setInterval(()=>{
+      i++;setShown(i);charTick();
+      if(i>=text.length)clearInterval(id);
+    },38);
+    return()=>clearInterval(id);
+  },[text,qkey]);
+  return <p style={style}>{text.slice(0,Math.min(shown,text.length))}</p>;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   穴埋めコンポーネント（文末で一時停止・Enter で続き）
+══════════════════════════════════════════════════════════════ */
+function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
+  const[shown,setShown]=useState(0);
+  const[paused,setPaused]=useState(false);
+  const[activeBlank,setActiveBlank]=useState(null); // フォーカス中の空欄
+  const[poppingBlank,setPoppingBlank]=useState(null); // pop中の空欄
+  const tidRef=useRef(null);
+  const fullText=q.q;
+
+  useEffect(()=>{
+    setShown(0);setPaused(false);setActiveBlank(null);setPoppingBlank(null);
+  },[qkey]);
+
+  useEffect(()=>{
+    if(paused||isFB||shown>=fullText.length)return;
+    clearInterval(tidRef.current);
+    tidRef.current=setInterval(()=>{
+      setShown(prev=>{
+        const next=prev+1;
+        charTick();
+        if(SENT_END.test(fullText[prev])&&next<fullText.length){
+          const parts=fullText.split("___");
+          let cur=0;
+          const anyBlankVisible=parts.some((part,i)=>{
+            const partEnd=cur+part.length;
+            cur=partEnd+3;
+            return q.blanks[i]!=null&&next>partEnd;
+          });
+          if(anyBlankVisible){clearInterval(tidRef.current);setPaused(true);}
+        }
+        if(next>=fullText.length)clearInterval(tidRef.current);
+        return next;
+      });
+    },38);
+    return()=>clearInterval(tidRef.current);
+  },[paused,isFB,qkey]);
+
+  // タップ時：即座にタイプ停止＋音＋pop
+  const activateBlank=(blankIdx)=>{
+    clearInterval(tidRef.current); // 即座にインターバル停止
+    setPaused(true);               // タイプ一時停止（再レンダリング止まる）
+    SFX.blankOk();
+    setPoppingBlank(blankIdx);
+    setTimeout(()=>setPoppingBlank(null),400);
+    setActiveBlank(blankIdx);
+  };
+
+  // Enter：タイプ再開（最後の空欄かつ全文表示済みなら送信）
+  const handleKeyDown=(blankIdx,e)=>{
+    if(e.key==="Tab"||e.key==="Enter"){
+      e.preventDefault();
+      if(isFB)return;
+      const allShown=shown>=fullText.length;
+      const isLast=blankIdx===q.blanks.length-1;
+      if(isLast&&allShown){
+        onSubmit();
+      }else if(!isLast){
+        // 次の空欄へフォーカス移動＋タイプ再開
+        SFX.blankOk();
+        setPaused(false);
+        setPoppingBlank(blankIdx+1);
+        setTimeout(()=>setPoppingBlank(null),400);
+        setActiveBlank(blankIdx+1);
+        setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
+      }else{
+        // 最後の空欄・まだ全文未表示：タイプ再開のみ
+        setPaused(false);
+      }
+    }
+  };
+
+  const parts=fullText.split("___");
+  let cursor=0;
+  const segments=parts.map((part,i)=>{
+    const partStart=cursor;
+    const partEnd=cursor+part.length;
+    cursor=partEnd+3;
+    const visLen=Math.max(0,Math.min(part.length,shown-partStart));
+    const showBlank=isFB||(shown>partEnd&&q.blanks[i]!=null);
+    return{text:part.slice(0,visLen),showBlank,blankIdx:i};
+  });
+
+  return(
+    <div style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
+      color:"#ece8d8",marginBottom:12,wordBreak:"break-all"}}>
+      {segments.map(({text,showBlank,blankIdx})=>{
+        const blank=q.blanks[blankIdx];
+        const br=blank&&isFB&&feedback?.blankResults!=null?feedback.blankResults[blankIdx]:null;
+        const val=inputs[blankIdx]||"";
+        const w=Math.max(80,val.length*14+48);
+        const isActive=activeBlank===blankIdx;
+        const isPopping=poppingBlank===blankIdx;
+        // wobble: 表示済み・未アクティブ・一時停止中
+        const isWobbling=showBlank&&!isActive&&paused&&!isFB&&br==null;
+        const anim=isPopping?"blankPop 0.35s ease":isWobbling?"blankWobble 0.55s ease infinite":"none";
+        return(
+          <span key={blankIdx}>
+            <span>{text}</span>
+            {blank&&showBlank&&(
+              <span style={{
+                display:"inline-block",verticalAlign:"middle",
+                margin:"0 3px",
+                animation:isPopping?"blankPop 0.35s ease":isWobbling?"blankWobble 0.5s ease infinite":"none",
+                transformOrigin:"center",
+              }}>
+                <input ref={el=>refs.current[blankIdx]=el}
+                  key={`blank-${blankIdx}-${qkey}`}
+                  style={{
+                    display:"block",
+                    background:br===true?"rgba(34,197,94,0.18)":br===false?"rgba(239,68,68,0.18)":isActive?"rgba(201,168,76,0.15)":"#1e1e3a",
+                    border:`1.5px solid ${br===true?"#22c55e":br===false?"#ef4444":isActive?"#c9a84c":"#4a4a72"}`,
+                    borderRadius:7,padding:"2px 8px",
+                    color:"#ece8d8",fontSize:16,
+                    fontFamily:"inherit",
+                    width:w,minWidth:80,
+                    textAlign:"center",
+                    transition:"background 0.2s, border-color 0.2s",
+                    cursor:"pointer",
+                    outline:"none",
+                  }}
+                  value={val}
+                  onChange={e=>{dispatch({type:"INPUT",idx:blankIdx,v:e.target.value});SFX.typeKey();}}
+                  onFocus={()=>{setActiveBlank(blankIdx);}}
+                  onKeyDown={e=>handleKeyDown(blankIdx,e)}
+                  onClick={()=>activateBlank(blankIdx)}
+                  disabled={isFB}
+                  placeholder={`(${blankIdx+1})`}
+                />
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+/* ══════════════════════════════════════════════════════════════
+   問題別成績パネル
+══════════════════════════════════════════════════════════════ */
+function StatsPanel({QS,gSt,onClose}){
+  const qs=gSt?.questionStats||{};
+  const [sort,setSort]=useState("id"); // id | wrong | rate
+
+  const rows=useMemo(()=>{
+    const r=QS.map(q=>{
+      const st=qs[q.id]||{sessions:0,firstTry:0,retryOk:0,wrong:0};
+      const sessions=st.sessions||0;
+      const ftRate=sessions>0?pct(st.firstTry,sessions):null;
+      const avgWrong=sessions>0?Math.round((st.wrong/sessions)*10)/10:null;
+      return{...st,q,sessions,ftRate,avgWrong};
+    });
+    if(sort==="wrong") return[...r].sort((a,b)=>(b.wrong||0)-(a.wrong||0));
+    if(sort==="rate")  return[...r].sort((a,b)=>(a.ftRate??101)-(b.ftRate??101));
+    return r;
+  },[QS,qs,sort]);
+
+  const totalSessions=rows.reduce((a,r)=>a+r.sessions,0);
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
+      display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:200,padding:"16px",overflowY:"auto"}}>
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+        padding:"20px 18px",width:"100%",maxWidth:480,display:"flex",flexDirection:"column",gap:14}}>
+
+        {/* ヘッダー */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📊 問題別成績</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
+        </div>
+
+        {totalSessions===0?(
+          <div style={{color:"#555",fontSize:13,textAlign:"center",padding:"24px 0"}}>
+            まだ成績がありません。<br/>プレイするとここに記録されます。
+          </div>
+        ):(
+          <>
+            {/* 凡例 */}
+            <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap"}}>
+              <span><span style={{color:"#4ade80"}}>●</span> 一発正解率</span>
+              <span><span style={{color:"#f97316"}}>●</span> 誤答累計</span>
+              <span><span style={{color:"#888"}}>出題</span> = ゲーム完了回数</span>
+            </div>
+
+            {/* ソートボタン */}
+            <div style={{display:"flex",gap:6}}>
+              {[["id","問題順"],["wrong","誤答が多い順"],["rate","正解率が低い順"]].map(([k,label])=>(
+                <button key={k} onClick={()=>setSort(k)}
+                  style={{background:sort===k?"#c9a84c":"#1e1e36",
+                    border:`1px solid ${sort===k?"#c9a84c":"#333"}`,
+                    borderRadius:8,padding:"4px 10px",fontSize:11,
+                    color:sort===k?"#0d0d18":"#888",cursor:"pointer",fontFamily:"inherit"}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* 問題リスト */}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {rows.map(({q,sessions,firstTry,retryOk,wrong,ftRate,avgWrong})=>{
+                const shortQ=q.q.length>40?q.q.slice(0,40)+"…":q.q;
+                const correctAns=getCA(q).join(" / ");
+                const neverPlayed=sessions===0;
+                return(
+                  <div key={q.id} style={{background:"#0d0d20",borderRadius:12,padding:"12px 14px",
+                    opacity:neverPlayed?0.45:1}}>
+                    {/* 問題文・正解 */}
+                    <div style={{fontSize:12,color:"#ece8d8",fontWeight:700,marginBottom:2,lineHeight:1.5}}>
+                      <span style={{color:"#555",marginRight:4}}>Q{q.id}</span>{shortQ}
+                    </div>
+                    <div style={{fontSize:11,color:"#c9a84c",marginBottom:8}}>
+                      正解: {correctAns}
+                    </div>
+
+                    {neverPlayed?(
+                      <div style={{fontSize:11,color:"#444"}}>未出題</div>
+                    ):(
+                      <>
+                        {/* 数値行 */}
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:6}}>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:"#888"}}>{sessions}</div>
+                            <div style={{fontSize:10,color:"#555"}}>出題回数</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:"#4ade80"}}>{firstTry}</div>
+                            <div style={{fontSize:10,color:"#555"}}>一発正解</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:"#60a5fa"}}>{retryOk}</div>
+                            <div style={{fontSize:10,color:"#555"}}>再挑戦正解</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:"#f87171"}}>{wrong}</div>
+                            <div style={{fontSize:10,color:"#555"}}>誤答累計</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:16,fontWeight:800,color:"#f97316"}}>{avgWrong}</div>
+                            <div style={{fontSize:10,color:"#555"}}>平均ミス数</div>
+                          </div>
+                        </div>
+
+                        {/* 一発正解率バー */}
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{flex:1}}>
+                            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#555",marginBottom:2}}>
+                              <span>一発正解率</span>
+                              <span style={{color:ftRate>=80?"#4ade80":ftRate>=50?"#f97316":"#f87171",fontWeight:700}}>{ftRate}%</span>
+                            </div>
+                            <div style={{height:5,background:"#1e1e32",borderRadius:3,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${ftRate}%`,
+                                background:ftRate>=80?"#4ade80":ftRate>=50?"#f97316":"#f87171",
+                                borderRadius:3,transition:"width 0.8s ease"}}/>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   問題管理パネル（複数選択・一括削除）
+══════════════════════════════════════════════════════════════ */
+function QManagePanel({QS,setQS,onClose}){
+  const[selected,setSelected]=useState(new Set());
+  const[confirm,setConfirm]=useState(false);
+
+  const toggle=(id)=>setSelected(prev=>{
+    const s=new Set(prev);
+    s.has(id)?s.delete(id):s.add(id);
+    return s;
+  });
+  const toggleAll=()=>{
+    if(selected.size===QS.length)setSelected(new Set());
+    else setSelected(new Set(QS.map(q=>q.id)));
+  };
+  const deleteSelected=()=>{
+    setQS(prev=>prev.filter(q=>!selected.has(q.id)));
+    setSelected(new Set());
+    setConfirm(false);
+  };
+
+  const allChecked=QS.length>0&&selected.size===QS.length;
+  const someChecked=selected.size>0;
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
+      display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:200,
+      padding:"16px",overflowY:"auto"}}>
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+        padding:"20px 18px",width:"100%",maxWidth:480,display:"flex",flexDirection:"column",gap:12}}>
+
+        {/* ヘッダー */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📝 問題を編集</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
+        </div>
+
+        {/* ツールバー */}
+        <div style={{display:"flex",alignItems:"center",gap:10,
+          background:"#0d0d20",borderRadius:10,padding:"10px 12px"}}>
+          {/* 全選択チェックボックス */}
+          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={allChecked} onChange={toggleAll}
+              style={{width:16,height:16,cursor:"pointer",accentColor:"#c9a84c"}}/>
+            <span style={{fontSize:12,color:"#aaa"}}>
+              {someChecked?`${selected.size}問選択中`:"すべて選択"}
+            </span>
+          </label>
+          <div style={{flex:1}}/>
+          {someChecked&&!confirm&&(
+            <button onClick={()=>setConfirm(true)}
+              style={{background:"#3a1010",border:"1px solid #c04040",borderRadius:8,
+                padding:"5px 14px",fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+              {selected.size}問を削除
+            </button>
+          )}
+          {confirm&&(
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span style={{fontSize:11,color:"#f87171"}}>本当に削除しますか？</span>
+              <button onClick={deleteSelected}
+                style={{background:"#c04040",border:"none",borderRadius:6,
+                  padding:"4px 12px",fontSize:12,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                削除
+              </button>
+              <button onClick={()=>setConfirm(false)}
+                style={{background:"#2a2a44",border:"none",borderRadius:6,
+                  padding:"4px 10px",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
+                戻る
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 問題リスト */}
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {QS.map((q,idx)=>{
+            const checked=selected.has(q.id);
+            const shortQ=q.q.length>42?q.q.slice(0,42)+"…":q.q;
+            const correctAns=getCA(q).join(" · ");
+            return(
+              <label key={q.id} style={{display:"flex",alignItems:"flex-start",gap:10,
+                background:checked?"rgba(201,168,76,0.08)":"#0d0d20",
+                border:`1px solid ${checked?"#c9a84c":"#1e1e32"}`,
+                borderRadius:10,padding:"10px 12px",cursor:"pointer",
+                transition:"all 0.15s",userSelect:"none"}}>
+                <input type="checkbox" checked={checked} onChange={()=>toggle(q.id)}
+                  style={{width:16,height:16,marginTop:2,cursor:"pointer",accentColor:"#c9a84c",flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:checked?"#ece8d8":"#aaa",fontWeight:700,lineHeight:1.5}}>
+                    <span style={{color:"#555",marginRight:4,fontSize:11}}>#{idx+1}</span>
+                    {shortQ}
+                  </div>
+                  <div style={{fontSize:11,color:"#c9a84c",marginTop:2}}>正解: {correctAns}</div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        {QS.length===0&&(
+          <div style={{color:"#555",fontSize:13,textAlign:"center",padding:"12px 0"}}>
+            問題がありません。インポートで追加してください。
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   インポート/エクスポートパネル
+══════════════════════════════════════════════════════════════ */
+function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
+  const[msg,setMsg]=useState(null);
+  const[pendingImport,setPendingImport]=useState(null);
+  const[pendingBackup,setPendingBackup]=useState(null);
+  const qRef=useRef(),sRef=useRef(),bRef=useRef();
+  const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
+
+  // ── 全データバックアップ ──────────────────────────────────────
+  const exportBackup=()=>{
+    const backup={
+      _type:"econ_backup",version:1,
+      exportedAt:new Date().toISOString(),
+      decks,srs,stats:gSt,
+    };
+    downloadJSON(backup,`econ_backup_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
+    flash("全データをバックアップしました");
+  };
+  const importBackup=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const data=await readJSONFile(file);
+      if(data._type!=="econ_backup"){flash("エラー：バックアップファイルではありません",false);return;}
+      setPendingBackup(data);
+    }catch(err){flash("エラー："+err.message,false);}
+    e.target.value="";
+  };
+  const applyBackup=(mode)=>{
+    const data=pendingBackup;
+    if(mode==="overwrite"){
+      // 全データ上書き
+      if(data.decks){setDecks(data.decks);saveDecks(data.decks);}
+      if(data.srs){setSRS(data.srs);saveSRS(data.srs);}
+      if(data.stats){const st={...DEF_ST,...data.stats};setGSt(st);saveSt(st);}
+      flash("全データを上書きしました");
+    }else{
+      // マージ：デッキはID重複スキップ、SRSはnextDueが新しい方を優先、statsはXPが高い方
+      if(data.decks){
+        const existIds=new Set(decks.map(d=>d.id));
+        const merged=[...decks,...(data.decks||[]).filter(d=>!existIds.has(d.id))];
+        setDecks(merged);saveDecks(merged);
+      }
+      if(data.srs){
+        const merged={...data.srs};
+        Object.entries(srs||{}).forEach(([id,v])=>{
+          if(!merged[id]||v.nextDue>merged[id].nextDue) merged[id]=v;
+        });
+        setSRS(merged);saveSRS(merged);
+      }
+      if(data.stats&&gSt){
+        const st={...DEF_ST,...data.stats,
+          totalXP:Math.max(gSt.totalXP,data.stats.totalXP||0),
+          plays:Math.max(gSt.plays,data.stats.plays||0),
+          bestScore:Math.max(gSt.bestScore,data.stats.bestScore||0),
+        };
+        setGSt(st);saveSt(st);
+      }
+      flash("データをマージしました");
+    }
+    setPendingBackup(null);
+  };
+
+  const exportQ=()=>{
+    downloadJSON({_type:"econ_quiz_questions",version:1,questions:QS},
+      `questions_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
+    flash("問題セットをエクスポートしました");
+  };
+  const importQ=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const data=await readJSONFile(file);const qs=data.questions||data;
+      const err=validateQS(qs);if(err){flash("エラー："+err,false);return;}
+      // 重複IDを除いた追加分
+      const newIds=new Set(qs.map(q=>q.id));
+      const merged=[...QS.filter(q=>!newIds.has(q.id)),...qs];
+      if(QS.length===0){
+        setQS(qs);flash(`${qs.length}問を読み込みました`);
+      } else {
+        setPendingImport({qs,merged});
+      }
+    }catch(err){flash("エラー："+err.message,false);}
+    e.target.value="";
+  };
+  const exportS=()=>{
+    if(!gSt){flash("成績データがありません",false);return;}
+    downloadJSON({_type:"econ_quiz_stats",version:1,...gSt},
+      `stats_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
+    flash("成績をエクスポートしました");
+  };
+  const importS=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const data=await readJSONFile(file);
+      if(typeof data.totalXP!=="number"){flash("エラー：成績データの形式が違います",false);return;}
+      const clean={...DEF_ST,...data};
+      setGSt(clean);saveSt(clean);flash("成績をインポートしました");
+    }catch(err){flash("エラー："+err.message,false);}
+    e.target.value="";
+  };
+  const resetS=()=>{
+    if(!window.confirm("成績をリセットしますか？この操作は取り消せません。"))return;
+    saveSt(DEF_ST);setGSt({...DEF_ST});flash("成績をリセットしました");
+  };
+  const resetQ=()=>{
+    if(!window.confirm("問題をデフォルトに戻しますか？"))return;
+    setQS(DEFAULT_QS);flash("デフォルト問題に戻しました");
+  };
+  const Btn=({onClick,color,children})=>(
+    <button onClick={onClick} style={{background:color||"#1e1e36",border:`1px solid ${color||"#3a3a58"}`,
+      borderRadius:9,padding:"9px 14px",color:color?"#0d0d18":"#ccc",
+      fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%",textAlign:"left"}}>
+      {children}
+    </button>
+  );
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+        padding:"24px 20px",width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📦 インポート / エクスポート</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
+        </div>
+        {msg&&<div style={{background:msg.ok?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",
+          border:`1px solid ${msg.ok?"#22c55e":"#ef4444"}`,borderRadius:9,
+          padding:"8px 12px",fontSize:13,color:msg.ok?"#4ade80":"#f87171"}}>{msg.text}</div>}
+
+        {/* インポート方法の選択ダイアログ */}
+        {pendingImport&&(
+          <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px"}}>
+            <div style={{fontSize:13,color:"#ece8d8",fontWeight:700,marginBottom:4}}>
+              {pendingImport.qs.length}問を読み込みます
+            </div>
+            <div style={{fontSize:11,color:"#888",marginBottom:12}}>
+              現在 {QS.length}問 → 追加後 {pendingImport.merged.length}問 / 置き換え後 {pendingImport.qs.length}問
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{
+                setQS(pendingImport.merged);
+                setPendingImport(null);
+                flash(`${pendingImport.merged.length}問になりました（${pendingImport.qs.length}問を追加）`);
+              }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
+                padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                ➕ 追加する
+              </button>
+              <button onClick={()=>{
+                setQS(pendingImport.qs);
+                setPendingImport(null);
+                flash(`${pendingImport.qs.length}問に置き換えました`);
+              }} style={{flex:1,background:"#1e1e36",border:"1px solid #555",borderRadius:8,
+                padding:"8px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                🔄 置き換える
+              </button>
+              <button onClick={()=>setPendingImport(null)}
+                style={{background:"none",border:"1px solid #333",borderRadius:8,
+                  padding:"8px 10px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+        <div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>── 💾 全データバックアップ</div>
+          {pendingBackup&&(
+            <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginBottom:8}}>
+              <div style={{fontSize:13,color:"#ece8d8",fontWeight:700,marginBottom:4}}>
+                バックアップを読み込みます
+              </div>
+              <div style={{fontSize:11,color:"#888",marginBottom:12}}>
+                {new Date(pendingBackup.exportedAt).toLocaleDateString("ja-JP")} のバックアップ
+                · デッキ {pendingBackup.decks?.length||0}個
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>applyBackup("overwrite")}
+                  style={{flex:1,background:"#3a1010",border:"1px solid #c04040",borderRadius:8,
+                    padding:"8px 0",fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                  ⚠ 上書き
+                </button>
+                <button onClick={()=>applyBackup("merge")}
+                  style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
+                    padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                  ＋ マージ
+                </button>
+                <button onClick={()=>setPendingBackup(null)}
+                  style={{background:"none",border:"1px solid #333",borderRadius:8,
+                    padding:"8px 10px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>
+                  ✕
+                </button>
+              </div>
+              <div style={{fontSize:10,color:"#555",marginTop:8}}>
+                上書き：現在のデータを全て置き換え｜マージ：既存データに追加・新しい方を優先
+              </div>
+            </div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            <Btn onClick={exportBackup}>⬇ 全データをバックアップ</Btn>
+            <Btn onClick={()=>bRef.current.click()}>⬆ バックアップから復元</Btn>
+            <input ref={bRef} type="file" accept=".json" style={{display:"none"}} onChange={importBackup}/>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>── 問題セット（{QS.length}問）</div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            <Btn onClick={exportQ}>⬇ 問題セットをダウンロード</Btn>
+            <Btn onClick={()=>qRef.current.click()}>⬆ 問題セットを読み込む</Btn>
+            <input ref={qRef} type="file" accept=".json" style={{display:"none"}} onChange={importQ}/>
+            <Btn onClick={resetQ}>↩ デフォルト問題に戻す</Btn>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>── 成績データ</div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            <Btn onClick={exportS}>⬇ 成績をダウンロード</Btn>
+            <Btn onClick={()=>sRef.current.click()}>⬆ 成績を読み込む</Btn>
+            <input ref={sRef} type="file" accept=".json" style={{display:"none"}} onChange={importS}/>
+            <Btn onClick={resetS} color="#c04040">⚠ 成績をリセット</Btn>
+          </div>
+        </div>
+        <details style={{fontSize:11,color:"#555",cursor:"pointer"}}>
+          <summary style={{color:"#666",marginBottom:6}}>問題JSONの書き方</summary>
+          <pre style={{background:"#0d0d20",borderRadius:8,padding:"10px",fontSize:10,color:"#aaa",overflow:"auto",lineHeight:1.6}}>{`{
+  "questions": [
+    {
+      "id": "a3f9b2c1",
+      "type": "mc", "pts": 1,
+      "q": "問題文",
+      "opts": ["A","B","C","D"],
+      "ans": 0,
+      "hint": "ヒント"
+    },
+    {
+      "id": "e1b4d7f9",
+      "type": "fill", "pts": 2,
+      "q": "___は何か",
+      "blanks": [{"ans": ["正解","よみがな"]}],
+      "hint": "ヒント"
+    }
+  ]
+}
+※ id はランダムな8文字で。同じ問題を微修正するときは
+  id をそのまま使うと成績が引き継がれます。`}</pre>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   デッキ管理パネル
+══════════════════════════════════════════════════════════════ */
+function DeckManagerPanel({decks,setDecks,QS,onClose}){
+  const[msg,setMsg]=useState(null);
+  const[editId,setEditId]=useState(null);
+  const[editName,setEditName]=useState("");
+  const fileRef=useRef();
+  const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
+
+  const importDeck=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const data=await readJSONFile(file);
+      const qs=data.questions||data;
+      const err=validateQS(qs);if(err){flash("エラー："+err,false);return;}
+      const name=data.session||file.name.replace(/\.json$/,"");
+      const newDeck={id:"dk_"+Date.now(),name,questions:qs,createdAt:new Date().toISOString()};
+      const updated=[...decks,newDeck];setDecks(updated);saveDecks(updated);
+      flash(`「${name}」を追加しました（${qs.length}問）`);
+    }catch(err){flash("エラー："+err.message,false);}
+    e.target.value="";
+  };
+  const deleteDeck=id=>{
+    if(!window.confirm("このデッキを削除しますか？"))return;
+    const updated=decks.filter(d=>d.id!==id);setDecks(updated);saveDecks(updated);
+  };
+  const saveName=id=>{
+    const updated=decks.map(d=>d.id===id?{...d,name:editName}:d);
+    setDecks(updated);saveDecks(updated);setEditId(null);
+  };
+  const exportDeck=dk=>{
+    downloadJSON({_type:"econ_quiz_questions",version:1,session:dk.name,questions:dk.questions},
+      dk.name.replace(/\s/g,"_")+".json");
+    flash(`「${dk.name}」をエクスポートしました`);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
+      display:"flex",alignItems:"flex-start",justifyContent:"center",
+      zIndex:200,padding:16,overflowY:"auto"}}>
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+        padding:"20px 18px",width:"100%",maxWidth:460,display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📚 デッキ管理</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
+        </div>
+        {msg&&<div style={{background:msg.ok?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",
+          border:`1px solid ${msg.ok?"#22c55e":"#ef4444"}`,borderRadius:9,
+          padding:"8px 12px",fontSize:13,color:msg.ok?"#4ade80":"#f87171"}}>{msg.text}</div>}
+
+        {decks.length===0&&<div style={{color:"#555",fontSize:13,textAlign:"center",padding:"16px 0"}}>
+          デッキがありません。<br/>JSONファイルをインポートして追加してください。
+        </div>}
+
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {decks.map(dk=>(
+            <div key={dk.id} style={{background:"#0d0d20",borderRadius:12,padding:"12px 14px"}}>
+              {editId===dk.id?(
+                <div style={{display:"flex",gap:8}}>
+                  <input value={editName} onChange={e=>setEditName(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&saveName(dk.id)}
+                    style={{flex:1,background:"#1e1e3a",border:"1px solid #c9a84c",borderRadius:8,
+                      padding:"6px 10px",color:"#ece8d8",fontSize:14,fontFamily:"inherit",outline:"none"}}
+                    autoFocus/>
+                  <button onClick={()=>saveName(dk.id)}
+                    style={{background:"#c9a84c",border:"none",borderRadius:8,padding:"6px 12px",
+                      fontSize:12,fontWeight:700,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>保存</button>
+                  <button onClick={()=>setEditId(null)}
+                    style={{background:"#1e1e36",border:"1px solid #333",borderRadius:8,padding:"6px 10px",
+                      fontSize:12,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:700,color:"#ece8d8"}}>{dk.name}</div>
+                    <div style={{fontSize:11,color:"#555"}}>{dk.questions.length}問</div>
+                  </div>
+                  <button onClick={()=>{setEditId(dk.id);setEditName(dk.name);}}
+                    style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
+                      fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✏️</button>
+                  <button onClick={()=>exportDeck(dk)}
+                    style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
+                      fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>⬇</button>
+                  <button onClick={()=>deleteDeck(dk.id)}
+                    style={{background:"none",border:"1px solid #3a1010",borderRadius:7,padding:"4px 8px",
+                      fontSize:11,color:"#f87171",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <button onClick={()=>fileRef.current.click()}
+          style={{background:"#1e1e36",border:"1px solid #c9a84c",borderRadius:10,
+            padding:"11px",fontSize:14,fontWeight:700,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit"}}>
+          ＋ JSONからデッキを追加
+        </button>
+        <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={importDeck}/>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ロビー画面
+══════════════════════════════════════════════════════════════ */
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,savedGame,onResume,onClearSave}){
+  const rank=gSt?getRank(gSt.totalXP):null;
+  const freshSRSForLobby=loadSRS();
+  const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
+  return(
+    <div style={{minHeight:"100vh",background:"#0d0d18",
+      fontFamily:"'Noto Serif JP',serif",color:"#e8dcc8",
+      display:"flex",justifyContent:"center",alignItems:"flex-start",padding:DK?"32px 16px":"16px"}}>
+      <div style={{width:"100%",maxWidth:DK?560:420,display:"flex",flexDirection:"column",gap:14}}>
+
+        {/* ヘッダー */}
+        <div style={{textAlign:"center",paddingBottom:4}}>
+          <div style={{fontSize:DK?40:30,letterSpacing:4,color:"#c9a84c",fontWeight:900,
+            borderBottom:"2px solid #c9a84c",paddingBottom:6,display:"inline-block"}}>経済史</div>
+          <h1 style={{fontSize:DK?28:22,fontWeight:900,color:"#ece8d8",marginTop:8}}>道場クイズ</h1>
+        </div>
+
+        {/* ランク・XPバー */}
+        {gSt&&rank&&(
+          <div style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,padding:"14px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <span style={{fontSize:24}}>{rank.icon}</span>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:rank.color}}>{rank.name}</div>
+                <div style={{fontSize:11,color:"#555"}}>{gSt.plays}回プレイ</div>
+              </div>
+              <div style={{marginLeft:"auto",textAlign:"right"}}>
+                <div style={{fontSize:11,color:"#666"}}>最高得点</div>
+                <div style={{fontSize:14,fontWeight:700,color:"#c9a84c"}}>{gSt.bestScore}pt</div>
+              </div>
+            </div>
+            <XpBar totalXP={gSt.totalXP} compact/>
+          </div>
+        )}
+
+        {/* 今日のデッキ */}
+        <button onClick={onPlayToday} disabled={todayCount===0}
+          style={{background:todayCount>0?"#1a2a1a":"#111120",
+            border:`2px solid ${todayCount>0?"#22c55e":"#2a2a44"}`,
+            borderRadius:16,padding:"18px 20px",cursor:todayCount>0?"pointer":"default",
+            fontFamily:"inherit",textAlign:"left",transition:"all 0.2s",width:"100%"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:28}}>📅</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:DK?18:16,fontWeight:800,
+                color:todayCount>0?"#4ade80":"#555"}}>今日のデッキ</div>
+              <div style={{fontSize:12,color:todayCount>0?"#888":"#444",marginTop:2}}>
+                {todayCount>0
+                  ?`${todayCount}問が今日の復習対象 · 間隔反復`
+                  :decks.length===0?"デッキを追加してください":"今日の復習は完了しています 🎉"}
+              </div>
+            </div>
+            {todayCount>0&&<div style={{background:"#22c55e",color:"#0d0d18",
+              borderRadius:20,padding:"4px 12px",fontSize:14,fontWeight:800}}>
+              {todayCount}
+            </div>}
+          </div>
+        </button>
+
+        {/* デッキ一覧 */}
+        <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>── マイデッキ</div>
+        {decks.length===0&&(
+          <div style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,
+            padding:"20px",textAlign:"center",color:"#555",fontSize:13}}>
+            デッキがありません<br/>
+            <span style={{color:"#c9a84c",cursor:"pointer"}} onClick={onManageDecks}>
+              デッキを追加する →
+            </span>
+          </div>
+        )}
+        {decks.map(dk=>{
+          const dueCount=countDue(dk.questions,srs);
+          return(
+            <button key={dk.id} onClick={()=>onPlayDeck(dk)}
+              style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,
+                padding:"14px 16px",cursor:"pointer",fontFamily:"inherit",
+                textAlign:"left",transition:"all 0.15s",width:"100%"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>📚</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:DK?16:14,fontWeight:700,color:"#ece8d8",
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {dk.name}
+                  </div>
+                  <div style={{fontSize:11,color:"#666",marginTop:2}}>
+                    {dk.questions.length}問 · 出題順
+                  </div>
+                </div>
+                {dueCount>0&&<div style={{background:"rgba(201,168,76,0.2)",color:"#c9a84c",
+                  borderRadius:20,padding:"3px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>
+                  {dueCount}due
+                </div>}
+              </div>
+            </button>
+          );
+        })}
+
+        {/* 続きから再開 */}
+        {savedGame&&(
+          <div style={{background:"#0a1a0a",border:"1px solid #22c55e",borderRadius:12,padding:"12px 14px"}}>
+            <div style={{fontSize:12,color:"#4ade80",fontWeight:700,marginBottom:4}}>⏸ 続きのゲームがあります</div>
+            <div style={{fontSize:11,color:"#666",marginBottom:8}}>
+              {new Date(savedGame.savedAt).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} 中断
+              · {savedGame.state.answeredCorrectly?.length||0}/{savedGame.QS?.length||0}問 · {savedGame.state.score}pt
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onResume}
+                style={{flex:1,background:"#22c55e",border:"none",borderRadius:8,
+                  padding:"8px 0",fontSize:13,fontWeight:800,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>
+                ▶ 続きから再開
+              </button>
+              <button onClick={onClearSave}
+                style={{background:"none",border:"1px solid #333",borderRadius:8,padding:"8px 12px",
+                  fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            </div>
+          </div>
+        )}
+        {/* ボタン行 */}
+        <div style={{display:"flex",gap:8,marginTop:4}}>
+          <button onClick={onManageDecks}
+            style={{flex:1,background:"#1e1e36",border:"1px solid #333",borderRadius:10,
+              padding:"10px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
+            📚 デッキ管理
+          </button>
+          <button onClick={()=>onSettings("stats")}
+            style={{flex:1,background:"#1e1e36",border:"1px solid #333",borderRadius:10,
+              padding:"10px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
+            📊 問題別成績
+          </button>
+          <button onClick={()=>onSettings("io")}
+            style={{flex:1,background:"#1e1e36",border:"1px solid #333",borderRadius:10,
+              padding:"10px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
+            📦 管理
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   APP
+══════════════════════════════════════════════════════════════ */
+function QuizApp(){
+  const[QS,setQS]=useState(DEFAULT_QS);
+  const[s,dispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
+  const{phase,queue,pendingQueue,score,combo,maxCombo,inputs,timeLeft,feedback,
+        showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart}=s;
+  const refs=useRef([]);
+  const[gSt,setGSt]=useState(()=>loadSt());
+  const[rankUp,setRankUp]=useState(null);
+  const[xpInfo,setXpInfo]=useState(null);
+  const[showIO,setShowIO]=useState(false);
+  const[showStats,setShowStats]=useState(false);
+  const[showQManage,setShowQManage]=useState(false);
+  const[savedGame,setSavedGame]=useState(()=>loadGame());
+  // アニメーション用ステート
+  const[correctAnim,setCorrectAnim]=useState(false);
+  const[wrongAnim,setWrongAnim]=useState(false);
+  const[comboAnim,setComboAnim]=useState(null);
+  const[timerEdge,setTimerEdge]=useState(false);
+  const[rankBurst,setRankBurst]=useState(null);
+  // デッキ・SRS
+  const[decks,setDecks]=useState(()=>loadDecks());
+  const[srs,setSRS]=useState(()=>loadSRS());
+  const[showDeckMgr,setShowDeckMgr]=useState(false);
+  const[isToday,setIsToday]=useState(false); // 今日のデッキモード
+
+  const MAX_SCORE=QS.reduce((a,q)=>a+q.pts,0);
+
+  // ロビーへ戻る
+  const goLobby=()=>{
+    BGM.stop();VBGM.stop();
+    dispatch({type:"BACK",QS});
+  };
+  // デッキを選んでプレイ
+  const playDeck=(dk)=>{
+    setQS(dk.questions);
+    setIsToday(false);
+    setRankUp(null);setXpInfo(null);
+    clearGame();setSavedGame(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    dispatch({type:"START",QS:dk.questions});
+  };
+  // 今日のデッキをプレイ
+  const playToday=()=>{
+    // stale closureを避けるため、localStorageから直接最新SRSを読む
+    const freshSRS=loadSRS();
+    const{review,newCards}=buildTodaysDeck(decks,freshSRS);
+    const combined=[...review,...newCards];
+    if(combined.length===0)return;
+    setSRS(freshSRS); // stateも最新に同期
+    setQS(combined);
+    setIsToday(true);
+    setRankUp(null);setXpInfo(null);
+    clearGame();setSavedGame(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    dispatch({type:"START",QS:combined,pendingStart:review.length||combined.length});
+  };
+
+  /* 完了時：XP + 問題別成績を保存 */
+  useEffect(()=>{
+    if(phase!=="complete"||!gSt)return;
+    const ftc=firstTryCorrectCount,perfect=ftc===QS.length;
+    const earned=calcXP({score,ftc,combo:maxCombo,perfect});
+    setXpInfo({earned,scoreXP:score*3,ftcXP:ftc*2,comboXP:Math.min(maxCombo,10),perfectXP:perfect?30:0,ftc,perfect});
+
+    // 問題別成績を更新
+    const prevQS=gSt.questionStats||{};
+    const newQS={...prevQS};
+    QS.forEach(q=>{
+      const prev=prevQS[q.id]||{sessions:0,firstTry:0,retryOk:0,wrong:0};
+      const wasAnswered=answeredCorrectly.includes(q.id);
+      const wc=wrongCounts[q.id]||0;
+      const isFirstTry=wasAnswered&&wc===0;
+      const isRetryOk=wasAnswered&&wc>0;
+      newQS[q.id]={
+        sessions: prev.sessions+(wasAnswered?1:0),
+        firstTry: prev.firstTry+(isFirstTry?1:0),
+        retryOk:  prev.retryOk+(isRetryOk?1:0),
+        wrong:    prev.wrong+wc,
+      };
+    });
+
+    const oldRank=getRank(gSt.totalXP),newXP=gSt.totalXP+earned,newRank=getRank(newXP);
+    const newSt={
+      totalXP:newXP,plays:gSt.plays+1,
+      bestScore:Math.max(gSt.bestScore,score),bestCombo:Math.max(gSt.bestCombo,maxCombo),
+      history:[...gSt.history.slice(-9),{score,xp:earned,
+        date:new Date().toLocaleDateString("ja-JP",{month:"numeric",day:"numeric"})}],
+      questionStats:newQS,
+    };
+    setGSt(newSt);saveSt(newSt);
+    clearGame();setSavedGame(null);
+
+    // SRS更新（今日のデッキモードかどうかに関わらず記録）
+    let newSRS={...srs};
+    QS.forEach(q=>{
+      if(answeredCorrectly.includes(q.id)){
+        const firstTry=(wrongCounts[q.id]||0)===0;
+        newSRS=updateSRS(newSRS,q.id,firstTry);
+      }
+    });
+    setSRS(newSRS);saveSRS(newSRS);
+    if(newRank.name!==oldRank.name){
+      setRankUp({from:oldRank,to:newRank});
+      setTimeout(SFX.rankUp,900);
+      // ランクバーストアニメ
+      setTimeout(()=>{setRankBurst(newRank);setTimeout(()=>setRankBurst(null),1200);},800);
+    }
+    setTimeout(()=>score>=MAX_SCORE*0.7?SFX.win():SFX.lose(),500);
+  },[phase]);
+
+  const q=phase==="feedback"&&feedback?QS.find(qq=>qq.id===feedback.qId):(queue.length>0?QS[queue[0]]:null);
+  const dq=q&&shuffled&&q.type==="mc"?{...q,...shuffled}:q;
+  const wrongCount=q?(wrongCounts[q.id]||0):0;
+  const isFB=phase==="feedback";
+  const maxT=qTimer(q||QS[0]);
+  const timerPct=timeLeft/maxT*100;
+  const timerColor=timeLeft<=5?"#ef4444":timeLeft<=10?"#f97316":"#c9a84c";
+
+  useEffect(()=>{
+    if(phase!=="question")return;
+    const id=setInterval(()=>dispatch({type:"TICK"}),1000);
+    return()=>clearInterval(id);
+  },[questionKey]);
+  useEffect(()=>{
+    if(phase!=="question")return;
+    if(timeLeft<=5&&timeLeft>0){SFX.tick();setTimerEdge(true);}
+    else setTimerEdge(false);
+    if(timeLeft===0)dispatch({type:"SUBMIT",correct:false,blankResults:null,QS});
+  },[timeLeft]);
+  useEffect(()=>{
+    if(phase!=="feedback"||!feedback)return;
+    if(feedback.correct){
+      SFX.correct();
+      // 正解リングアニメ
+      setCorrectAnim(true);
+      setTimeout(()=>setCorrectAnim(false),700);
+      if(combo===3){setTimeout(SFX.combo3,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);}
+      else if(combo===5||combo===10){setTimeout(SFX.combo5,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);}
+    }else{
+      SFX.wrong();
+      // 不正解フラッシュ
+      setWrongAnim(true);
+      setTimeout(()=>setWrongAnim(false),500);
+    }
+  },[phase,feedback]);
+  useEffect(()=>{
+    if(phase!=="feedback")return;
+    const id=setTimeout(()=>dispatch({type:"NEXT",QS}),feedback?.correct?1900:3200);
+    return()=>clearTimeout(id);
+  },[phase,questionKey]);
+  useEffect(()=>{
+    if(phase==="question"||phase==="feedback")BGM.start();
+    else BGM.stop();
+    if(phase==="complete") VBGM.start();
+    else VBGM.stop();
+  },[phase]);
+  useEffect(()=>()=>{BGM.stop();VBGM.stop();},[]);
+
+
+  // 新カードフェーズ開始通知を自動消去
+  useEffect(()=>{
+    if(!newPhaseStart)return;
+    const id=setTimeout(()=>dispatch({type:"CLEAR_NEW_PHASE",QS}),2200);
+    return()=>clearTimeout(id);
+  },[newPhaseStart]);
+  useEffect(()=>{
+    if(phase!=="question"&&phase!=="feedback")return;
+    const ratio=QS.length>0?answeredCorrectly.length/QS.length:0;
+    const lv=ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0;
+    BGM.setLevel(lv);
+  },[answeredCorrectly.length]);
+  // 穴埋め問題の自動フォーカスは削除（タイプライター演出と競合するため）
+
+  const submitFill=()=>{
+    if(phase!=="question"||!q)return;
+    const r=chkFill(q.blanks,inputs);
+    dispatch({type:"SUBMIT",correct:r.every(Boolean),blankResults:r,QS});
+  };
+  const submitMC=(idx)=>{
+    if(phase!=="question"||!dq)return;
+    dispatch({type:"SUBMIT",correct:idx===dq.ans,blankResults:null,QS});
+  };
+  const doStart=()=>{
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();setRankUp(null);setXpInfo(null);
+    clearGame();setSavedGame(null);
+    dispatch({type:"START",QS});
+  };
+  const doResume=()=>{
+    if(!savedGame)return;
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();setRankUp(null);setXpInfo(null);
+    setQS(savedGame.QS);
+    dispatch({type:"RESUME",state:savedGame.state,QS:savedGame.QS});
+  };
+  const doPause=()=>{
+    // 中断時：それまでの回答をSRS・成績に即時保存
+    if(gSt){
+      // 問題別成績を更新
+      const prevQS=gSt.questionStats||{};
+      const newQStat={...prevQS};
+      QS.forEach(q=>{
+        const wasAnswered=answeredCorrectly.includes(q.id);
+        const wc=wrongCounts[q.id]||0;
+        if(!wasAnswered&&wc===0)return; // 未回答は除外
+        const prev=prevQS[q.id]||{sessions:0,firstTry:0,retryOk:0,wrong:0};
+        const isFirstTry=wasAnswered&&wc===0;
+        const isRetryOk=wasAnswered&&wc>0;
+        newQStat[q.id]={
+          sessions: prev.sessions+(wasAnswered?1:0),
+          firstTry: prev.firstTry+(isFirstTry?1:0),
+          retryOk:  prev.retryOk+(isRetryOk?1:0),
+          wrong:    prev.wrong+wc,
+        };
+      });
+      const newSt={...gSt,questionStats:newQStat};
+      setGSt(newSt);saveSt(newSt);
+
+      // SRS更新
+      let newSRS={...srs};
+      QS.forEach(q=>{
+        const wc=wrongCounts[q.id]||0;
+        if(answeredCorrectly.includes(q.id)){
+          newSRS=updateSRS(newSRS,q.id,wc===0);
+        }else if(wc>0){
+          // 間違えたが未正解で中断 → nextDue=今日（今日のデッキに再出題）
+          const prev=newSRS[q.id]||{interval:1,nextDue:today(),reps:0,lapses:0};
+          newSRS={...newSRS,[q.id]:{
+            interval:1,
+            nextDue:today(),
+            reps:0,
+            lapses:(prev.lapses||0)+1,
+          }};
+        }
+      });
+      setSRS(newSRS);saveSRS(newSRS);
+    }
+    saveGame(s,QS);
+    setSavedGame(loadGame());
+    dispatch({type:"BACK",QS});
+  };
+
+  /* ── ロビー画面 ─────────────────────────────────────────────── */
+  if(phase==="start"){
+    return(
+      <div>
+        {showDeckMgr&&<DeckManagerPanel decks={decks} setDecks={setDecks} QS={QS}
+          onClose={()=>setShowDeckMgr(false)}/>}
+        {showStats&&<StatsPanel QS={QS} gSt={gSt} onClose={()=>setShowStats(false)}/>}
+        {showIO&&<IOPanel QS={QS} setQS={setQS} gSt={gSt} setGSt={setGSt}
+          decks={decks} setDecks={setDecks} srs={srs} setSRS={setSRS}
+          onClose={()=>setShowIO(false)}/>}
+        {showQManage&&<QManagePanel QS={QS} setQS={setQS} onClose={()=>setShowQManage(false)}/>}
+        <Lobby
+          decks={decks} srs={srs} gSt={gSt}
+          onPlayDeck={playDeck}
+          onPlayToday={playToday}
+          onManageDecks={()=>setShowDeckMgr(true)}
+          onSettings={(t)=>{
+            if(t==="stats") setShowStats(true);
+            if(t==="io") setShowIO(true);
+          }}
+          savedGame={savedGame}
+          onResume={doResume}
+          onClearSave={()=>{clearGame();setSavedGame(null);}}
+        />
+      </div>
+    );
+  }
+
+  /* ── 完了画面 ─────────────────────────────────────────────── */
+  if(phase==="complete"){
+    const newRankObj=gSt?getRank(gSt.totalXP):null;
+    const isBest=gSt&&score>0&&score===gSt.bestScore&&gSt.plays>1;
+    return(
+      <div style={S.root}>
+        <div style={S.center}>
+          <div style={{...S.card,gap:12,maxWidth:400}}>
+            <div style={{fontSize:40,animation:"bounceIn 0.6s ease"}}>
+              {score/MAX_SCORE>=0.9?"🏆":score/MAX_SCORE>=0.7?"⚔️":score/MAX_SCORE>=0.5?"🌾":"🗾"}
+            </div>
+            <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+              <span style={{fontSize:50,fontWeight:900,color:scoreColor(score)}}>{score}</span>
+              <span style={{fontSize:17,color:"#555",alignSelf:"flex-end",marginBottom:7}}>/{MAX_SCORE}点</span>
+            </div>
+            <div style={S.statsRow}>
+              <div style={S.stat}><div style={{...S.statN,color:scoreColor(score)}}>{answeredCorrectly.length}/{QS.length}</div><div style={S.statL}>正解</div></div>
+              <div style={S.stat}><div style={S.statN}>{xpInfo?.ftc||0}/{QS.length}</div><div style={S.statL}>一発正解</div></div>
+              <div style={S.stat}><div style={{...S.statN,color:"#f97316"}}>{maxCombo}</div><div style={S.statL}>最大コンボ</div></div>
+            </div>
+            {xpInfo&&(
+              <div style={{width:"100%",background:"#0d0d20",borderRadius:12,padding:"12px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:12,color:"#aaa"}}>今回の獲得XP</span>
+                  <span style={{fontSize:16,fontWeight:800,color:"#c9a84c"}}>+{xpInfo.earned} XP</span>
+                </div>
+                {[
+                  [`得点 ${score}pt × 3`,xpInfo.scoreXP],
+                  [`一発正解 ${xpInfo.ftc}問 × 2`,xpInfo.ftcXP],
+                  [`コンボボーナス`,xpInfo.comboXP],
+                  xpInfo.perfect?[`全問一発正解ボーナス 🎉`,xpInfo.perfectXP]:null,
+                ].filter(Boolean).map(([label,val])=>(
+                  <div key={label} style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#555",marginBottom:3}}>
+                    <span>{label}</span><span style={{color:"#777"}}>+{val}</span>
+                  </div>
+                ))}
+                <div style={{borderTop:"1px solid #2a2a3a",marginTop:10,paddingTop:10}}>
+                  {gSt&&<XpBar totalXP={gSt.totalXP}/>}
+                </div>
+              </div>
+            )}
+            {isBest&&<div style={{background:"rgba(240,192,64,0.1)",border:"1px solid #f0c040",
+              borderRadius:10,padding:"7px 14px",fontSize:12,color:"#f0c040",animation:"bounceIn 0.5s ease"}}>
+              🏆 自己ベスト更新！
+            </div>}
+            {isToday&&xpInfo&&(
+              <div style={{background:"rgba(34,197,94,0.08)",border:"1px solid #22c55e",
+                borderRadius:10,padding:"8px 14px",fontSize:12,color:"#4ade80",textAlign:"center"}}>
+                📅 今日のデッキ完了！SRS更新済み
+              </div>
+            )}
+            {rankUp&&(
+              <div style={{width:"100%",background:"rgba(255,255,255,0.03)",
+                border:`2px solid ${rankUp.to.color}`,borderRadius:14,
+                padding:"12px",textAlign:"center",animation:"rankUpAnim 0.6s ease"}}>
+                <div style={{fontSize:10,letterSpacing:3,color:"#aaa",marginBottom:6}}>⬆ 昇　格</div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+                  <span style={{fontSize:13,color:rankUp.from.color}}>{rankUp.from.icon} {rankUp.from.name}</span>
+                  <span style={{color:"#555",fontSize:16}}>→</span>
+                  <span style={{fontSize:17,fontWeight:800,color:rankUp.to.color}}>{rankUp.to.icon} {rankUp.to.name}</span>
+                </div>
+              </div>
+            )}
+            {newRankObj&&<div style={{fontSize:11,color:"#555"}}>
+              現在の称号：<span style={{color:newRankObj.color,fontWeight:700}}>{newRankObj.icon} {newRankObj.name}</span>
+            </div>}
+            <div style={{display:"flex",gap:8,width:"100%"}}>
+              <button style={{...S.btnG,flex:1}} onClick={doStart}>もう一度</button>
+              <button onClick={goLobby}
+                style={{background:"none",border:"1px solid #2a2a44",color:"#888",
+                  borderRadius:12,padding:"12px 16px",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🏠</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if(!q||!dq)return null;
+
+  /* ── 問題画面 ─────────────────────────────────────────────── */
+  return(
+    <div style={S.root}>
+      {/* 既存フィードバックフラッシュ */}
+      {isFB&&<div className="flashFade" style={{...S.flashOverlay,
+        background:feedback?.correct?"rgba(34,197,94,0.18)":"rgba(239,68,68,0.42)",
+        animationDuration:feedback?.correct?"1.9s":"3.2s"}}/>}
+      {/* 新カードフェーズ開始通知 */}
+      {newPhaseStart&&(
+        <div style={{position:"fixed",top:"30%",left:0,right:0,
+          display:"flex",justifyContent:"center",pointerEvents:"none",zIndex:80,
+          animation:"slideUp 0.5s ease"}}>
+          <div style={{background:"rgba(96,165,250,0.18)",border:"1px solid #60a5fa",
+            borderRadius:14,padding:"12px 28px",textAlign:"center"}}>
+            <div style={{fontSize:DK?18:15,fontWeight:800,color:"#60a5fa"}}>🆕 新しい問題</div>
+            <div style={{fontSize:DK?13:11,color:"#888",marginTop:3}}>復習完了！未出題の問題へ</div>
+          </div>
+        </div>
+      )}
+      {correctAnim&&(
+        <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",
+          justifyContent:"center",pointerEvents:"none",zIndex:60}}>
+          <div style={{width:150,height:150,borderRadius:"50%",
+            border:"5px solid #4ade80",
+            animation:"correctRing 0.65s ease-out forwards"}}/>
+        </div>
+      )}
+      {/* 不正解：画面縁が赤く光る */}
+      {wrongAnim&&(
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:60,
+          boxShadow:"inset 0 0 70px rgba(239,68,68,0.75)",
+          animation:"wrongFlash 0.5s ease forwards"}}/>
+      )}
+      {/* コンボ：数字が上に飛ぶ */}
+      {comboAnim&&(
+        <div style={{position:"fixed",top:"38%",left:0,right:0,textAlign:"center",
+          pointerEvents:"none",zIndex:60,
+          fontSize:DK?56:42,fontWeight:900,color:"#f97316",
+          fontFamily:"'Noto Serif JP',serif",
+          animation:"comboFloat 0.95s ease-out forwards"}}>
+          🔥×{comboAnim}
+        </div>
+      )}
+      {/* タイマー残り5秒：画面縁が赤くパルス */}
+      {timerEdge&&(
+        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:55,
+          animation:"edgePulse 0.5s ease infinite"}}/>
+      )}
+      {/* ランク昇格：アイコンが大きく出てフェード */}
+      {rankBurst&&(
+        <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",
+          justifyContent:"center",pointerEvents:"none",zIndex:70}}>
+          <div style={{fontSize:110,animation:"rankBurst 1.2s ease-out forwards"}}>
+            {rankBurst.icon}
+          </div>
+        </div>
+      )}
+      <div style={S.top}>
+        <DotMap QS={QS} queue={queue} pendingQueue={pendingQueue} answeredCorrectly={answeredCorrectly}
+          attemptedIds={attemptedIds} wrongCounts={wrongCounts} phase={phase}/>
+        <div style={S.topRow}>
+          <span style={S.qnum}>✓{answeredCorrectly.length}<span style={{color:"#444",fontSize:10}}>/{QS.length}</span></span>
+          {combo>0&&<span className="comboPop" style={S.comboTag}>{"🔥".repeat(Math.min(combo,5))} ×{combo}</span>}
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={S.scorePill}>{score}<span style={{color:"#444",fontSize:10}}>pt</span></span>
+            <button onClick={doPause}
+              style={{background:"none",border:"1px solid #2a2a44",borderRadius:7,
+                padding:DK?"4px 12px":"3px 9px",fontSize:DK?13:10,color:"#666",
+                cursor:"pointer",fontFamily:"inherit"}}>
+              ⏸ 中断
+            </button>
+          </div>
+        </div>
+      </div>
+      <div style={S.timerW}>
+        <div style={{...S.timerF,width:`${timerPct}%`,background:timerColor,
+          animation:phase==="question"&&timeLeft<=5?"timerPulse 0.5s ease infinite":"none"}}/>
+        <span style={{...S.timerN,color:timerColor}}>{phase==="question"?`${timeLeft}s`:""}</span>
+      </div>
+      <div style={S.qcard}
+        className={isFB&&!feedback?.correct?"shake":""}>
+        <div style={S.qmeta}>
+          {q.type==="fill"?"穴埋め":"選択式"} · {q.pts}点
+          {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>🔄 再挑戦 {wrongCount}回目</span>}
+          {q.type==="fill"&&!isFB&&<span style={{color:"#555",marginLeft:8,fontSize:10}}>← タップして入力</span>}
+        </div>
+        {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt}/>
+          :<FillInline key={questionKey} q={q} qkey={questionKey} inputs={inputs} dispatch={dispatch}
+              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill}/>}
+        {!showHint&&!isFB&&<button style={S.hintBtn} onClick={()=>dispatch({type:"HINT"})}>💡 ヒント</button>}
+        {q.type==="fill"&&!isFB&&(
+          <button style={{...S.btnG,marginTop:10,padding:"10px 28px",fontSize:14}}
+            onClick={submitFill} disabled={inputs.some(v=>!v.trim())}>回答する ✓</button>
+        )}
+        {showHint&&<div style={S.hintBox}>💡 {q.hint}</div>}
+        {q.type==="mc"&&(
+          <div style={S.optG}>
+            {dq.opts.map((opt,i)=>(
+              <button key={i} onClick={()=>submitMC(i)} disabled={isFB}
+                style={{...S.optBtn,
+                  background:isFB&&i===dq.ans?"rgba(34,197,94,0.2)":"#1a1a2e",
+                  border:`1px solid ${isFB&&i===dq.ans?"#22c55e":"#2a2a42"}`}}>
+                <span style={S.optL}>{["A","B","C","D"][i]}</span>
+                <span style={S.optT}>{opt}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isFB&&feedback?.correct&&(
+          <div style={S.correctBanner}>
+            <span style={{fontSize:22}}>⭕</span>
+            <span style={{color:"#4ade80",fontWeight:700,fontSize:15}}>正解！</span>
+            {feedback.isFirst
+              ?<span style={{color:"#c9a84c",fontWeight:700,fontSize:13,marginLeft:4}}>+{q.pts}pt</span>
+              :<span style={{color:"#777",fontSize:12,marginLeft:4}}>再挑戦正解（加点なし）</span>}
+            {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>🔥{combo}コンボ！</span>}
+          </div>
+        )}
+        {isFB&&!feedback?.correct&&(
+          <div style={S.wrongReveal}>
+            <div style={S.wrongTop}>
+              <span style={{fontSize:20}}>❌</span>
+              <span style={{fontSize:15,fontWeight:700,color:"#f87171"}}>不正解</span>
+            </div>
+            <div style={S.correctLabel}>正　解</div>
+            <div style={S.correctBlock}>
+              {feedback.correctAns.map((ans,i)=>(
+                <div key={i} style={S.correctAnsRow}>
+                  {q.blanks&&q.blanks.length>1&&<span style={{fontSize:12,color:"#888",marginRight:4}}>（{i+1}）</span>}
+                  <span style={S.correctAns}>{ans}</span>
+                </div>
+              ))}
+            </div>
+            <div style={S.retryMsg}>🔄 もう一度チャレンジ！</div>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
+const S={
+  root:{minHeight:"100vh",background:"#0d0d18",fontFamily:"'Noto Serif JP',serif",color:"#e8dcc8",position:"relative",paddingBottom:32},
+  center:{display:"flex",justifyContent:"center",alignItems:"center",minHeight:"100vh",padding:DK?32:16},
+  flashOverlay:{position:"fixed",inset:0,pointerEvents:"none",zIndex:50},
+  card:{background:"#13132a",border:"1px solid #252542",borderRadius:DK?26:22,padding:DK?"40px 40px":"26px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:DK?18:13,maxWidth:DK?680:400,width:"100%",textAlign:"center"},
+  logo:{fontSize:DK?46:32,letterSpacing:4,color:"#c9a84c",fontWeight:900,borderBottom:"2px solid #c9a84c",paddingBottom:DK?8:5},
+  title:{fontSize:DK?34:24,fontWeight:900,color:"#ece8d8"},
+  sub:{fontSize:DK?15:11,color:"#777",lineHeight:1.7},
+  badges:{display:"flex",gap:DK?8:5,flexWrap:"wrap",justifyContent:"center"},
+  badge:{background:"#1e1e36",border:"1px solid #333",borderRadius:20,padding:DK?"5px 14px":"3px 9px",fontSize:DK?13:10,color:"#888"},
+  btnG:{background:"#c9a84c",color:"#0d0d18",border:"none",borderRadius:DK?14:12,padding:DK?"16px 48px":"12px 30px",fontSize:DK?18:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5},
+  statsRow:{display:"flex",gap:DK?28:18},
+  stat:{textAlign:"center"},
+  statN:{fontSize:DK?28:21,fontWeight:800,color:"#c9a84c"},
+  statL:{fontSize:DK?13:10,color:"#555"},
+  top:{padding:DK?"16px 24px 0":"12px 16px 0"},
+  prog:{height:DK?4:3,background:"#1e1e32",borderRadius:2,overflow:"hidden",marginBottom:DK?14:10},
+  progF:{height:"100%",background:"#c9a84c",transition:"width 0.5s ease"},
+  topRow:{display:"flex",justifyContent:"space-between",alignItems:"center"},
+  qnum:{fontSize:DK?17:13,color:"#c9a84c",fontWeight:700},
+  comboTag:{fontSize:DK?17:13,color:"#f97316",fontWeight:700},
+  scorePill:{fontSize:DK?17:13,color:"#c9a84c",fontWeight:700},
+  timerW:{position:"relative",margin:DK?"10px 24px":"8px 16px",height:DK?7:5,background:"#1e1e32",borderRadius:3},
+  timerF:{height:"100%",borderRadius:3,transition:"width 1s linear, background 0.5s"},
+  timerN:{position:"absolute",right:0,top:DK?-22:-18,fontSize:DK?13:10,fontWeight:700},
+  qcard:{margin:DK?"16px 24px 0":"12px 14px 0",background:"#13132a",border:"1px solid #252542",borderRadius:DK?20:16,padding:DK?"28px 28px":"18px 16px",animation:"slideUp 0.3s ease"},
+  qmeta:{fontSize:DK?14:11,color:"#555",marginBottom:DK?14:10,letterSpacing:0.5},
+  qtxt:{fontSize:DK?21:16,lineHeight:DK?1.8:1.9,fontWeight:700,marginBottom:DK?18:12,color:"#ece8d8"},
+  hintBtn:{background:"none",border:"1px solid #2a2a42",color:"#666",borderRadius:8,padding:DK?"7px 16px":"5px 12px",fontSize:DK?14:11,cursor:"pointer",marginBottom:DK?16:12},
+  hintBox:{background:"#1a1a36",border:"1px solid #353558",borderRadius:8,padding:DK?"10px 16px":"8px 12px",fontSize:DK?15:12,color:"#aaa",marginBottom:DK?16:12},
+  optG:{display:"flex",flexDirection:"column",gap:DK?10:7},
+  optBtn:{display:"flex",alignItems:"center",gap:DK?14:10,borderRadius:DK?12:10,padding:DK?"15px 18px":"11px 13px",textAlign:"left",color:"#e8dcc8",width:"100%",transition:"background 0.12s",border:"1px solid"},
+  optL:{minWidth:DK?28:22,height:DK?28:22,borderRadius:"50%",background:"#252546",display:"flex",alignItems:"center",justifyContent:"center",fontSize:DK?13:10,fontWeight:700,color:"#666",flexShrink:0},
+  optT:{fontSize:DK?17:13,lineHeight:1.5},
+  correctBanner:{display:"flex",alignItems:"center",gap:DK?12:8,marginTop:DK?16:12,padding:DK?"13px 18px":"10px 14px",background:"rgba(34,197,94,0.1)",border:"1px solid #22c55e",borderRadius:DK?12:10,flexWrap:"wrap"},
+  wrongReveal:{marginTop:DK?20:16,padding:DK?"22px":"16px",background:"rgba(15,5,5,0.9)",border:"2px solid #ef4444",borderRadius:DK?18:14,animation:"wrongReveal 0.35s ease",textAlign:"center"},
+  wrongTop:{display:"flex",alignItems:"center",justifyContent:"center",gap:DK?12:8,marginBottom:DK?16:12},
+  correctLabel:{fontSize:DK?13:10,letterSpacing:4,color:"#c9a84c",marginBottom:DK?14:10,textTransform:"uppercase"},
+  correctBlock:{display:"flex",flexDirection:"column",gap:DK?6:4,alignItems:"center",marginBottom:DK?14:10},
+  correctAnsRow:{display:"flex",alignItems:"center",gap:DK?10:6},
+  correctAns:{fontSize:DK?38:28,fontWeight:900,color:"#f0c060",lineHeight:1.4},
+  retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
+</script>
+</body>
+</html>
