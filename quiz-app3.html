@@ -811,10 +811,12 @@ function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
                   onClick={()=>activateBlank(blankIdx)}
                   disabled={isFB}
                   placeholder={`(${blankIdx+1})`}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   autoCorrect="off"
                   autoCapitalize="off"
                   spellCheck="false"
+                  data-form-type="other"
+                  name={`quiz_blank_${blankIdx}_${qkey}`}
                 />
               </span>
             )}
