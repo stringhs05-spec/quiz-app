@@ -147,59 +147,134 @@ function addDays(d,n){
   const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);
 }
 
-// SRS更新
-// firstTry=true → 正解率高い → インターバル倍増
-// firstTry=false → ミスあり → インターバルリセット
-function updateSRS(srs,qId,firstTry){
-  const prev=srs[qId]||{interval:1,nextDue:today(),reps:0,lapses:0};
-  if(firstTry){
-    const newInterval=Math.min(Math.round((prev.interval||1)*2.1),90);
+// ── SRS：時間単位・totalWrong考慮アルゴリズム ──────────────────
+// nextDue: ISO timestamp（時刻まで含む）
+// state: "new" | "learning" | "review"
+// learningステップ（時間）: 10分→1時間→6時間→24時間→72時間→卒業
+// 卒業後: intervalは日単位、easeで乗算
+
+const LEARNING_STEPS_H=[1/6, 1, 6, 24, 72]; // 時間単位
+const DEFAULT_EASE=2.5;
+const MIN_EASE=1.3;
+
+function nowISO(){return new Date().toISOString();}
+function addHours(h){return new Date(Date.now()+h*3600000).toISOString();}
+function addDaysISO(d){return new Date(Date.now()+d*86400000).toISOString();}
+function isDue(card){
+  if(!card||!card.nextDue)return true;
+  return new Date(card.nextDue)<=new Date();
+}
+
+// totalWrongに基づく卒業必要streak数とease
+function calcRequiredStreak(totalWrong){
+  return Math.min(3+Math.floor(totalWrong/3),8);
+}
+function calcEase(totalWrong){
+  return Math.max(DEFAULT_EASE-totalWrong*0.08,MIN_EASE);
+}
+
+function updateSRS(srs,qId,correct){
+  const prev=srs[qId]||{
+    state:"new",step:0,streak:0,totalWrong:0,
+    intervalDays:0,nextDue:nowISO(),reps:0,
+  };
+  const totalWrong=prev.totalWrong||0;
+  const streak=prev.streak||0;
+  const step=prev.step||0;
+
+  if(!correct){
+    // ミス → streakリセット、10分後
     return{...srs,[qId]:{
-      interval:newInterval,
-      nextDue:addDays(today(),newInterval),
-      reps:(prev.reps||0)+1,
-      lapses:prev.lapses||0,
+      ...prev,state:"learning",step:0,streak:0,
+      totalWrong:totalWrong+1,
+      intervalDays:0,nextDue:addHours(1/6),reps:prev.reps||0,
+    }};
+  }
+
+  // 正解
+  const newStreak=streak+1;
+  const required=calcRequiredStreak(totalWrong);
+
+  if(prev.state==="review"){
+    // review中の正解 → ease×interval
+    if(newStreak>=required){
+      const ease=calcEase(totalWrong);
+      const newInterval=Math.min(
+        Math.round((prev.intervalDays||1)*ease), 180
+      );
+      return{...srs,[qId]:{
+        ...prev,state:"review",step:0,streak:newStreak,
+        totalWrong,intervalDays:newInterval,
+        nextDue:addDaysISO(newInterval),reps:(prev.reps||0)+1,
+      }};
+    }else{
+      // まだ卒業できない→learningに戻す
+      const nextStepIdx=Math.min(step+1,LEARNING_STEPS_H.length-1);
+      return{...srs,[qId]:{
+        ...prev,state:"learning",step:nextStepIdx,streak:newStreak,
+        totalWrong,intervalDays:0,
+        nextDue:addHours(LEARNING_STEPS_H[nextStepIdx]),
+        reps:(prev.reps||0)+1,
+      }};
+    }
+  }
+
+  // learning中の正解
+  const nextStepIdx=step+1;
+  if(nextStepIdx>=LEARNING_STEPS_H.length||newStreak>=required){
+    // 卒業 → review
+    const ease=calcEase(totalWrong);
+    const gradInterval=Math.max(Math.round(1*ease),1);
+    return{...srs,[qId]:{
+      ...prev,state:"review",step:0,streak:newStreak,
+      totalWrong,intervalDays:gradInterval,
+      nextDue:addDaysISO(gradInterval),reps:(prev.reps||0)+1,
     }};
   }else{
+    // 次のlearningステップへ
     return{...srs,[qId]:{
-      interval:1,
-      nextDue:addDays(today(),1),
-      reps:0,
-      lapses:(prev.lapses||0)+1,
+      ...prev,state:"learning",step:nextStepIdx,streak:newStreak,
+      totalWrong,intervalDays:0,
+      nextDue:addHours(LEARNING_STEPS_H[nextStepIdx]),
+      reps:(prev.reps||0)+1,
     }};
   }
 }
 
-// 今日のデッキ：復習カードと新カードを分けて返す
+// ミスして中断：10分後に再出題
+function updateSRSPause(srs,qId){
+  const prev=srs[qId]||{state:"new",step:0,streak:0,totalWrong:0,nextDue:nowISO(),reps:0};
+  return{...srs,[qId]:{
+    ...prev,state:"learning",step:0,streak:0,
+    totalWrong:(prev.totalWrong||0)+1,
+    intervalDays:0,nextDue:addHours(1/6),
+  }};
+}
+
+// 今日のデッキ：時間ベースdueで復習/新カードを分ける
 function shuffle(arr){return [...arr].sort(()=>Math.random()-0.5);}
 function buildTodaysDeck(decks,srs,limit=30){
-  const t=today();
   const seen=new Set();
   const review=[],newCards=[];
   decks.forEach(dk=>{
     (dk.questions||[]).forEach(q=>{
       if(seen.has(q.id))return;seen.add(q.id);
       const sr=srs[q.id];
-      if(!sr) newCards.push(q);           // 新カード（未回答）
-      else if(sr.nextDue<=t) review.push(q); // 復習カード（due）
+      if(!sr) newCards.push(q);      // 新カード（未回答）
+      else if(isDue(sr)) review.push(q); // dueのカード（現時刻以降）
     });
   });
-  // 復習カードをシャッフル（期限切れ優先は維持しつつランダム化）
-  const overdue=shuffle(review.filter(q=>srs[q.id].nextDue<t));
-  const dueToday=shuffle(review.filter(q=>srs[q.id].nextDue===t));
-  const reviewShuffled=[...overdue,...dueToday];
+  const reviewShuffled=shuffle(review);
   const newShuffled=shuffle(newCards);
-  // limitの半分ずつを上限に
   const reviewSlice=reviewShuffled.slice(0,Math.ceil(limit*0.6));
   const newSlice=newShuffled.slice(0,limit-reviewSlice.length);
   return{review:reviewSlice,newCards:newSlice};
 }
 
-// 各デッキの今日due数
+// 各デッキの現在due数（時間ベース）
 function countDue(questions,srs){
-  const t=today();
   return questions.filter(q=>{
-    const sr=srs[q.id];return!sr||sr.nextDue<=t;
+    const sr=srs[q.id];return!sr||isDue(sr);
   }).length;
 }
 
@@ -1662,12 +1737,17 @@ function QuizApp(){
     setGSt(newSt);saveSt(newSt);
     clearGame();setSavedGame(null);
 
-    // SRS更新（今日のデッキモードかどうかに関わらず記録）
+    // SRS更新
     let newSRS={...srs};
     QS.forEach(q=>{
-      if(answeredCorrectly.includes(q.id)){
-        const firstTry=(wrongCounts[q.id]||0)===0;
-        newSRS=updateSRS(newSRS,q.id,firstTry);
+      const wc=wrongCounts[q.id]||0;
+      const wasAnswered=answeredCorrectly.includes(q.id);
+      if(wasAnswered&&wc===0){
+        // 一発正解 → 通常SRS（間隔を伸ばす）
+        newSRS=updateSRS(newSRS,q.id,true);
+      }else if(wc>0){
+        // 1回でも間違えた → nextDue=今日（正解していても今日のデッキに再出題）
+        newSRS=updateSRSPause(newSRS,q.id);
       }
     });
     setSRS(newSRS);saveSRS(newSRS);
@@ -1795,14 +1875,8 @@ function QuizApp(){
         if(answeredCorrectly.includes(q.id)){
           newSRS=updateSRS(newSRS,q.id,wc===0);
         }else if(wc>0){
-          // 間違えたが未正解で中断 → nextDue=今日（今日のデッキに再出題）
-          const prev=newSRS[q.id]||{interval:1,nextDue:today(),reps:0,lapses:0};
-          newSRS={...newSRS,[q.id]:{
-            interval:1,
-            nextDue:today(),
-            reps:0,
-            lapses:(prev.lapses||0)+1,
-          }};
+          // 間違えたが未正解で中断 → 今日再出題
+          newSRS=updateSRSPause(newSRS,q.id);
         }
       });
       setSRS(newSRS);saveSRS(newSRS);
