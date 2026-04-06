@@ -24,6 +24,7 @@ input:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0
 @keyframes rankUpAnim{0%{transform:scale(0.5) translateY(20px);opacity:0}60%{transform:scale(1.08) translateY(-4px)}100%{transform:scale(1) translateY(0);opacity:1}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes dotPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.35;transform:scale(1.35)}}
+@keyframes continueBlink{0%,100%{opacity:1}50%{opacity:0.2}}
 @keyframes blankWobble{0%,100%{transform:rotate(-2.5deg) scale(1.04)}25%{transform:rotate(2.5deg) scale(1.0)}75%{transform:rotate(-2deg) scale(1.02)}}
 @keyframes blankPop{0%{transform:scale(1)}35%{transform:scale(1.35)}65%{transform:scale(0.88)}100%{transform:scale(1)}}
 @keyframes correctRing{0%{transform:scale(0.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
@@ -343,14 +344,15 @@ const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25}={})=>{
   }catch(_){}
 };
 const SFX={
-  correct:()=>tone([523,659,784],{vol:0.18,dur:0.28}),
-  wrong:  ()=>tone([260,210],{type:"sawtooth",vol:0.16,gap:120,dur:0.38}),
-  combo3: ()=>tone([523,659,784,1047],{vol:0.22,gap:65}),
-  combo5: ()=>tone([784,988,1175,988,1175,1568],{vol:0.26,gap:58}),
+  correct:()=>tone([523,659,784],{vol:0.27,dur:0.28}),
+  wrong:  ()=>tone([260,210],{type:"sawtooth",vol:0.24,gap:120,dur:0.38}),
+  combo3: ()=>tone([523,659,784,1047],{vol:0.32,gap:65}),
+  combo5: ()=>tone([784,988,1175,988,1175,1568],{vol:0.36,gap:58}),
   tick:   ()=>tone([1100],{type:"square",vol:0.07,gap:0,dur:0.06}),
-  typeKey:()=>tone([1200+Math.random()*600],{type:"sine",vol:0.09,gap:0,dur:0.035}),
-  blankOk:()=>tone([660,880],{type:"sine",vol:0.13,gap:70,dur:0.1}),
-  start:  ()=>tone([392,523,659,784],{vol:0.18,gap:80}),
+  typeKey:()=>tone([1200+Math.random()*600],{type:"sine",vol:0.13,gap:0,dur:0.035}),
+  blankOk:()=>tone([660,880],{type:"sine",vol:0.20,gap:70,dur:0.1}),
+  newCard:()=>tone([523,659,784],{type:"sine",vol:0.16,gap:120,dur:0.35}),
+  start:  ()=>tone([392,523,659,784],{vol:0.28,gap:80}),
   rankUp: ()=>{
     tone([523,659,784,1047],{vol:0.22,gap:70});
     setTimeout(()=>tone([1047,1175,1319,1568],{vol:0.26,gap:65}),310);
@@ -423,7 +425,7 @@ const kick=(loud)=>{
     o.connect(g);g.connect(c.destination);
     o.type="sine";o.frequency.setValueAtTime(loud?180:150,t);
     o.frequency.exponentialRampToValueAtTime(35,t+0.09);
-    g.gain.setValueAtTime(loud?.62:.42,t);
+    g.gain.setValueAtTime(loud?.80:.55,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.20);
     o.start(t);o.stop(t+0.22);
   }catch(_){}
@@ -435,13 +437,13 @@ const snare=()=>{
       const o=c.createOscillator(),g=c.createGain();
       o.connect(g);g.connect(c.destination);
       o.type="sawtooth";o.frequency.value=f*(1+(Math.random()-.5)*.12);
-      g.gain.setValueAtTime(0.08,t);
+      g.gain.setValueAtTime(0.13,t);
       g.gain.exponentialRampToValueAtTime(0.001,t+0.13);
       o.start(t);o.stop(t+0.15);
     });
   }catch(_){}
 };
-const hihat=(vol=0.032)=>{
+const hihat=(vol=0.048)=>{
   try{
     const c=getCtx();const t=c.currentTime;
     const o=c.createOscillator(),g=c.createGain();
@@ -580,6 +582,7 @@ const bar=(v,color)=>(
 ══════════════════════════════════════════════════════════════ */
 function makeInit(QS){
   return{phase:"start",queue:QS.map((_,i)=>i),
+    pendingQueue:[],newCardIds:new Set(),viewedNewCount:0,
     answeredCorrectly:[],attemptedIds:[],wrongCounts:{},questionKey:0,
     score:0,combo:0,maxCombo:0,firstTryCorrectCount:0,
     inputs:[],timeLeft:MC_TIMER,feedback:null,showHint:false,shuffled:null};
@@ -589,16 +592,18 @@ function reducer(s,a){
     case"START":case"RESTART":{
       const q=a.QS[0];
       const base=makeInit(a.QS);
+      // newCardIds: SRSデータなしのカードID群（自動入力対象）
+      const nids=new Set(a.newCardIds||[]);
       // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
       if(a.pendingStart!=null&&a.pendingStart<a.QS.length){
-        return{...base,phase:"question",
+        return{...base,phase:"question",newCardIds:nids,
                queue:a.QS.slice(0,a.pendingStart).map((_,i)=>i),
                pendingQueue:a.QS.slice(a.pendingStart).map((_,i)=>a.pendingStart+i),
                inputs:emptyInputs(q),
                shuffled:q.type==="mc"?shuffleMC(q):null,
                timeLeft:qTimer(q),questionKey:1};
       }
-      return{...base,phase:"question",inputs:emptyInputs(q),
+      return{...base,phase:"question",newCardIds:nids,inputs:emptyInputs(q),
              shuffled:q.type==="mc"?shuffleMC(q):null,timeLeft:qTimer(q),questionKey:1};
     }
     case"TICK":
@@ -608,7 +613,15 @@ function reducer(s,a){
       if(s.phase!=="question")return s;
       const{correct,blankResults=null,QS}=a;
       const qIdx=s.queue[0],cq=QS[qIdx];
+      const isNewCard=s.newCardIds&&s.newCardIds.has(cq.id);
       const isFirst=!s.attemptedIds.includes(cq.id);
+      if(isNewCard){
+        // 新規カード：スコア・wrongCountsはカウントしない、キューから外すだけ
+        return{...s,phase:"feedback",queue:s.queue.slice(1),
+               viewedNewCount:(s.viewedNewCount||0)+1,
+               attemptedIds:[...s.attemptedIds,cq.id],
+               feedback:{correct:true,qId:cq.id,correctAns:getCA(cq),blankResults,isFirst,isNewCard:true}};
+      }
       if(correct){
         const nc=s.combo+1;
         return{...s,phase:"feedback",queue:s.queue.slice(1),
@@ -735,7 +748,7 @@ const charTick=()=>{
     const o=c.createOscillator(),g=c.createGain();
     o.connect(g);g.connect(c.destination);
     o.type="sine";o.frequency.value=freq;
-    g.gain.setValueAtTime(0.018,t);
+    g.gain.setValueAtTime(0.028,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.022);
     o.start(t);o.stop(t+0.025);
   }catch(_){}
@@ -760,17 +773,58 @@ function TypewriterText({text,qkey,style}){
 /* ══════════════════════════════════════════════════════════════
    穴埋めコンポーネント（文末で一時停止・Enter で続き）
 ══════════════════════════════════════════════════════════════ */
-function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
+function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,ghostingRef}){
   const[shown,setShown]=useState(0);
   const[paused,setPaused]=useState(false);
-  const[activeBlank,setActiveBlank]=useState(null); // フォーカス中の空欄
-  const[poppingBlank,setPoppingBlank]=useState(null); // pop中の空欄
+  const[activeBlank,setActiveBlank]=useState(null);
+  const[poppingBlank,setPoppingBlank]=useState(null);
+  const[ghosting,setGhosting]=useState(false);
   const tidRef=useRef(null);
+  const ghostTid=useRef(null);
   const fullText=q.q;
 
+  // ghostingRefを親と同期
   useEffect(()=>{
-    setShown(0);setPaused(false);setActiveBlank(null);setPoppingBlank(null);
+    if(ghostingRef) ghostingRef.current=ghosting;
+  },[ghosting]);
+
+  useEffect(()=>{
+    setShown(0);setPaused(false);setActiveBlank(null);setPoppingBlank(null);setGhosting(false);
+    clearTimeout(ghostTid.current);
   },[qkey]);
+
+  // 新規カード：全文表示完了から2秒後に正解を自動タイプ
+  useEffect(()=>{
+    if(!isNew||isFB||shown<fullText.length)return;
+    clearTimeout(ghostTid.current);
+    ghostTid.current=setTimeout(()=>{
+      setGhosting(true);
+      // 各空欄に正解を1文字ずつタイプ
+      let blankIdx=0;
+      let charIdx=0;
+      const answers=q.blanks.map(b=>b.ans[0]);
+      const typeNext=()=>{
+        if(blankIdx>=answers.length){
+          // 全空欄タイプ完了 → 少し待って送信
+          setTimeout(()=>onSubmit(),700);
+          return;
+        }
+        const ans=answers[blankIdx];
+        if(charIdx<=ans.length){
+          dispatch({type:"INPUT",idx:blankIdx,v:ans.slice(0,charIdx)});
+          if(charIdx<ans.length) SFX.typeKey();
+          charIdx++;
+          ghostTid.current=setTimeout(typeNext,charIdx===0?0:80);
+        }
+        if(charIdx>ans.length){
+          blankIdx++;charIdx=0;
+          ghostTid.current=setTimeout(typeNext,300);
+        }
+      };
+      typeNext();
+    },2000);
+    return()=>clearTimeout(ghostTid.current);
+  },[shown,isNew,isFB]);
 
   useEffect(()=>{
     if(paused||isFB||shown>=fullText.length)return;
@@ -811,6 +865,7 @@ function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
     if(e.key==="Tab"||e.key==="Enter"){
       e.preventDefault();
       if(isFB)return;
+      if(ghosting)return; // 自動タイプ中はEnter無効
       const allShown=shown>=fullText.length;
       const isLast=blankIdx===q.blanks.length-1;
       if(isLast&&allShown){
@@ -841,10 +896,14 @@ function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
     return{text:part.slice(0,visLen),showBlank,blankIdx:i};
   });
 
+  // 続きがあるか判定
+  const hasMore=paused&&shown<fullText.length;
+
   return(
     <div style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
       color:"#ece8d8",marginBottom:12,wordBreak:"break-all"}}>
-      {segments.map(({text,showBlank,blankIdx})=>{
+      {segments.map(({text,showBlank,blankIdx},segIdx)=>{
+        const isLastSeg=segIdx===segments.length-1;
         const blank=q.blanks[blankIdx];
         const br=blank&&isFB&&feedback?.blankResults!=null?feedback.blankResults[blankIdx]:null;
         const val=inputs[blankIdx]||"";
@@ -857,6 +916,14 @@ function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
         return(
           <span key={blankIdx}>
             <span>{text}</span>
+            {/* 一時停止中・この空欄がアクティブ・後続テキストあり → 続きインジケーター */}
+            {hasMore&&showBlank&&blankIdx===(activeBlank??0)&&(
+              <span style={{
+                display:"inline-block",verticalAlign:"middle",
+                marginLeft:4,fontSize:DK?12:10,color:"#c9a84c",
+                animation:"continueBlink 0.7s ease infinite",
+              }}>▶ Enter</span>
+            )}
             {blank&&showBlank&&(
               <span style={{
                 display:"inline-block",verticalAlign:"middle",
@@ -868,10 +935,10 @@ function FillInline({q,qkey,inputs,dispatch,isFB,feedback,refs,onSubmit}){
                   key={`blank-${blankIdx}-${qkey}`}
                   style={{
                     display:"block",
-                    background:br===true?"rgba(34,197,94,0.18)":br===false?"rgba(239,68,68,0.18)":isActive?"rgba(201,168,76,0.15)":"#1e1e3a",
-                    border:`1.5px solid ${br===true?"#22c55e":br===false?"#ef4444":isActive?"#c9a84c":"#4a4a72"}`,
+                    background:br===true?"rgba(34,197,94,0.18)":br===false?"rgba(239,68,68,0.18)":ghosting?"rgba(201,168,76,0.08)":isActive?"rgba(201,168,76,0.15)":"#1e1e3a",
+                    border:`1.5px solid ${br===true?"#22c55e":br===false?"#ef4444":ghosting?"rgba(201,168,76,0.3)":isActive?"#c9a84c":"#4a4a72"}`,
                     borderRadius:7,padding:"2px 8px",
-                    color:"#ece8d8",fontSize:16,
+                    color:ghosting?"rgba(201,168,76,0.6)":"#ece8d8",fontSize:16,
                     fontFamily:"inherit",
                     width:w,minWidth:80,
                     textAlign:"center",
@@ -1400,7 +1467,10 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
   const[msg,setMsg]=useState(null);
   const[editId,setEditId]=useState(null);
   const[editName,setEditName]=useState("");
+  const[cardEditDeck,setCardEditDeck]=useState(null); // カード編集中のデッキ
+  const[selected,setSelected]=useState(new Set()); // 選択中カードID
   const fileRef=useRef();
+  const addRef=useRef();
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
 
   const importDeck=async e=>{
@@ -1429,6 +1499,122 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
       dk.name.replace(/\s/g,"_")+".json");
     flash(`「${dk.name}」をエクスポートしました`);
   };
+
+  // カード編集：削除
+  const deleteSelected=()=>{
+    if(selected.size===0)return;
+    const updated=decks.map(d=>d.id===cardEditDeck.id
+      ?{...d,questions:d.questions.filter(q=>!selected.has(q.id))}:d);
+    setDecks(updated);saveDecks(updated);
+    const newDk=updated.find(d=>d.id===cardEditDeck.id);
+    setCardEditDeck(newDk);
+    setSelected(new Set());
+    flash(`${selected.size}問を削除しました`);
+  };
+
+  // カード編集：JSONから追加
+  const addCards=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const data=await readJSONFile(file);
+      const qs=data.questions||data;
+      const err=validateQS(qs);if(err){flash("エラー："+err,false);return;}
+      const existIds=new Set(cardEditDeck.questions.map(q=>q.id));
+      const newQs=qs.filter(q=>!existIds.has(q.id));
+      const merged=[...cardEditDeck.questions,...newQs];
+      const updated=decks.map(d=>d.id===cardEditDeck.id?{...d,questions:merged}:d);
+      setDecks(updated);saveDecks(updated);
+      const newDk=updated.find(d=>d.id===cardEditDeck.id);
+      setCardEditDeck(newDk);
+      flash(`${newQs.length}問を追加しました（重複${qs.length-newQs.length}問スキップ）`);
+    }catch(err){flash("エラー："+err.message,false);}
+    e.target.value="";
+  };
+
+  const toggleCard=id=>setSelected(prev=>{
+    const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;
+  });
+  const toggleAll=()=>setSelected(prev=>
+    prev.size===cardEditDeck.questions.length?new Set():new Set(cardEditDeck.questions.map(q=>q.id))
+  );
+
+  // カード編集画面
+  if(cardEditDeck){
+    const dk=cardEditDeck;
+    const allChecked=selected.size===dk.questions.length&&dk.questions.length>0;
+    return(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
+        display:"flex",alignItems:"flex-start",justifyContent:"center",
+        zIndex:200,padding:16,overflowY:"auto"}}>
+        <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+          padding:"20px 18px",width:"100%",maxWidth:460,display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button onClick={()=>{setCardEditDeck(null);setSelected(new Set());}}
+              style={{background:"none",border:"none",color:"#888",fontSize:18,cursor:"pointer"}}>←</button>
+            <div style={{flex:1}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#ece8d8"}}>{dk.name}</div>
+              <div style={{fontSize:11,color:"#555"}}>{dk.questions.length}問</div>
+            </div>
+          </div>
+          {msg&&<div style={{background:msg.ok?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",
+            border:`1px solid ${msg.ok?"#22c55e":"#ef4444"}`,borderRadius:9,
+            padding:"8px 12px",fontSize:13,color:msg.ok?"#4ade80":"#f87171"}}>{msg.text}</div>}
+
+          {/* ツールバー */}
+          <div style={{display:"flex",alignItems:"center",gap:8,background:"#0d0d20",borderRadius:10,padding:"10px 12px"}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none"}}>
+              <input type="checkbox" checked={allChecked} onChange={toggleAll}
+                style={{width:16,height:16,accentColor:"#c9a84c"}}/>
+              <span style={{fontSize:12,color:"#aaa"}}>
+                {selected.size>0?`${selected.size}問選択中`:"すべて選択"}
+              </span>
+            </label>
+            <div style={{flex:1}}/>
+            {selected.size>0&&(
+              <button onClick={deleteSelected}
+                style={{background:"#3a1010",border:"1px solid #c04040",borderRadius:8,
+                  padding:"5px 12px",fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                {selected.size}問を削除
+              </button>
+            )}
+            <button onClick={()=>addRef.current.click()}
+              style={{background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
+                padding:"5px 12px",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+              ＋ 追加
+            </button>
+            <input ref={addRef} type="file" accept=".json" style={{display:"none"}} onChange={addCards}/>
+          </div>
+
+          {/* カード一覧 */}
+          <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:"60vh",overflowY:"auto"}}>
+            {dk.questions.map((q,idx)=>{
+              const checked=selected.has(q.id);
+              const ans=getCA(q).join(" / ");
+              const shortQ=q.q.length>44?q.q.slice(0,44)+"…":q.q;
+              return(
+                <label key={q.id} style={{display:"flex",alignItems:"flex-start",gap:10,
+                  background:checked?"rgba(201,168,76,0.08)":"#0d0d20",
+                  border:`1px solid ${checked?"#c9a84c":"#1e1e32"}`,
+                  borderRadius:10,padding:"10px 12px",cursor:"pointer",userSelect:"none"}}>
+                  <input type="checkbox" checked={checked} onChange={()=>toggleCard(q.id)}
+                    style={{width:16,height:16,marginTop:2,accentColor:"#c9a84c",flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,color:checked?"#ece8d8":"#aaa",fontWeight:700,lineHeight:1.5}}>
+                      <span style={{color:"#555",marginRight:4,fontSize:11}}>#{idx+1}</span>{shortQ}
+                    </div>
+                    <div style={{fontSize:11,color:"#c9a84c",marginTop:2}}>→ {ans}</div>
+                  </div>
+                </label>
+              );
+            })}
+            {dk.questions.length===0&&<div style={{color:"#555",fontSize:13,textAlign:"center",padding:"16px 0"}}>
+              カードがありません
+            </div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
@@ -1466,10 +1652,10 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
                       fontSize:12,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                 </div>
               ):(
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>setCardEditDeck(dk)}>
                     <div style={{fontSize:14,fontWeight:700,color:"#ece8d8"}}>{dk.name}</div>
-                    <div style={{fontSize:11,color:"#555"}}>{dk.questions.length}問</div>
+                    <div style={{fontSize:11,color:"#555"}}>{dk.questions.length}問 · タップしてカードを編集</div>
                   </div>
                   <button onClick={()=>{setEditId(dk.id);setEditName(dk.name);}}
                     style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
@@ -1647,8 +1833,9 @@ function QuizApp(){
   const[QS,setQS]=useState(DEFAULT_QS);
   const[s,dispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
   const{phase,queue,pendingQueue,score,combo,maxCombo,inputs,timeLeft,feedback,
-        showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart}=s;
+        showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart,viewedNewCount,newCardIds}=s;
   const refs=useRef([]);
+  const ghostingRef=useRef(false); // 自動タイプ中フラグ（FillInlineと共有）
   const[gSt,setGSt]=useState(()=>loadSt());
   const[rankUp,setRankUp]=useState(null);
   const[xpInfo,setXpInfo]=useState(null);
@@ -1677,13 +1864,15 @@ function QuizApp(){
   };
   // デッキを選んでプレイ
   const playDeck=(dk)=>{
+    const freshSRS=loadSRS();
+    const newIds=dk.questions.filter(q=>!freshSRS[q.id]).map(q=>q.id);
     setQS(dk.questions);
     setIsToday(false);
     setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:dk.questions});
+    dispatch({type:"START",QS:dk.questions,newCardIds:newIds});
   };
   // 今日のデッキをプレイ
   const playToday=()=>{
@@ -1699,7 +1888,8 @@ function QuizApp(){
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:combined,pendingStart:review.length||combined.length});
+    const newIds=newCards.map(q=>q.id);
+    dispatch({type:"START",QS:combined,pendingStart:review.length||combined.length,newCardIds:newIds});
   };
 
   /* 完了時：XP + 問題別成績を保存 */
@@ -1757,13 +1947,16 @@ function QuizApp(){
       // ランクバーストアニメ
       setTimeout(()=>{setRankBurst(newRank);setTimeout(()=>setRankBurst(null),1200);},800);
     }
-    setTimeout(()=>score>=MAX_SCORE*0.7?SFX.win():SFX.lose(),500);
+    // 新規カードのみのデッキ（score=0でも全部見た）は勝利音
+    const allNew=QS.every(q=>newCardIds&&newCardIds.has(q.id));
+    setTimeout(()=>(allNew||score>=MAX_SCORE*0.7)?SFX.win():SFX.lose(),500);
   },[phase]);
 
   const q=phase==="feedback"&&feedback?QS.find(qq=>qq.id===feedback.qId):(queue.length>0?QS[queue[0]]:null);
   const dq=q&&shuffled&&q.type==="mc"?{...q,...shuffled}:q;
   const wrongCount=q?(wrongCounts[q.id]||0):0;
   const isFB=phase==="feedback";
+  const isNew=q&&newCardIds?newCardIds.has(q.id):false; // 新規カード判定
   const maxT=qTimer(q||QS[0]);
   const timerPct=timeLeft/maxT*100;
   const timerColor=timeLeft<=5?"#ef4444":timeLeft<=10?"#f97316":"#c9a84c";
@@ -1781,23 +1974,28 @@ function QuizApp(){
   },[timeLeft]);
   useEffect(()=>{
     if(phase!=="feedback"||!feedback)return;
+    if(isNew){
+      // 新規カード：柔らかいチャイム音のみ
+      SFX.newCard();
+      return;
+    }
     if(feedback.correct){
       SFX.correct();
-      // 正解リングアニメ
       setCorrectAnim(true);
       setTimeout(()=>setCorrectAnim(false),700);
       if(combo===3){setTimeout(SFX.combo3,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);}
       else if(combo===5||combo===10){setTimeout(SFX.combo5,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);}
     }else{
       SFX.wrong();
-      // 不正解フラッシュ
       setWrongAnim(true);
       setTimeout(()=>setWrongAnim(false),500);
     }
   },[phase,feedback]);
   useEffect(()=>{
     if(phase!=="feedback")return;
-    const id=setTimeout(()=>dispatch({type:"NEXT",QS}),feedback?.correct?1900:3200);
+    // 不正解 or 新規カード確認中 → 自動進行しない
+    if(isFB&&feedback&&(!feedback.correct||isNew))return;
+    const id=setTimeout(()=>dispatch({type:"NEXT",QS}),1900);
     return()=>clearTimeout(id);
   },[phase,questionKey]);
   useEffect(()=>{
@@ -1817,11 +2015,42 @@ function QuizApp(){
   },[newPhaseStart]);
   useEffect(()=>{
     if(phase!=="question"&&phase!=="feedback")return;
-    const ratio=QS.length>0?answeredCorrectly.length/QS.length:0;
+    const seen=(answeredCorrectly.length||0)+(viewedNewCount||0);
+    const ratio=QS.length>0?seen/QS.length:0;
     const lv=ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0;
     BGM.setLevel(lv);
-  },[answeredCorrectly.length]);
-  // 穴埋め問題の自動フォーカスは削除（タイプライター演出と競合するため）
+  },[questionKey,answeredCorrectly.length,viewedNewCount]);
+  // 不正解 or 新規カード確認中、Enterキーで次へ
+  useEffect(()=>{
+    if(!isFB||!feedback)return;
+    if(feedback.correct&&!isNew)return;
+    const handler=(e)=>{
+      if(e.key==="Enter") dispatch({type:"NEXT",QS});
+    };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[isFB,feedback,isNew]);
+  // 穴埋め問題中、どの空欄にもフォーカスしていない時にEnterで1つ目にフォーカス
+  useEffect(()=>{
+    if(phase!=="question"||isFB||q?.type!=="fill")return;
+    const handler=(e)=>{
+      if(e.key!=="Enter")return;
+      if(ghostingRef.current)return; // 自動タイプ中はEnter無効
+      const focused=refs.current.some(r=>r&&r===document.activeElement);
+      if(!focused&&refs.current[0]){
+        e.preventDefault();
+        refs.current[0].focus();
+      }
+    };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[phase,isFB,questionKey]);
+  // 新規カード・MC：3秒後に自動で正解を送信
+  useEffect(()=>{
+    if(!isNew||isFB||q?.type!=="mc"||phase!=="question")return;
+    const id=setTimeout(()=>submitMC(dq.ans),3000);
+    return()=>clearTimeout(id);
+  },[questionKey,isNew,phase]);
 
   const submitFill=()=>{
     if(phase!=="question"||!q)return;
@@ -1999,8 +2228,8 @@ function QuizApp(){
     <div style={S.root}>
       {/* 既存フィードバックフラッシュ */}
       {isFB&&<div className="flashFade" style={{...S.flashOverlay,
-        background:feedback?.correct?"rgba(34,197,94,0.18)":"rgba(239,68,68,0.42)",
-        animationDuration:feedback?.correct?"1.9s":"3.2s"}}/>}
+        background:isNew?"rgba(201,168,76,0.12)":feedback?.correct?"rgba(34,197,94,0.18)":"rgba(239,68,68,0.42)",
+        animationDuration:"1.9s"}}/>}
       {/* 新カードフェーズ開始通知 */}
       {newPhaseStart&&(
         <div style={{position:"fixed",top:"30%",left:0,right:0,
@@ -2074,15 +2303,18 @@ function QuizApp(){
         <span style={{...S.timerN,color:timerColor}}>{phase==="question"?`${timeLeft}s`:""}</span>
       </div>
       <div style={S.qcard}
-        className={isFB&&!feedback?.correct?"shake":""}>
+        className={isFB&&!isNew&&!feedback?.correct?"shake":""}
+        onClick={()=>{
+          if(isFB&&feedback&&(!feedback.correct||isNew)) dispatch({type:"NEXT",QS});
+        }}>
         <div style={S.qmeta}>
           {q.type==="fill"?"穴埋め":"選択式"} · {q.pts}点
           {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>🔄 再挑戦 {wrongCount}回目</span>}
           {q.type==="fill"&&!isFB&&<span style={{color:"#555",marginLeft:8,fontSize:10}}>← タップして入力</span>}
         </div>
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt}/>
-          :<FillInline key={questionKey} q={q} qkey={questionKey} inputs={inputs} dispatch={dispatch}
-              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill}/>}
+          :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
+              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef}/>}
         {!showHint&&!isFB&&<button style={S.hintBtn} onClick={()=>dispatch({type:"HINT"})}>💡 ヒント</button>}
         {q.type==="fill"&&!isFB&&(
           <button style={{...S.btnG,marginTop:10,padding:"10px 28px",fontSize:14}}
@@ -2091,19 +2323,41 @@ function QuizApp(){
         {showHint&&<div style={S.hintBox}>💡 {q.hint}</div>}
         {q.type==="mc"&&(
           <div style={S.optG}>
-            {dq.opts.map((opt,i)=>(
-              <button key={i} onClick={()=>submitMC(i)} disabled={isFB}
-                style={{...S.optBtn,
-                  background:isFB&&i===dq.ans?"rgba(34,197,94,0.2)":"#1a1a2e",
-                  border:`1px solid ${isFB&&i===dq.ans?"#22c55e":"#2a2a42"}`}}>
-                <span style={S.optL}>{["A","B","C","D"][i]}</span>
-                <span style={S.optT}>{opt}</span>
-              </button>
-            ))}
+            {dq.opts.map((opt,i)=>{
+              // 新規カード：正解ボタンを薄く金色にハイライト（2秒後）
+              const isCorrectOpt=i===dq.ans;
+              const ghostHL=isNew&&!isFB&&isCorrectOpt;
+              return(
+                <button key={i} onClick={()=>submitMC(i)} disabled={isFB}
+                  style={{...S.optBtn,
+                    background:isFB&&isCorrectOpt?"rgba(34,197,94,0.2)":ghostHL?"rgba(201,168,76,0.12)":"#1a1a2e",
+                    border:`1px solid ${isFB&&isCorrectOpt?"#22c55e":ghostHL?"rgba(201,168,76,0.4)":"#2a2a42"}`}}>
+                  <span style={S.optL}>{["A","B","C","D"][i]}</span>
+                  <span style={{...S.optT,color:ghostHL?"rgba(201,168,76,0.7)":"inherit"}}>{opt}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
-        {isFB&&feedback?.correct&&(
+        {isFB&&isNew&&(
+          <div style={{marginTop:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,
+              padding:"10px 14px",background:"rgba(201,168,76,0.1)",
+              border:"1px solid #c9a84c",borderRadius:10,flexWrap:"wrap",marginBottom:8}}>
+              <span style={{fontSize:20}}>📖</span>
+              <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>初回確認</span>
+              <span style={{color:"#777",fontSize:12,marginLeft:4}}>次回から本番です</span>
+            </div>
+            <button onClick={()=>dispatch({type:"NEXT",QS})}
+              style={{background:"#1e1e36",border:"1px solid #3a3a58",
+                borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
+                cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              次へ →
+            </button>
+          </div>
+        )}
+        {isFB&&!isNew&&feedback?.correct&&(
           <div style={S.correctBanner}>
             <span style={{fontSize:22}}>⭕</span>
             <span style={{color:"#4ade80",fontWeight:700,fontSize:15}}>正解！</span>
@@ -2113,7 +2367,7 @@ function QuizApp(){
             {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>🔥{combo}コンボ！</span>}
           </div>
         )}
-        {isFB&&!feedback?.correct&&(
+        {isFB&&!isNew&&!feedback?.correct&&(
           <div style={S.wrongReveal}>
             <div style={S.wrongTop}>
               <span style={{fontSize:20}}>❌</span>
@@ -2129,6 +2383,12 @@ function QuizApp(){
               ))}
             </div>
             <div style={S.retryMsg}>🔄 もう一度チャレンジ！</div>
+            <button onClick={()=>dispatch({type:"NEXT",QS})}
+              style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
+                borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
+                cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              次へ →
+            </button>
           </div>
         )}
       </div>
