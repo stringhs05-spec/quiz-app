@@ -877,7 +877,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
             cur=partEnd+3;
             return q.blanks[i]!=null&&next>partEnd;
           });
-          if(anyBlankVisible){clearInterval(tidRef.current);setPaused(true);}
+          if(anyBlankVisible&&!isNew){clearInterval(tidRef.current);setPaused(true);}
         }
         if(next>=fullText.length)clearInterval(tidRef.current);
         return next;
@@ -1926,7 +1926,8 @@ function QuizApp(){
   const[comboAnim,setComboAnim]=useState(null);
   const[timerEdge,setTimerEdge]=useState(false);
   const[rankBurst,setRankBurst]=useState(null);
-  const[feedbackReadyKey,setFeedbackReadyKey]=useState(-1); // ゴーストタップ防止
+  const feedbackReadyKeyRef=useRef(-1); // ゴーストタップ防止（ref で常に最新値）
+  const[feedbackReadyKey,setFeedbackReadyKey]=useState(-1);
   // デッキ・SRS
   const[decks,setDecks]=useState(()=>loadDecks());
   const[srs,setSRS]=useState(()=>loadSRS());
@@ -2060,7 +2061,8 @@ function QuizApp(){
   useEffect(()=>{
     if(phase!=="feedback"||!feedback)return;
     // ゴーストタップ防止：600ms後にquestionKeyを登録
-    const tid=setTimeout(()=>setFeedbackReadyKey(questionKey),600);
+    feedbackReadyKeyRef.current=-1;
+    const tid=setTimeout(()=>{feedbackReadyKeyRef.current=questionKey;setFeedbackReadyKey(questionKey);},600);
     if(isNew){
       SFX.newCard();
       return()=>clearTimeout(tid);
@@ -2104,7 +2106,7 @@ function QuizApp(){
   useEffect(()=>{
     if(phase!=="feedback"||!isFB||!feedback)return;
     const handler=(e)=>{
-      if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&feedbackReadyKey===questionKey) dispatch({type:"NEXT",QS});
+      if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&feedbackReadyKeyRef.current===questionKey) dispatch({type:"NEXT",QS});
     };
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
