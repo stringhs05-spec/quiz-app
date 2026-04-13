@@ -862,7 +862,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   // Enter：タイプ再開（最後の空欄かつ全文表示済みなら送信）
   const handleKeyDown=(blankIdx,e)=>{
-    if(e.key==="Tab"||e.key==="Enter"){
+    if(e.key==="Tab"||(e.key==="Enter"&&!e.nativeEvent?.isComposing&&!e.isComposing)){
       e.preventDefault();
       if(isFB)return;
       if(ghosting)return; // 自動タイプ中はEnter無効
@@ -1865,6 +1865,7 @@ function QuizApp(){
   // デッキを選んでプレイ
   const playDeck=(dk)=>{
     const freshSRS=loadSRS();
+    // デッキは常に登録順で出題（シャッフルしない）
     const newIds=dk.questions.filter(q=>!freshSRS[q.id]).map(q=>q.id);
     setQS(dk.questions);
     setIsToday(false);
@@ -1876,20 +1877,23 @@ function QuizApp(){
   };
   // 今日のデッキをプレイ
   const playToday=()=>{
-    // stale closureを避けるため、localStorageから直接最新SRSを読む
     const freshSRS=loadSRS();
     const{review,newCards}=buildTodaysDeck(decks,freshSRS);
-    const combined=[...review,...newCards];
+    // 今日のデッキ出題順：ミスあり（lapses>0）→ 通常due → 新カード（各グループ内はシャッフル）
+    const withLapses=shuffle(review.filter(q=>(freshSRS[q.id]?.lapses||0)>0));
+    const noLapses=shuffle(review.filter(q=>(freshSRS[q.id]?.lapses||0)===0));
+    const combined=[...withLapses,...noLapses,...shuffle(newCards)];
     if(combined.length===0)return;
-    setSRS(freshSRS); // stateも最新に同期
+    setSRS(freshSRS);
     setQS(combined);
     setIsToday(true);
     setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
+    const reviewCount=withLapses.length+noLapses.length;
     const newIds=newCards.map(q=>q.id);
-    dispatch({type:"START",QS:combined,pendingStart:review.length||combined.length,newCardIds:newIds});
+    dispatch({type:"START",QS:combined,pendingStart:reviewCount||combined.length,newCardIds:newIds});
   };
 
   /* 完了時：XP + 問題別成績を保存 */
@@ -2025,7 +2029,7 @@ function QuizApp(){
     if(!isFB||!feedback)return;
     if(feedback.correct&&!isNew)return;
     const handler=(e)=>{
-      if(e.key==="Enter") dispatch({type:"NEXT",QS});
+      if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229) dispatch({type:"NEXT",QS});
     };
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
@@ -2035,6 +2039,7 @@ function QuizApp(){
     if(phase!=="question"||isFB||q?.type!=="fill")return;
     const handler=(e)=>{
       if(e.key!=="Enter")return;
+      if(e.isComposing||e.keyCode===229)return; // IME変換中は無視
       if(ghostingRef.current)return; // 自動タイプ中はEnter無効
       const focused=refs.current.some(r=>r&&r===document.activeElement);
       if(!focused&&refs.current[0]){
