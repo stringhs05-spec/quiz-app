@@ -781,7 +781,20 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   const[ghosting,setGhosting]=useState(false);
   const tidRef=useRef(null);
   const ghostTid=useRef(null);
+  const isComposingRef=useRef(false); // IME変換中フラグ
   const fullText=q.q;
+
+  // IME composition イベントで確実にフラグ管理
+  useEffect(()=>{
+    const onStart=()=>{ isComposingRef.current=true; };
+    const onEnd=()=>{ isComposingRef.current=false; };
+    window.addEventListener("compositionstart",onStart);
+    window.addEventListener("compositionend",onEnd);
+    return()=>{
+      window.removeEventListener("compositionstart",onStart);
+      window.removeEventListener("compositionend",onEnd);
+    };
+  },[]);
 
   // ghostingRefを親と同期
   useEffect(()=>{
@@ -862,7 +875,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   // Enter：タイプ再開（最後の空欄かつ全文表示済みなら送信）
   const handleKeyDown=(blankIdx,e)=>{
-    if(e.key==="Tab"||(e.key==="Enter"&&!e.nativeEvent?.isComposing&&!e.isComposing)){
+    if(e.key==="Tab"||(e.key==="Enter"&&!isComposingRef.current)){
       e.preventDefault();
       if(isFB)return;
       if(ghosting)return; // 自動タイプ中はEnter無効
@@ -1690,6 +1703,7 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
   const rank=gSt?getRank(gSt.totalXP):null;
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
+  const[deckDialog,setDeckDialog]=useState(null); // 選択中デッキ
   return(
     <div style={{minHeight:"100vh",background:"#0d0d18",
       fontFamily:"'Noto Serif JP',serif",color:"#e8dcc8",
@@ -1756,10 +1770,50 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
             </span>
           </div>
         )}
+        {/* デッキ選択ダイアログ */}
+        {deckDialog&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",
+            display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}
+            onClick={()=>setDeckDialog(null)}>
+            <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+              padding:"22px 20px",width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:12}}
+              onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:15,fontWeight:800,color:"#ece8d8",marginBottom:4}}>
+                📚 {deckDialog.name}
+              </div>
+              <div style={{fontSize:11,color:"#555",marginBottom:4}}>{deckDialog.questions.length}問</div>
+              <button onClick={()=>{setDeckDialog(null);onPlayDeck(deckDialog,false);}}
+                style={{background:"#c9a84c",border:"none",borderRadius:12,padding:"14px",
+                  fontSize:DK?16:14,fontWeight:800,color:"#0d0d18",cursor:"pointer",
+                  fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>▶</span>
+                <div>
+                  <div>通常プレイ</div>
+                  <div style={{fontSize:11,fontWeight:400,opacity:0.7,marginTop:2}}>出題順 · 自動入力なし</div>
+                </div>
+              </button>
+              <button onClick={()=>{setDeckDialog(null);onPlayDeck(deckDialog,true);}}
+                style={{background:"#1e1e36",border:"1px solid #4a4a7a",borderRadius:12,padding:"14px",
+                  fontSize:DK?16:14,fontWeight:800,color:"#ece8d8",cursor:"pointer",
+                  fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>📖</span>
+                <div>
+                  <div>初回確認モード</div>
+                  <div style={{fontSize:11,fontWeight:400,color:"#888",marginTop:2}}>正解を自動表示して確認</div>
+                </div>
+              </button>
+              <button onClick={()=>setDeckDialog(null)}
+                style={{background:"none",border:"none",color:"#555",fontSize:13,
+                  cursor:"pointer",fontFamily:"inherit",marginTop:2}}>
+                キャンセル
+              </button>
+            </div>
+          </div>
+        )}
         {decks.map(dk=>{
           const dueCount=countDue(dk.questions,srs);
           return(
-            <button key={dk.id} onClick={()=>onPlayDeck(dk)}
+            <button key={dk.id} onClick={()=>setDeckDialog(dk)}
               style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,
                 padding:"14px 16px",cursor:"pointer",fontFamily:"inherit",
                 textAlign:"left",transition:"all 0.15s",width:"100%"}}>
@@ -1863,10 +1917,13 @@ function QuizApp(){
     dispatch({type:"BACK",QS});
   };
   // デッキを選んでプレイ
-  const playDeck=(dk)=>{
+  const playDeck=(dk,introMode=false)=>{
     const freshSRS=loadSRS();
-    // デッキは常に登録順で出題（シャッフルしない）
-    const newIds=dk.questions.filter(q=>!freshSRS[q.id]).map(q=>q.id);
+    // introMode=false（通常）は新規カードも自動入力なし
+    // introMode=true のときのみ新規カードに自動入力を適用
+    const newIds=introMode
+      ? dk.questions.filter(q=>!freshSRS[q.id]).map(q=>q.id)
+      : [];
     setQS(dk.questions);
     setIsToday(false);
     setRankUp(null);setXpInfo(null);
@@ -2372,6 +2429,9 @@ function QuizApp(){
             {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>🔥{combo}コンボ！</span>}
           </div>
         )}
+        {isFB&&!isNew&&feedback?.correct&&q.explanation&&(
+          <div style={S.explanationBox}>{q.explanation}</div>
+        )}
         {isFB&&!isNew&&!feedback?.correct&&(
           <div style={S.wrongReveal}>
             <div style={S.wrongTop}>
@@ -2387,6 +2447,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
             <div style={S.retryMsg}>🔄 もう一度チャレンジ！</div>
             <button onClick={()=>dispatch({type:"NEXT",QS})}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
@@ -2444,6 +2505,7 @@ const S={
   correctAnsRow:{display:"flex",alignItems:"center",gap:DK?10:6},
   correctAns:{fontSize:DK?38:28,fontWeight:900,color:"#f0c060",lineHeight:1.4},
   retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
+  explanationBox:{marginTop:10,padding:DK?"12px 16px":"9px 12px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?14:12,color:"#93c5fd",lineHeight:1.7},
 };
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
