@@ -438,7 +438,21 @@ const SRS_KEY="econ_srs_v1";
 function loadDecks(){
   try{
     const v=localStorage.getItem(DK_LIST_KEY);
-    if(v){const d=JSON.parse(v);if(d.length>0)return d;}
+    if(v){
+      const d=JSON.parse(v);
+      if(d.length>0){
+        // 古いデフォルトデッキ（EN Session 1）を新しいものに差し替え
+        const hasOldDefault=d.some(dk=>dk.id==="dk_default_session01"&&dk.name!=="第1回：イントロダクション");
+        if(hasOldDefault){
+          const updated=d.map(dk=>dk.id==="dk_default_session01"
+            ?{...dk,name:"第1回：イントロダクション",questions:DEFAULT_QS}
+            :dk);
+          try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(updated));}catch{}
+          return updated;
+        }
+        return d;
+      }
+    }
     // デッキが空の場合はデフォルトデッキを追加
     const defaultDeck={
       id:"dk_default_session01",
@@ -2339,7 +2353,7 @@ function QuizApp(){
       setTimeout(()=>{setRankBurst(newRank);setTimeout(()=>setRankBurst(null),1200);},800);
     }
     // 新規カードのみのデッキ（score=0でも全部見た）は勝利音
-    const allNew=QS.every(q=>newCardIds&&newCardIds.has(q.id));
+    const allNew=QS.every(q=>Array.isArray(newCardIds)&&newCardIds.includes(q.id));
     setTimeout(()=>(allNew||score>=MAX_SCORE*0.7)?SFX.win():SFX.lose(),500);
   },[phase]);
 
