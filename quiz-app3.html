@@ -131,7 +131,20 @@ const DK_LIST_KEY="econ_decks_v1";
 const SRS_KEY="econ_srs_v1";
 
 function loadDecks(){
-  try{const v=localStorage.getItem(DK_LIST_KEY);return v?JSON.parse(v):[];}
+  try{
+    const v=localStorage.getItem(DK_LIST_KEY);
+    if(v){const d=JSON.parse(v);if(d.length>0)return d;}
+    // デッキが空の場合はデフォルトデッキを追加
+    const defaultDeck={
+      id:"dk_default_session01",
+      name:"EN Session 1: Introduction",
+      questions:DEFAULT_QS,
+      createdAt:new Date().toISOString()
+    };
+    const initial=[defaultDeck];
+    try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(initial));}catch{}
+    return initial;
+  }
   catch{return[];}
 }
 function saveDecks(decks){try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(decks));}catch{}}
@@ -320,17 +333,23 @@ const getCtx=()=>{
 const unlockAudio=()=>{
   try{
     const c=getCtx();
-    const buf=c.createBuffer(1,1,22050);
-    const src=c.createBufferSource();
-    src.buffer=buf;src.connect(c.destination);src.start(0);
-    c.resume().catch(()=>{});
+    if(c.state==="suspended"){
+      c.resume().catch(()=>{});
+      // 無音バッファで強制アンロック
+      const buf=c.createBuffer(1,1,22050);
+      const src=c.createBufferSource();
+      src.buffer=buf;src.connect(c.destination);src.start(0);
+    }
   }catch(_){}
 };
-document.addEventListener("touchstart",unlockAudio,{once:true});
-document.addEventListener("mousedown",unlockAudio,{once:true});
+// タッチ・クリック全てでアンロックを試みる（once:falseで毎回）
+document.addEventListener("touchstart",unlockAudio,{passive:true});
+document.addEventListener("mousedown",unlockAudio,{passive:true});
+document.addEventListener("keydown",unlockAudio,{passive:true});
 const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25}={})=>{
   try{
     const c=getCtx();
+    if(c.state==="suspended"){c.resume().catch(()=>{});return;}
     freqs.forEach((f,i)=>{
       if(!f)return;
       const t=c.currentTime+i*gap/1000;
@@ -475,6 +494,7 @@ const _bgmTick=()=>{
   const th=_bgmTheme;
   try{
     const c=getCtx();
+    if(c.state==="suspended") c.resume().catch(()=>{});
     if(c.state==="running"){
       const st=_bgmStep%16;
       const lv=_bgmLevel;
