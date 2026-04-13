@@ -50,21 +50,326 @@ const { useReducer, useEffect, useRef, useState, useMemo } = React;
 const DK = window.innerWidth >= 768; // デスクトップ判定
 
 const DEFAULT_QS = [
-  {id:"a2c5e8f1",type:"fill",pts:1,q:"Japan holds a unique place in economic history as the first country outside ___ and North America to achieve sustained industrialization. Historian Penelope Francks argues that Japan pioneered an alternative \"labour-intensive\" path, distinct from the capital-intensive model of ___.",blanks:[{ans:["Europe","europe"]},{ans:["Britain","britain","England","england","UK","uk"]}],hint:"Francks's key argument: two geographic terms that anchor the comparative framework"},
-  {id:"b4d7f1a3",type:"fill",pts:1,q:"The Tokugawa shogunate ruled Japan for approximately ___ years, from 1603 to 1868 — longer than the ___ States has existed as an independent nation.",blanks:[{ans:["260"]},{ans:["United","united"]}],hint:"The comparison with the U.S. gives a sense of scale"},
-  {id:"c6e2f9d4",type:"fill",pts:1,q:"Under the Tokugawa system, Japan was governed by a shōgun at the top, with approximately 270 regional domains, each ruled by a feudal lord called a ___. Wealth and status were measured in units of ___.",blanks:[{ans:["daimyō","daimyo"]},{ans:["rice"]}],hint:"Two Tier 2 terms that define the Tokugawa political economy"},
-  {id:"d8f3a5b7",type:"fill",pts:1,q:"Although often described as a \"closed country,\" Tokugawa Japan maintained ___ official trade channels. The most important was Nagasaki, where trade with the Dutch and ___ was conducted.",blanks:[{ans:["four","4"]},{ans:["Chinese","chinese","China","china"]}],hint:"Corrects the misconception of total isolation — four channels, not zero"},
-  {id:"e1a4b6c8",type:"fill",pts:1,q:"In 1853, American Commodore ___ arrived in Japan with warships. The resulting treaties were \"unequal\" because Japan lost tariff ___ and had to accept extraterritoriality for foreign nationals.",blanks:[{ans:["Perry","perry"]},{ans:["autonomy"]}],hint:"\"Perry\" + \"tariff autonomy\" — the two key terms for the opening of Japan"},
-  {id:"f9b2c7d5",type:"fill",pts:1,q:"The Meiji government's two guiding slogans were fukoku kyōhei (\"rich country, strong ___\") and shokusan kōgyō (\"promote ___\"). These show that economic and military modernization were inseparable state goals.",blanks:[{ans:["army","military"]},{ans:["industry"]}],hint:"Completing the blanks internalizes the English translations of these foundational slogans"},
-  {id:"a3c6d8e1",type:"fill",pts:1,q:"The Meiji government built model factories and later sold many to private entrepreneurs at low prices. These entrepreneurs built large conglomerates known as ___, including Mitsui, Mitsubishi, ___, and Yasuda.",blanks:[{ans:["zaibatsu"]},{ans:["Sumitomo","sumitomo"]}],hint:"\"Zaibatsu\" is the most important Tier 2 term; know all four of the Big Four"},
-  {id:"b5d8e2f4",type:"fill",pts:1,q:"In just ___ years between the Meiji Restoration (1868) and Japan's defeat in 1945, the country fought five major wars. The last and most devastating was the ___ War (1941–45).",blanks:[{ans:["77"]},{ans:["Pacific","pacific"]}],hint:"\"77 years, five wars\" captures the extraordinary pace of militarization"},
-  {id:"c7e1f3a6",type:"fill",pts:1,q:"After World War II, GHQ implemented three major reforms: zaibatsu dissolution, ___ reform (redistributing farmland to tenant farmers), and ___ reform (guaranteeing workers' right to organize).",blanks:[{ans:["land","agrarian"]},{ans:["labor","labour"]}],hint:"Three major reforms: zaibatsu dissolution + ___ reform + ___ reform"},
-  {id:"d9f4a6b2",type:"fill",pts:1,q:"Japan's high-growth era (1955–73) saw GDP growth averaging nearly ___% per year. By 1968, Japan had become the world's ___-largest economy.",blanks:[{ans:["10"]},{ans:["second","2nd"]}],hint:"\"10% growth\" and \"second-largest economy\" — two numbers that define the postwar miracle"},
-  {id:"e8a3b5c7",type:"fill",pts:2,q:"The Dodge Line of 1949 set a fixed exchange rate of 1 dollar = ___ yen. This rate remained in place for over 20 years, until the ___ Shock of 1971 ended the Bretton Woods system.",blanks:[{ans:["360"]},{ans:["Nixon","nixon"]}],hint:"\"360 yen\" and \"Nixon Shock\" bookend the fixed exchange rate era"},
-  {id:"f2a6b9c4",type:"fill",pts:2,q:"Finance Minister ___ Korekiyo used deficit spending to recover from the Showa Depression in the early 1930s. His approach is often called \"Keynesianism before ___.\"",blanks:[{ans:["Takahashi","takahashi"]},{ans:["Keynes","keynes"]}],hint:"A proper noun + a famous economist's name — a phrase worth memorizing"},
-  {id:"a7b1c3d8",type:"fill",pts:2,q:"The Nikkei stock index peaked at 38,915 on December 29, ___. It did not surpass this level until ___ — a gap of 34 years that epitomizes Japan's \"Lost Decades\".",blanks:[{ans:["1989"]},{ans:["2024"]}],hint:"\"34 years to recover a stock index\" makes the stagnation tangible and current"},
-  {id:"b4c9d2e6",type:"fill",pts:2,q:"Japan's government debt currently exceeds ¥1,000 trillion, which is over ___% of GDP — the highest ratio among ___ nations.",blanks:[{ans:["200"]},{ans:["developed","advanced"]}],hint:"The standard English summary of Japan's fiscal position"},
-  {id:"c5d8e1f3",type:"fill",pts:2,q:"During World War I (1914–18), Japan's economy boomed as European factories turned to war production. Japan exported heavily to Asia and Africa and was transformed from a ___ nation to a ___ nation.",blanks:[{ans:["debtor","debt"]},{ans:["creditor"]}],hint:"\"From debtor to creditor\" — a two-word summary of Japan's WWI transformation"},
+  {
+    "id": "s1q01a043",
+    "type": "fill",
+    "pts": 1,
+    "q": "江戸幕府は約 ___ 年間続いた。その経済的基盤は、田畑の収穫高を米の量で表す ___ 制であった。",
+    "blanks": [
+      {
+        "ans": [
+          "260"
+        ]
+      },
+      {
+        "ans": [
+          "石高",
+          "こくだか"
+        ]
+      }
+    ],
+    "hint": "江戸時代の長さ＋幕藩体制を支えた経済制度の名前",
+    "explanation": "江戸幕府（1603〜1868）は265年間続いた。武田（2019）は幕藩制社会を「2世紀半を超える長期間」と表現し、この間に都市の市場経済の発展や農村での商品経済の深化によって「近代の可能性を懐胎する社会」になったと述べている（武田 pp.23-24）。石高制は、太閤検地を通じて成立した制度で、田畑も屋敷地も一様に米の収穫高で測り、この収穫高（石高）を基準に年貢を徴収した。大名は石高に応じた軍役を幕府に負い、石高制は単なる税制ではなく幕藩体制全体を支える政治的・経済的な基盤だった（武田 p.24）。／【世界史との比較】17世紀に世界は「全般的危機」を迎え、地球規模の寒冷期が飢饉や疫病の蔓延をもたらし、各地で戦乱や反乱が同時多発した。中国では明朝が滅亡し清朝が開かれたが（中西（2023） p.88）、日本は例外的に人口増加を実現した。260年の安定は世界史的にはむしろ異例だった。"
+  },
+  {
+    "id": "s1q026038",
+    "type": "fill",
+    "pts": 1,
+    "q": "18世紀初頭の江戸は人口 ___ 万を超える世界最大級の都市だった。同時期のロンドンは約60万、パリは約 ___ 万で、江戸はこれらを大きく上回っていた。",
+    "blanks": [
+      {
+        "ans": [
+          "100"
+        ]
+      },
+      {
+        "ans": [
+          "50"
+        ]
+      }
+    ],
+    "hint": "江戸・ロンドン・パリの3都市を比較する問題——江戸の巨大さを実感する",
+    "explanation": "1721年の幕府調査から推計した全国人口は約3,128万人。江戸は町方人口だけでなく武士とその家族を含めると100万を超えた（中西（2023） pp.126-127）。参勤交代制度が武士人口を膨らませていたことも、江戸の巨大さの背景にある。／【世界史との比較】中西（2023）はポメランツの「大分岐」論を紹介している。18世紀中葉まで北西ヨーロッパと中国の経済発展の度合いにほとんど差がなかった。決定的な差が開くのは18世紀後半以降、北西ヨーロッパのみが石炭とアメリカ大陸の資源を活用してからだという（中西（2023） pp.109-110）。18世紀初頭の時点では、江戸がロンドンやパリより大きくても不思議ではなかった。"
+  },
+  {
+    "id": "s1q0339c0",
+    "type": "fill",
+    "pts": 1,
+    "q": "1859年の開港直後、日本と海外では金と銀の交換比率が大きく異なっていた。日本国内では金1に対し銀約5だったが、国際比価は金1に対し銀約 ___ で、この差を利用した金の流出が起きた。幕府は金の含有量を減らした ___ を鋳造して対処した。",
+    "blanks": [
+      {
+        "ans": [
+          "15"
+        ]
+      },
+      {
+        "ans": [
+          "万延小判",
+          "まんえんこばん"
+        ]
+      }
+    ],
+    "hint": "金銀比価の数字の差（5 vs ???）と、幕府が鋳造した新しい小判の名前",
+    "explanation": "三和（2021）によれば、メキシコ・ドルを1分銀に交換し小判に替えて輸出するだけで元手が約2.6倍になる商売が成立し、大量の金が流出した（三和（2021） pp.29-30）。幕府は金の含有量を約3分の1に切り下げた万延小判を鋳造して対処したが、「大幅な貨幣の実質価値の削減は、やがて物価騰貴をひきおこし、封建制社会の解体を促進させる結果となった」（三和（2021） p.30）。開港がいきなり通貨危機を引き起こしたことになる。／【世界史との比較】この金銀比価の問題は19世紀半ばに進行していた国際金本位制への移行の一環だった。中国でもアヘン戦争後に銀の流出が深刻な問題となっており、メキシコ・ドル（洋銀）がアジア貿易の基準通貨として機能していた（中西（2023） pp.144-146）。"
+  },
+  {
+    "id": "s1q04f511",
+    "type": "fill",
+    "pts": 1,
+    "q": "明治維新（1868年）から敗戦（1945年）までのわずか77年間に、日本は5つの対外戦争を経験した。最初の対外戦争は1894年の ___ 戦争であり、最後は1941年に始まった ___ 戦争であった。",
+    "blanks": [
+      {
+        "ans": [
+          "日清",
+          "にっしん"
+        ]
+      },
+      {
+        "ans": [
+          "太平洋",
+          "たいへいよう"
+        ]
+      }
+    ],
+    "hint": "77年間に5つの戦争——最初（1894年）と最後（1941年）の名前",
+    "explanation": "5つの戦争は日清（1894）→日露（1904）→第一次大戦（1914）→日中（1937）→太平洋（1941）。平均すると約15年に1回の頻度である。戦争のたびに財政規模が飛躍的に拡大し、転位効果が発生した。日清戦後には国民総支出に占める財政のウエイトが1890年の11.3%から1900年には19.3%に増加した（武田（2019） p.155）。／【世界史との比較】同じ77年間にヨーロッパでは普仏戦争（1870）・第一次大戦（1914）・第二次大戦（1939）の3つだった。金井他（2010）によれば、日清戦争の勝利で日本が賠償金をもとに金本位制への移行と工業化の促進を果たしたことを指摘しており、戦争が経済発展の資金源となった構造が見えてくる（金井他（2010） p.136）。"
+  },
+  {
+    "id": "s1q058f68",
+    "type": "fill",
+    "pts": 1,
+    "q": "第一次世界大戦（1914〜18年）中、ヨーロッパの工場が戦争に動員された結果、日本はアジア・アフリカ向けの輸出を急拡大させた。この好景気で一気に財を成した人々は ___ と呼ばれ、日本は対外 ___ 国から債権国に転換した。",
+    "blanks": [
+      {
+        "ans": [
+          "成金",
+          "なりきん"
+        ]
+      },
+      {
+        "ans": [
+          "債務",
+          "さいむ"
+        ]
+      }
+    ],
+    "hint": "将棋用語に由来する呼び名＋「借りる側→貸す側」への転換",
+    "explanation": "1914年7月時点で日本は約15億1,600万円の債務超過国だったが、大戦中の輸出急増により1918年末には2億8,700万円の債権超過に転換した（三和（2021） p.98）。正貨保有高も1913年末の3億7,600万円から1920年末の21億7,800万円に急増した。／【世界史との比較】中西（2023）は輸出拡大の背景を3経路で整理している。①ヨーロッパへの軍需品・食料品輸出、②アジアへの工業製品輸出（欧州製品の代替）、③アメリカへの生糸輸出（中西（2023） pp.222-223）。第一次大戦は日本が世界経済の構造変化を利用して国際的地位を逆転させた初めての経験だった。"
+  },
+  {
+    "id": "s1q06b034",
+    "type": "fill",
+    "pts": 1,
+    "q": "1945年の敗戦後、日本経済は壊滅状態だったが、1950年に勃発した ___ 戦争で在日アメリカ軍から大量の物資・サービスの注文が入った。この軍需による景気を ___ ブームと呼ぶ。",
+    "blanks": [
+      {
+        "ans": [
+          "朝鮮",
+          "ちょうせん"
+        ]
+      },
+      {
+        "ans": [
+          "特需",
+          "とくじゅ"
+        ]
+      }
+    ],
+    "hint": "1950年に始まった隣国の戦争の名前＋その軍需景気の呼び名",
+    "explanation": "特需第1年目の契約高は円換算で約1,184億円、GNP比約3%。金額以上に重要だったのは、外貨不足が深刻だった時期にドル収入をもたらしたことである（三和（2021） p.189）。武田（2019）も「単に戦場に近かったことが、このような機会を日本にもたらした」と記す（武田（2019） p.324）。／【世界史との比較】中西（2023）によれば、朝鮮戦争は冷戦の文脈でアメリカの対日政策を決定的に転換させ、占領政策の主目的が「非軍事化」から「経済復興」へと変わった（中西（2023） pp.277-278）。西ドイツも同時期に「奇跡の復興」を遂げており、冷戦構造が旧敵国の経済復興を促進するという逆説的な構図が東西両陣営で同時に見られた。"
+  },
+  {
+    "id": "s1q07a553",
+    "type": "fill",
+    "pts": 1,
+    "q": "高度経済成長期（1955〜73年）にGDP成長率は年平均約 ___ %に達し、1968年には日本は世界第 ___ 位の経済大国となった。",
+    "blanks": [
+      {
+        "ans": [
+          "10"
+        ]
+      },
+      {
+        "ans": [
+          "2"
+        ]
+      }
+    ],
+    "hint": "成長率の数字と、西ドイツを抜いた順位",
+    "explanation": "日本の1950-73年のGDP成長率は9.29%で、西ヨーロッパ平均4.81%、アメリカ3.93%を大きく上回った（武田（2019） p.12）。高成長の最大の推進力は民間設備投資で、軍事支出を極小に抑え、高い貯蓄率（1970年時点で家計可処分所得の18.2%）を民需中心の固定資本形成に集中したことが要因だった（三和（2021） pp.196-197）。／【世界史との比較】1950〜70年代は先進国全体が高度成長を経験した「黄金の30年」だった。技術革新のうねりを基盤に、アメリカ主導のIMF＝GATT体制のもとで世界市場が拡大し、石油などの資源価格も安定していた（三和（2021） p.195）。日本だけが特別だったのではなく、世界的な高成長期のなかで日本が突出した成長率を実現した。"
+  },
+  {
+    "id": "s1q082b26",
+    "type": "fill",
+    "pts": 1,
+    "q": "バブル経済のピークだった ___ 年12月29日、日経平均株価は史上最高値を記録した。この記録が更新されるまでに ___ 年を要し、その間の長期停滞は「失われた30年」と呼ばれた。",
+    "blanks": [
+      {
+        "ans": [
+          "1989"
+        ]
+      },
+      {
+        "ans": [
+          "34"
+        ]
+      }
+    ],
+    "hint": "バブルのピーク年（平成元年）と、株価が回復するまでにかかった年数",
+    "explanation": "プラザ合意（1985年）後の円高不況への対応として日銀が金利を引き下げた結果、過剰な資金が不動産・株式市場に流入しバブルが発生した。1989年12月29日の大納会で日経平均は38,915円を記録。翌1990年から急落し、2003年には7,600円台まで下落。1997年には山一証券・北海道拓殖銀行が破綻する金融危機も発生した。この記録が更新されたのは2024年で、実に34年を要した。／【世界史との比較】資産バブルの発生と崩壊は日本固有の現象ではなく、1990年代のアジア通貨危機（1997年）、2000年代のリーマン・ショック（2008年）と世界的に繰り返されている。ただし34年間も株価がピークを回復できなかった例は先進国で日本だけであり、バブル崩壊後の不良債権処理の遅れ、デフレの長期化、少子高齢化が重なった日本固有の構造問題が背景にある。"
+  },
+  {
+    "id": "s1q09dc30",
+    "type": "fill",
+    "pts": 1,
+    "q": "幕末の ___ の改革（1841年〜）では株仲間が解散させられ、物価引き下げが図られたが失敗に終わった。明治と昭和にはさまれたわずか15年間の元号は ___ で、この時代に第一次世界大戦による大戦景気が起きた。",
+    "blanks": [
+      {
+        "ans": [
+          "天保",
+          "てんぽう"
+        ]
+      },
+      {
+        "ans": [
+          "大正",
+          "たいしょう"
+        ]
+      }
+    ],
+    "hint": "江戸時代の有名な改革の名前＋明治と昭和の間の短い元号",
+    "explanation": "天保の改革で株仲間を廃止したが、「突然の廃止で流通機構が混乱し物資の集散が滞り、物価引き下げに至らなかった」（中西（2023） p.195）。大正時代（1912〜26年）はわずか15年間だが、日本が債務国から債権国に転換するという経済史上の大転換が起きた時代だった。／【世界史との比較】天保の改革と同時期、中国ではアヘン戦争（1840〜42年）が起き、東アジア全体が管理貿易体制から自由貿易体制への移行を迫られた（中西（2023） pp.144-145）。天保の改革の失敗は幕府の統治能力の限界を示し、20年後の開港・明治維新へとつながっていく。"
+  },
+  {
+    "id": "s1q10e5a6",
+    "type": "fill",
+    "pts": 1,
+    "q": "日本の政府債務は ___ 兆円を超え、GDP比では ___ %を超えている。これは先進国のなかで最悪の水準である。",
+    "blanks": [
+      {
+        "ans": [
+          "1000",
+          "1,000"
+        ]
+      },
+      {
+        "ans": [
+          "200"
+        ]
+      }
+    ],
+    "hint": "日本の財政状況を示す2つの大きな数字",
+    "explanation": "日本のGDPは約550兆円で、その2倍近い借金を抱えている。国債の大部分を国内の金融機関（最終的には日本銀行）が保有していることが、ギリシャ型の財政危機を回避できている要因とされる（武田（2019） p.436）。／【世界史との比較】ギリシャが財政危機に陥った2010年のGDP比は約150%、アメリカ約120%、イギリス約100%。日本の200%超は先進国で突出している。日本の政府債務の異常な膨張は、バブル崩壊後の景気対策の繰り返しと少子高齢化による社会保障費の増大が重なった結果である（三和（2021） pp.279-280）。"
+  },
+  {
+    "id": "s1q11849e",
+    "type": "fill",
+    "pts": 2,
+    "q": "江戸時代の大坂にあった ___ 米市場では、世界初とされる ___ 取引が行われていた。",
+    "blanks": [
+      {
+        "ans": [
+          "堂島",
+          "どうじま"
+        ]
+      },
+      {
+        "ans": [
+          "先物",
+          "さきもの"
+        ]
+      }
+    ],
+    "hint": "大坂の米市場の地名＋シカゴCBOTより100年以上早い取引の名前",
+    "explanation": "将軍吉宗は1730年に大坂堂島の米市場を公認し「米の先物取引である帳合米取引を許可した」（中西（2023） p.119）。現物を受け渡さずに将来の価格で売買するこの取引は、現代のデリバティブの原型にあたる。背景には「米価安の諸色高」（米が安いのに他の物価が高い）という問題があり、米価を安定させる手段として先物市場が制度化された。／【世界史との比較】シカゴ商品取引所（CBOT）が先物取引を制度化したのは1848年で、堂島より100年以上後。ただし堂島の先物取引は米という特定商品に限定されており、ヨーロッパで発展した株式市場や債券市場とは性格が異なる（金井他（2010） pp.116-117）。"
+  },
+  {
+    "id": "s1q12101a",
+    "type": "fill",
+    "pts": 2,
+    "q": "1873年の地租改正で、課税基準は米の収穫高から ___ に変わり、納税は米ではなく ___ で行うこととされた。",
+    "blanks": [
+      {
+        "ans": [
+          "地価",
+          "ちか"
+        ]
+      },
+      {
+        "ans": [
+          "現金",
+          "げんきん"
+        ]
+      }
+    ],
+    "hint": "課税の基準は何に変わったか＋納め方は米から何に変わったか",
+    "explanation": "明治政府は課税基準を「地価を基準に現金で」に変えた。税率は当初地価の3%で、農民の抵抗を受けて後に2.5%に引き下げられた（中西（2023） p.156）。近代国家が軍隊・鉄道・学校を整備するには安定した現金収入が必要で、米だと年ごとに価値が変動するため予算が立たなかった。結果として「商工業者に軽く農家に重い租税負担」が生じた（中西（2023） p.158）。／【世界史との比較】明治政府は不平等条約のもとで関税自主権を喪失しており、関税収入に頼れない以上、安定した内国税としての地租は近代化の費用を捻出するために不可欠だった（三和（2021） p.28）。農業国から近代国家へ移行する過程での、日本独自の財政基盤の構築だった。"
+  },
+  {
+    "id": "s1q13f8fd",
+    "type": "fill",
+    "pts": 2,
+    "q": "1938年に制定された ___ 法により、政府は議会の承認なしに人・モノ・カネを戦争目的に動員できるようになった。この法律が制定された翌年に始まった世界的な戦争は ___ である。",
+    "blanks": [
+      {
+        "ans": [
+          "国家総動員",
+          "こっかそうどういん"
+        ]
+      },
+      {
+        "ans": [
+          "第二次世界大戦",
+          "だいにじせかいたいせん"
+        ]
+      }
+    ],
+    "hint": "1938年の法律の名前＋1939年に始まった戦争の名前",
+    "explanation": "注目すべきは時系列で、日中戦争の開戦（1937年）の翌年にこの法律が制定され、第二次世界大戦の勃発（1939年）よりも前である。つまり日本はヨーロッパで戦争が始まる前にすでに戦時体制に入っていた。三和（2021）の表9-11でも、国家総動員法は準戦時・戦時期の政策一覧の筆頭に位置づけられている。／【世界史との比較】ナチス・ドイツの戦時経済体制やソ連の五カ年計画とも共通する統制経済の流れのなかに位置づけられる。中西（2023）は、1930年代にソ連の経済成長が過大評価されたことが「戦時期日本の統制経済にその影響が見られ」ると指摘している（中西（2023） p.262）。計画経済への信頼は、戦後の傾斜生産方式や産業政策にも形を変えて引き継がれた。"
+  },
+  {
+    "id": "s1q144a16",
+    "type": "fill",
+    "pts": 2,
+    "q": "1951年に結ばれた ___ 講和条約で日本は主権を回復した。敗戦から主権回復まで ___ 年かかったことになる。",
+    "blanks": [
+      {
+        "ans": [
+          "サンフランシスコ",
+          "さんふらんしすこ"
+        ]
+      },
+      {
+        "ans": [
+          "6"
+        ]
+      }
+    ],
+    "hint": "アメリカの都市名＋1945年から1951年を引き算",
+    "explanation": "1951年9月調印、1952年4月28日発効で日本は独立を回復した（三和（2021） p.190）。吉田茂はアメリカの再軍備要求に抵抗し、「防衛はアメリカに委ねて安上がりにすませ、余力を経済復興に振り向ける」ことを狙った（武田（2019） p.325）。この6年間のGHQ占領下で財閥解体・農地改革・新憲法の制定など、日本の経済・社会構造を根本から変える改革が行われた。／【世界史との比較】西ドイツも1949年に建国、1955年にNATO加盟と、日本と似たスケジュールで主権を回復した。ただし西ドイツがNATOのもとで再軍備を進めたのに対し、日本は軽武装・経済重視の「吉田ドクトリン」を選択した。この違いが、高度成長期に軍事費の代わりに設備投資に資源を集中できた日本の成長パターンの前提条件となった（中西（2023） pp.262-263）。"
+  },
+  {
+    "id": "s1q1582ed",
+    "type": "fill",
+    "pts": 2,
+    "q": "不平等条約で外国人に認められた ___ 裁判権を撤廃するためには、近代的な法律の整備が不可欠であり、1899年の撤廃までに民法・ ___ の制定が急がれた。",
+    "blanks": [
+      {
+        "ans": [
+          "領事",
+          "りょうじ"
+        ]
+      },
+      {
+        "ans": [
+          "商法",
+          "しょうほう"
+        ]
+      }
+    ],
+    "hint": "外国人を裁く権利の名前＋民法とともに制定が急がれた法律",
+    "explanation": "領事裁判権とは外国人の犯罪を日本の裁判所ではなく外国の領事が裁く制度で、司法主権の重大な侵害だった。1894年に日英通商航海条約が締結され、1899年の発効で治外法権が撤廃された。「条約発効までに日本は国内法（民法・商法）を整備した」（中西（2023） pp.216-217）。なお関税自主権の完全な回復は1911年で、1858年の安政条約から53年を要した。／【世界史との比較】中国も南京条約（1842年）以降、同様の領事裁判権と協定関税制に苦しんだ。日本は1899年に領事裁判権の撤廃、1911年に関税自主権の回復に成功したが、中国は不平等条約の完全な撤廃は1943年まで待たなければならなかった。法制度の整備を条約改正の前提条件と位置づけた明治政府の戦略が、この差を生んだ一因だった。"
+  }
 ];
 
 const MC_TIMER=20, FILL_TIMER=40;
@@ -137,7 +442,7 @@ function loadDecks(){
     // デッキが空の場合はデフォルトデッキを追加
     const defaultDeck={
       id:"dk_default_session01",
-      name:"EN Session 1: Introduction",
+      name:"第1回：イントロダクション",
       questions:DEFAULT_QS,
       createdAt:new Date().toISOString()
     };
