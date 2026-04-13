@@ -787,7 +787,10 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   // IME composition イベントで確実にフラグ管理
   useEffect(()=>{
     const onStart=()=>{ isComposingRef.current=true; };
-    const onEnd=()=>{ isComposingRef.current=false; };
+    const onEnd=()=>{
+      // compositionend の直後に keydown が来るブラウザがあるため少し遅延
+      setTimeout(()=>{ isComposingRef.current=false; },50);
+    };
     window.addEventListener("compositionstart",onStart);
     window.addEventListener("compositionend",onEnd);
     return()=>{
@@ -875,7 +878,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   // Enter：タイプ再開（最後の空欄かつ全文表示済みなら送信）
   const handleKeyDown=(blankIdx,e)=>{
-    if(e.key==="Tab"||(e.key==="Enter"&&!isComposingRef.current)){
+    if(e.key==="Tab"||(e.key==="Enter"&&!isComposingRef.current&&e.keyCode!==229)){
       e.preventDefault();
       if(isFB)return;
       if(ghosting)return; // 自動タイプ中はEnter無効
