@@ -602,7 +602,7 @@ const bar=(v,color)=>(
 ══════════════════════════════════════════════════════════════ */
 function makeInit(QS){
   return{phase:"start",queue:QS.map((_,i)=>i),
-    pendingQueue:[],newCardIds:new Set(),viewedNewCount:0,
+    pendingQueue:[],newCardIds:[],viewedNewCount:0,
     answeredCorrectly:[],attemptedIds:[],wrongCounts:{},questionKey:0,
     score:0,combo:0,maxCombo:0,firstTryCorrectCount:0,
     inputs:[],timeLeft:MC_TIMER,feedback:null,showHint:false,shuffled:null};
@@ -613,7 +613,7 @@ function reducer(s,a){
       const q=a.QS[0];
       const base=makeInit(a.QS);
       // newCardIds: SRSデータなしのカードID群（自動入力対象）
-      const nids=new Set(a.newCardIds||[]);
+      const nids=a.newCardIds||[];
       // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
       if(a.pendingStart!=null&&a.pendingStart<a.QS.length){
         return{...base,phase:"question",newCardIds:nids,
@@ -633,7 +633,7 @@ function reducer(s,a){
       if(s.phase!=="question")return s;
       const{correct,blankResults=null,QS}=a;
       const qIdx=s.queue[0],cq=QS[qIdx];
-      const isNewCard=s.newCardIds&&s.newCardIds.has(cq.id);
+      const isNewCard=Array.isArray(s.newCardIds)&&s.newCardIds.includes(cq.id);
       const isFirst=!s.attemptedIds.includes(cq.id);
       if(isNewCard){
         // 新規カード：スコア・wrongCountsはカウントしない、キューから外すだけ
@@ -1926,6 +1926,7 @@ function QuizApp(){
   const[comboAnim,setComboAnim]=useState(null);
   const[timerEdge,setTimerEdge]=useState(false);
   const[rankBurst,setRankBurst]=useState(null);
+  const[feedbackReadyKey,setFeedbackReadyKey]=useState(-1); // ゴーストタップ防止
   // デッキ・SRS
   const[decks,setDecks]=useState(()=>loadDecks());
   const[srs,setSRS]=useState(()=>loadSRS());
@@ -2040,7 +2041,7 @@ function QuizApp(){
   const dq=q&&shuffled&&q.type==="mc"?{...q,...shuffled}:q;
   const wrongCount=q?(wrongCounts[q.id]||0):0;
   const isFB=phase==="feedback";
-  const isNew=q&&newCardIds?newCardIds.has(q.id):false; // 新規カード判定
+  const isNew=q&&Array.isArray(newCardIds)?newCardIds.includes(q.id):false;
   const maxT=qTimer(q||QS[0]);
   const timerPct=timeLeft/maxT*100;
   const timerColor=timeLeft<=5?"#ef4444":timeLeft<=10?"#f97316":"#c9a84c";
@@ -2058,10 +2059,11 @@ function QuizApp(){
   },[timeLeft]);
   useEffect(()=>{
     if(phase!=="feedback"||!feedback)return;
+    // ゴーストタップ防止：600ms後にquestionKeyを登録
+    const tid=setTimeout(()=>setFeedbackReadyKey(questionKey),600);
     if(isNew){
-      // 新規カード：柔らかいチャイム音のみ
       SFX.newCard();
-      return;
+      return()=>clearTimeout(tid);
     }
     if(feedback.correct){
       SFX.correct();
@@ -2075,13 +2077,7 @@ function QuizApp(){
       setTimeout(()=>setWrongAnim(false),500);
     }
   },[phase,feedback]);
-  useEffect(()=>{
-    if(phase!=="feedback")return;
-    // 不正解 or 新規カード確認中 → 自動進行しない
-    if(isFB&&feedback&&(!feedback.correct||isNew))return;
-    const id=setTimeout(()=>dispatch({type:"NEXT",QS}),1900);
-    return()=>clearTimeout(id);
-  },[phase,questionKey]);
+  // 自動進行なし：全フィードバック画面でユーザー操作待ち
   useEffect(()=>{
     if(phase==="question"||phase==="feedback")BGM.start();
     else BGM.stop();
@@ -2104,16 +2100,15 @@ function QuizApp(){
     const lv=ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0;
     BGM.setLevel(lv);
   },[questionKey,answeredCorrectly.length,viewedNewCount]);
-  // 不正解 or 新規カード確認中、Enterキーで次へ
+  // フィードバック画面でEnterキー → 次へ（question中は別ハンドラが担当）
   useEffect(()=>{
-    if(!isFB||!feedback)return;
-    if(feedback.correct&&!isNew)return;
+    if(phase!=="feedback"||!isFB||!feedback)return;
     const handler=(e)=>{
-      if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229) dispatch({type:"NEXT",QS});
+      if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&feedbackReadyKey===questionKey) dispatch({type:"NEXT",QS});
     };
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
-  },[isFB,feedback,isNew]);
+  },[phase,isFB,feedback]);
   // 穴埋め問題中、どの空欄にもフォーカスしていない時にEnterで1つ目にフォーカス
   useEffect(()=>{
     if(phase!=="question"||isFB||q?.type!=="fill")return;
@@ -2388,10 +2383,7 @@ function QuizApp(){
         <span style={{...S.timerN,color:timerColor}}>{phase==="question"?`${timeLeft}s`:""}</span>
       </div>
       <div style={S.qcard}
-        className={isFB&&!isNew&&!feedback?.correct?"shake":""}
-        onClick={()=>{
-          if(isFB&&feedback&&(!feedback.correct||isNew)) dispatch({type:"NEXT",QS});
-        }}>
+        className={isFB&&!isNew&&!feedback?.correct?"shake":""}>
         <div style={S.qmeta}>
           {q.type==="fill"?"穴埋め":"選択式"} · {q.pts}点
           {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>🔄 再挑戦 {wrongCount}回目</span>}
@@ -2434,26 +2426,35 @@ function QuizApp(){
               <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>初回確認</span>
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>次回から本番です</span>
             </div>
-            <button onClick={()=>dispatch({type:"NEXT",QS})}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
+            <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
               style={{background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
-                cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+                cursor:"pointer",fontFamily:"inherit",width:"100%",
+                opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
               次へ →
             </button>
           </div>
         )}
         {isFB&&!isNew&&feedback?.correct&&(
-          <div style={S.correctBanner}>
-            <span style={{fontSize:22}}>⭕</span>
-            <span style={{color:"#4ade80",fontWeight:700,fontSize:15}}>正解！</span>
-            {feedback.isFirst
-              ?<span style={{color:"#c9a84c",fontWeight:700,fontSize:13,marginLeft:4}}>+{q.pts}pt</span>
-              :<span style={{color:"#777",fontSize:12,marginLeft:4}}>再挑戦正解（加点なし）</span>}
-            {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>🔥{combo}コンボ！</span>}
+          <div style={{marginTop:12}}>
+            <div style={S.correctBanner}>
+              <span style={{fontSize:22}}>⭕</span>
+              <span style={{color:"#4ade80",fontWeight:700,fontSize:15}}>正解！</span>
+              {feedback.isFirst
+                ?<span style={{color:"#c9a84c",fontWeight:700,fontSize:13,marginLeft:4}}>+{q.pts}pt</span>
+                :<span style={{color:"#777",fontSize:12,marginLeft:4}}>再挑戦正解（加点なし）</span>}
+              {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>🔥{combo}コンボ！</span>}
+            </div>
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
+            <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
+              style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
+                borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
+                cursor:"pointer",fontFamily:"inherit",width:"100%",
+                opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
+              次へ →
+            </button>
           </div>
-        )}
-        {isFB&&!isNew&&feedback?.correct&&q.explanation&&(
-          <div style={S.explanationBox}>{q.explanation}</div>
         )}
         {isFB&&!isNew&&!feedback?.correct&&(
           <div style={S.wrongReveal}>
@@ -2472,10 +2473,11 @@ function QuizApp(){
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
             <div style={S.retryMsg}>🔄 もう一度チャレンジ！</div>
-            <button onClick={()=>dispatch({type:"NEXT",QS})}
+            <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
-                cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+                cursor:"pointer",fontFamily:"inherit",width:"100%",
+                opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
               次へ →
             </button>
           </div>
@@ -2528,7 +2530,7 @@ const S={
   correctAnsRow:{display:"flex",alignItems:"center",gap:DK?10:6},
   correctAns:{fontSize:DK?38:28,fontWeight:900,color:"#f0c060",lineHeight:1.4},
   retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
-  explanationBox:{marginTop:10,padding:DK?"12px 16px":"9px 12px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?14:12,color:"#93c5fd",lineHeight:1.7},
+  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?17:15,color:"#93c5fd",lineHeight:1.8},
 };
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
