@@ -2263,11 +2263,9 @@ function QuizApp(){
   // デッキを選んでプレイ
   const playDeck=(dk,introMode=false)=>{
     const freshSRS=loadSRS();
-    // introMode=false（通常）は新規カードも自動入力なし
-    // introMode=true のときのみ新規カードに自動入力を適用
-    const newIds=introMode
-      ? dk.questions.filter(q=>!freshSRS[q.id]).map(q=>q.id)
-      : [];
+    // introMode=true のときはデッキ全問を自動入力対象にする（SRSデータの有無に関わらず）
+    // introMode=false のときは自動入力なし
+    const newIds=introMode ? dk.questions.map(q=>q.id) : [];
     setQS(dk.questions);
     setIsToday(false);
     setRankUp(null);setXpInfo(null);
@@ -2851,7 +2849,7 @@ const S={
   correctAnsRow:{display:"flex",alignItems:"center",gap:DK?10:6},
   correctAns:{fontSize:DK?38:28,fontWeight:900,color:"#f0c060",lineHeight:1.4},
   retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
-  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?17:15,color:"#93c5fd",lineHeight:1.8,whiteSpace:'pre-line'},
+  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?17:15,color:"#93c5fd",lineHeight:1.8},
 };
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
