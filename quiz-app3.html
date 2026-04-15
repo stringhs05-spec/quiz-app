@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>経済史 道場クイズ</title>
+<title>Dojo Quiz / 道場クイズ</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -48,6 +48,200 @@ const { useReducer, useEffect, useRef, useState, useMemo } = React;
    DEFAULT QUESTIONS
 ══════════════════════════════════════════════════════════════ */
 const DK = window.innerWidth >= 768; // デスクトップ判定
+
+/* ══════════════════════════════════════════════════════════════
+   LANGUAGE / TRANSLATION
+══════════════════════════════════════════════════════════════ */
+const LangCtx=React.createContext('ja');
+function useT(){const lang=React.useContext(LangCtx);return lang==='en'?T_EN:T_JA;}
+const T_JA={
+  appLogo:"経済史",appTitle:"道場クイズ",
+  plays:n=>`${n}回プレイ`,bestScore:"最高得点",
+  todayDeck:"今日のデッキ",
+  todayDue:n=>`${n}問が今日の復習対象 · 間隔反復`,
+  todayAdd:"デッキを追加してください",
+  todayDone:"今日の復習は完了しています 🎉",
+  myDecks:"── マイデッキ",noDecks:"デッキがありません",
+  addDeckLink:"デッキを追加する →",
+  deckCards:n=>`${n}問 · 出題順`,
+  savedBanner:"⏸ 続きのゲームがあります",savedResume:"▶ 続きから再開",
+  navDecks:"📚 デッキ管理",navStats:"📊 問題別成績",navData:"📦 管理",
+  normalPlay:"通常プレイ",normalPlaySub:"出題順 · 自動入力なし",
+  previewMode:"初回確認モード",previewModeSub:"正解を自動表示して確認",
+  cancel:"キャンセル",
+  statsTitle:"📊 問題別成績",
+  statsEmpty:"まだ成績がありません。\nプレイするとここに記録されます。",
+  leg1:"一発正解率",leg2:"誤答累計",leg3:"出題 = ゲーム完了回数",
+  sortId:"問題順",sortWrong:"誤答が多い順",sortRate:"正解率が低い順",
+  ansLabel:"正解:",notPlayed:"未出題",
+  colPlays:"出題回数",colFirst:"一発正解",colRetry:"再挑戦正解",
+  colWrong:"誤答累計",colAvg:"平均ミス数",ftRate:"一発正解率",
+  manageTitle:"📝 問題を編集",
+  selectedN:n=>`${n}問選択中`,selectAll:"すべて選択",
+  deleteN:n=>`${n}問を削除`,confirmDel:"本当に削除しますか？",
+  delBtn:"削除",backBtn:"戻る",
+  noQs:"問題がありません。インポートで追加してください。",
+  ioTitle:"📦 インポート / エクスポート",
+  backupOk:"全データをバックアップしました",
+  errNotBackup:"エラー：バックアップファイルではありません",
+  overwriteOk:"全データを上書きしました",mergeOk:"データをマージしました",
+  qsExported:"問題セットをエクスポートしました",
+  noStats:"成績データがありません",statsExported:"成績をエクスポートしました",
+  errStatsFormat:"エラー：成績データの形式が違います",
+  statsImported:"成績をインポートしました",
+  confirmResetStats:"成績をリセットしますか？この操作は取り消せません。",
+  statsReset:"成績をリセットしました",
+  confirmResetQs:"問題をデフォルトに戻しますか？",
+  qsReset:"デフォルト問題に戻しました",
+  loadedN:n=>`${n}問を読み込みました`,
+  mergedN:(t,a)=>`${t}問になりました（${a}問を追加）`,
+  replacedN:n=>`${n}問に置き換えました`,
+  backupLabel:"バックアップを読み込みます",
+  backupDecks:n=>`デッキ ${n}個`,
+  overwriteBtn:"⚠ 上書き",mergeBtn:"＋ マージ",
+  overwriteInfo:"上書き：現在のデータを全て置き換え｜マージ：既存データに追加・新しい方を優先",
+  pendingN:(c,m,q)=>`現在 ${c}問 → 追加後 ${m}問 / 置き換え後 ${q}問`,
+  addBtn:"➕ 追加する",replaceBtn:"🔄 置き換える",
+  backupSec:"── 💾 全データバックアップ",
+  exportBackupBtn:"⬇ 全データをバックアップ",
+  importBackupBtn:"⬆ バックアップから復元",
+  qsSec:n=>`── 問題セット（${n}問）`,
+  exportQBtn:"⬇ 問題セットをダウンロード",
+  importQBtn:"⬆ 問題セットを読み込む",
+  resetQBtn:"↩ デフォルト問題に戻す",
+  statsSec:"── 成績データ",
+  exportSBtn:"⬇ 成績をダウンロード",
+  importSBtn:"⬆ 成績を読み込む",
+  resetSBtn:"⚠ 成績をリセット",
+  deckMgrTitle:"📚 デッキ管理",
+  noDecksImport:"デッキがありません。\nJSONファイルをインポートして追加してください。",
+  addDeckBtn:"＋ JSONからデッキを追加",
+  confirmDelDeck:"このデッキを削除しますか？",
+  deletedN:n=>`${n}問を削除しました`,
+  addedN:(a,d)=>`${a}問を追加しました（重複${d}問スキップ）`,
+  noCards:"カードがありません",deckEditSub:"タップしてカードを編集",
+  saveBtn:"保存",addCardsBtn:"＋ 追加",
+  exportedDeck:n=>`「${n}」をエクスポートしました`,
+  addedDeck:(n,c)=>`「${n}」を追加しました（${c}問）`,
+  errPrefix:"エラー：",
+  hintBtn:"💡 ヒント",nextBtn:"次へ →",
+  previewLabel:"初回確認",previewSub:"次回から本番です",
+  correctLabel:"正解！",firstTryBonus:pts=>`+${pts}pt`,
+  retryCorrect:"再挑戦正解（加点なし）",combo:n=>`🔥${n}コンボ！`,
+  wrongLabel:"❌ 不正解",answerHeader:"正　解",
+  retryMsg:"🔄 もう一度チャレンジ！",retryN:n=>`🔄 再挑戦 ${n}回目`,
+  ptsSuffix:n=>`/${n}点`,
+  correctStat:"正解",firstTryStat:"一発正解",maxComboStat:"最大コンボ",
+  xpEarned:"今回の獲得XP",
+  xpScore:n=>`得点 ${n}pt × 3`,
+  xpFirst:n=>`一発正解 ${n}問 × 2`,
+  xpCombo:"コンボボーナス",xpPerfect:"全問一発正解ボーナス 🎉",
+  newBest:"🏆 自己ベスト更新！",
+  todayDone2:"📅 今日のデッキ完了！SRS更新済み",
+  rankUpLabel:"⬆ 昇　格",currentRank:"現在の称号：",
+  playAgain:"もう一度",nextPhase:"復習完了！未出題の問題へ",
+  submitBtn:"回答する ✓",
+  langToggle:"EN",
+  supportBtn:"☕ このアプリを支援する",
+  folderLabel:"📁 フォルダ",
+  folderNone:"── フォルダなし",
+  folderPlaceholder:"フォルダ名（例：日本語講義）",
+};
+
+const T_EN={
+  appLogo:"Econ Hist",appTitle:"Dojo Quiz",
+  plays:n=>`${n} plays`,bestScore:"Best score",
+  todayDeck:"Today's Deck",
+  todayDue:n=>`${n} cards due · spaced repetition`,
+  todayAdd:"Add a deck to get started",
+  todayDone:"All caught up for today 🎉",
+  myDecks:"── MY DECKS",noDecks:"No decks yet",
+  addDeckLink:"Add a deck →",
+  deckCards:n=>`${n} cards · in order`,
+  savedBanner:"⏸ Saved game found",savedResume:"▶ Resume",
+  navDecks:"📚 Decks",navStats:"📊 Stats",navData:"📦 Data",
+  normalPlay:"Standard Play",normalPlaySub:"In order · no auto-type",
+  previewMode:"Preview Mode",previewModeSub:"Auto-show answers for review",
+  cancel:"Cancel",
+  statsTitle:"📊 Question Stats",
+  statsEmpty:"No stats yet.\nPlay a game to record your performance.",
+  leg1:"1st-try rate",leg2:"Total errors",leg3:"Played = games completed",
+  sortId:"By order",sortWrong:"Most errors",sortRate:"Lowest rate",
+  ansLabel:"Answer:",notPlayed:"Not played",
+  colPlays:"Plays",colFirst:"1st try ✓",colRetry:"Retry ✓",
+  colWrong:"Errors",colAvg:"Avg errors",ftRate:"1st-try rate",
+  manageTitle:"📝 Edit Questions",
+  selectedN:n=>`${n} selected`,selectAll:"Select all",
+  deleteN:n=>`Delete ${n}`,confirmDel:"Are you sure?",
+  delBtn:"Delete",backBtn:"Cancel",
+  noQs:"No questions. Import a JSON file to add some.",
+  ioTitle:"📦 Import / Export",
+  backupOk:"Backup exported",
+  errNotBackup:"Error: not a backup file",
+  overwriteOk:"Data restored",mergeOk:"Data merged",
+  qsExported:"Question set exported",
+  noStats:"No stats data",statsExported:"Stats exported",
+  errStatsFormat:"Error: invalid stats format",
+  statsImported:"Stats imported",
+  confirmResetStats:"Reset all stats? This cannot be undone.",
+  statsReset:"Stats reset",
+  confirmResetQs:"Reset to default questions?",
+  qsReset:"Reset to defaults",
+  loadedN:n=>`Loaded ${n} questions`,
+  mergedN:(t,a)=>`Now ${t} questions (${a} added)`,
+  replacedN:n=>`Replaced with ${n} questions`,
+  backupLabel:"Load backup",
+  backupDecks:n=>`${n} decks`,
+  overwriteBtn:"⚠ Overwrite",mergeBtn:"＋ Merge",
+  overwriteInfo:"Overwrite: replace all | Merge: add new, keep newer",
+  pendingN:(c,m,q)=>`Current ${c} → after add ${m} / after replace ${q}`,
+  addBtn:"➕ Add",replaceBtn:"🔄 Replace",
+  backupSec:"── 💾 Full Backup",
+  exportBackupBtn:"⬇ Export Backup",
+  importBackupBtn:"⬆ Restore from Backup",
+  qsSec:n=>`── Questions (${n})`,
+  exportQBtn:"⬇ Download Questions",
+  importQBtn:"⬆ Import Questions",
+  resetQBtn:"↩ Reset to Defaults",
+  statsSec:"── Stats Data",
+  exportSBtn:"⬇ Export Stats",
+  importSBtn:"⬆ Import Stats",
+  resetSBtn:"⚠ Reset Stats",
+  deckMgrTitle:"📚 Deck Manager",
+  noDecksImport:"No decks.\nImport a JSON file to add one.",
+  addDeckBtn:"＋ Add deck from JSON",
+  confirmDelDeck:"Delete this deck?",
+  deletedN:n=>`Deleted ${n} questions`,
+  addedN:(a,d)=>`Added ${a} questions (${d} duplicates skipped)`,
+  noCards:"No cards",deckEditSub:"Tap to edit cards",
+  saveBtn:"Save",addCardsBtn:"＋ Add",
+  exportedDeck:n=>`Exported "${n}"`,
+  addedDeck:(n,c)=>`Added "${n}" (${c} questions)`,
+  errPrefix:"Error: ",
+  hintBtn:"💡 Hint",nextBtn:"Next →",
+  previewLabel:"Preview",previewSub:"Next time is for real",
+  correctLabel:"Correct!",firstTryBonus:pts=>`+${pts}pt`,
+  retryCorrect:"Right on retry (no points)",combo:n=>`🔥${n} combo!`,
+  wrongLabel:"❌ Wrong",answerHeader:"ANSWER",
+  retryMsg:"🔄 Try again!",retryN:n=>`🔄 Retry #${n}`,
+  ptsSuffix:n=>`/${n}pts`,
+  correctStat:"Correct",firstTryStat:"1st try",maxComboStat:"Max combo",
+  xpEarned:"XP earned",
+  xpScore:n=>`Score ${n}pt × 3`,
+  xpFirst:n=>`1st try ${n}q × 2`,
+  xpCombo:"Combo bonus",xpPerfect:"Perfect bonus 🎉",
+  newBest:"🏆 New personal best!",
+  todayDone2:"📅 Today's deck done! SRS updated",
+  rankUpLabel:"⬆ RANK UP",currentRank:"Current rank:",
+  playAgain:"Play Again",nextPhase:"Reviews done! Now new cards",
+  submitBtn:"Submit ✓",
+  langToggle:"日本語",
+  supportBtn:"☕ Support this app",
+  folderLabel:"📁 Folder",
+  folderNone:"── No folder",
+  folderPlaceholder:"Folder name (e.g. Japanese Course)",
+};
+
 
 const DEFAULT_QS = [
   {
@@ -379,16 +573,19 @@ const qTimer=q=>q?.type==="fill"?FILL_TIMER:MC_TIMER;
    RANK & XP
 ══════════════════════════════════════════════════════════════ */
 const TIERS=[
-  {xp:0,   name:"浪人",icon:"🗾",color:"#9b8ea0"},
-  {xp:30,  name:"農民",icon:"🌾",color:"#8fb87a"},
-  {xp:80,  name:"足軽",icon:"🥋",color:"#87ceeb"},
-  {xp:180, name:"武士",icon:"⚔️", color:"#c9a84c"},
-  {xp:350, name:"侍",  icon:"🗡️", color:"#e08040"},
-  {xp:600, name:"大名",icon:"🏯",color:"#d45060"},
-  {xp:950, name:"老中",icon:"📜",color:"#9060c0"},
-  {xp:1400,name:"将軍",icon:"👑",color:"#f0c040"},
+  {xp:0,   name:"浪人",nameEN:"Wanderer",   icon:"🗾",color:"#9b8ea0"},
+  {xp:30,  name:"農民",nameEN:"Farmer",     icon:"🌾",color:"#8fb87a"},
+  {xp:80,  name:"足軽",nameEN:"Footsoldier",icon:"🥋",color:"#87ceeb"},
+  {xp:180, name:"武士",nameEN:"Warrior",    icon:"⚔️", color:"#c9a84c"},
+  {xp:350, name:"侍",  nameEN:"Samurai",    icon:"🗡️", color:"#e08040"},
+  {xp:600, name:"大名",nameEN:"Warlord",    icon:"🏯",color:"#d45060"},
+  {xp:950, name:"老中",nameEN:"Elder",      icon:"📜",color:"#9060c0"},
+  {xp:1400,name:"将軍",nameEN:"Shogun",     icon:"👑",color:"#f0c040"},
 ];
+const DEFAULT_QS_EN=[{"id":"s3q01a2f1","type":"fill","pts":1,"q":"The Chicago Board of Trade, founded in 1848, is widely cited as the birthplace of modern futures trading — where farmers could lock in grain prices before harvest. Financial historians have since identified an earlier precedent. In ___, Japan, rice merchants developed a market for forward contracts as early as the 1730s, trading rights to rice not yet harvested — making it arguably the world's first organised ___ exchange.","blanks":[{"ans":["Osaka","osaka"]},{"ans":["futures"]}],"hint":"A city in western Japan famous for commerce; the type of contract that locks in a future price.","explanation":"The Chicago Board of Trade, founded in 1848, is usually cited as the birthplace of modern futures trading. But the Dojima exchange predates it by about 120 years. Financial historians now increasingly recognise Dojima as the earliest known organised futures market in the world — one of the clearest examples of how 'the West came first' is not always true. (Okushi et al. 2025 pp.30–32)\n\nIn 1730, the Dojima Rice Exchange in Osaka was officially recognised by the shogunate as a public market. Merchants traded rice certificates — warehouse receipts promising future delivery — and also contracts for rice not yet harvested: a futures market in all but name. The shogunate backed the system because stable rice prices were essential to samurai, whose salaries were paid in rice. (Nakanishi 2023 pp.133–134)"},{"id":"s3q02b4c8","type":"fill","pts":1,"q":"The French Revolution abolished feudal grain dues in 1789, replacing harvest-dependent obligations with unified money taxes. Japan's Meiji government carried out a comparable transformation in 1873. The ___ Tax Reform ended the practice of paying obligations in rice — amounts that fluctuated with every harvest — and replaced them with a fixed levy of 3% of assessed land value, collected in ___. For the first time, Tokyo had a stable, monetised revenue stream to fund railways, factories, and armies.","blanks":[{"ans":["Land","land"]},{"ans":["cash"]}],"hint":"The thing being taxed; the form of payment that replaced rice.","explanation":"The French Revolution swept away feudal grain dues in 1789, replacing them with money taxes. Japan did the same thing 84 years later. The key difference: in Japan, the old ruling class was not abolished but compensated with government bonds — a bought-out transition rather than a revolutionary break. (Okushi et al. 2025 p.231; Kanai et al. 2010 p.120)\n\nThe Land Tax Reform of 1873 replaced Japan's feudal tax system. The old system required payment in rice, varied with each harvest, and differed from domain to domain. The new system assessed each plot of land at a fixed monetary value, with the owner paying 3% in cash annually. Land certificates were also issued, giving farmers legal title to their land for the first time. (Takeda 2019 pp.58–61; Miwa 2021 pp.38–42)"},{"id":"s3q03e7d3","type":"fill","pts":1,"q":"In the 1860s, a microscopic parasite devastated silkworm farms across France, Italy, and Spain — collapsing Europe's thread supply just as middle-class demand for luxury fabrics was surging. Louis Pasteur spent years finding a cure. Japan's sericulture industry was unaffected, and ___ became Japan's single most valuable export for six decades, at times accounting for over ___ percent of all export revenue and generating the foreign exchange that paid for imported machinery and expertise.","blanks":[{"ans":["silk"]},{"ans":["40","forty"]}],"hint":"Japan's top export fibre; the share of export revenue it represented.","explanation":"In the 1860s, pébrine devastated silkworm farms across France, Italy, and Spain. Louis Pasteur spent years finding the cause. With European supply collapsing and demand rising, Japanese silk filled the gap. A disease that destroyed European farms indirectly financed Japan's industrialisation — an irony rarely noted in textbooks. (Okushi et al. 2025 p.182; Miwa 2021 p.62)\n\nFrom the moment Japan opened its ports in 1859, raw silk became its most valuable export, regularly accounting for around 40% of total export revenue. Merchants in Yokohama shipped thread to mills in the US and Europe. The foreign currency earned from silk sales paid for imported machinery, railway materials, and the salaries of foreign engineers hired to build Japan's new industries. (Nakanishi 2023 pp.188–189; Takeda 2019 p.40)"},{"id":"s3q04f1a9","type":"fill","pts":1,"q":"In the 1880s, Lancashire's cotton mills dominated global yarn markets, and British merchants were confident Japan could not compete. They were wrong. The Osaka ___ Company, founded in 1882 with 10,500 spindles and steam power, ran day and night shifts and turned a profit in its first year. Within two decades, Japanese cotton ___ had displaced British imports across Asian markets and was being exported to China and India.","blanks":[{"ans":["Spinning","spinning"]},{"ans":["yarn"]}],"hint":"The industrial process of making thread; the product itself.","explanation":"In the 1880s, Lancashire's mills dominated global markets and British merchants were confident Japan posed no threat. They were wrong. Economic historians point to Japan's displacement of British cotton yarn in Asia as one of the earliest clear-cut examples of a late-developing country overtaking an established industrial power. (Francks 2015 p.84; Okushi et al. 2025 pp.221–222)\n\nThe Osaka Spinning Company, founded in 1882 with backing from Shibusawa Eiichi, ran 10,500 steam-powered spindles in two shifts and turned a profit in its very first year. That success triggered a wave of new companies across the country. By the early 1890s, Japan had gone from importing cotton yarn to exporting it. By the late 1890s, Japanese yarn was displacing British imports across Asian markets. (Miwa 2021 pp.61–62; Takeda 2019 pp.75–76)"},{"id":"s3q05c3b6","type":"fill","pts":1,"q":"After winning the Franco-Prussian War in 1871, Germany received a massive war payment from France — 5 billion francs — and used the windfall to join the international gold standard, instantly gaining credibility with European lenders. Japan executed the same two-step strategy after its 1895 war with China. The ___ China paid gave Japan enough sterling to back its currency, and in 1897 Japan formally adopted the ___ standard, opening the door to foreign bond markets just in time for the looming war with Russia.","blanks":[{"ans":["indemnity"]},{"ans":["gold"]}],"hint":"The payment a defeated country makes; the monetary system Japan joined.","explanation":"After the Franco-Prussian War, Germany received 5 billion francs from France and used that windfall to join the international gold standard — instantly gaining access to European capital markets. Japan followed exactly the same two-step playbook a quarter-century later. The parallel is almost too neat to be coincidental. (Okushi et al. 2025 p.186)\n\nThe 1895 Treaty of Shimonoseki required China to pay Japan an enormous indemnity — equivalent to about 311 million yen, much received in British pounds. Japan deposited this in London as currency reserve backing. In 1897 the Currency Act placed Japan on the gold standard, giving foreign investors confidence in Japanese government bonds and making it possible to borrow heavily on international markets — essential when the Russo-Japanese War began eight years later. (Miwa 2021 pp.74–76; Takeda 2019 pp.77–78)"},{"id":"s3q06d8e2","type":"fill","pts":1,"q":"In 1789, bread riots across France helped ignite the Revolution when wheat prices soared beyond what ordinary people could afford. Japan's equivalent erupted in the summer of 1918, when ___ prices more than doubled in a matter of months. Speculators had driven prices up anticipating massive army demand for Japan's military expedition into ___. The disturbances spread to over 300 cities, mobilised roughly two million people, and toppled the sitting Prime Minister.","blanks":[{"ans":["rice"]},{"ans":["Siberia"]}],"hint":"Japan's staple food; the region where the military expedition was headed.","explanation":"When bread prices soared in France in 1789, crowds marched to Versailles. The 1918 rice riots were Japan's equivalent. The key difference: France's crisis came from a bad harvest; Japan's came from speculation and military demand. The food was there — it was just being kept from the market. (Okushi et al. 2025 p.230; Miwa 2021 p.119)\n\nIn the summer of 1918, rice prices more than doubled in months. The trigger was the government's announcement of a Siberian expedition against the Bolshevik Revolution. Speculators, expecting massive army purchases, began hoarding rice. Protests spread from a Toyama fishing village to over 300 cities across Japan, involving perhaps two million people. Prime Minister Terauchi was forced to resign. (Nakanishi 2023 pp.233–235; Takeda 2019 pp.158–159)"},{"id":"s3q07a5f4","type":"fill","pts":1,"q":"Nazi Germany's Four-Year Plan of 1936 placed the entire economy under state control — directing investment, allocating materials, setting wages and prices — in pursuit of military self-sufficiency. Japan built a parallel apparatus. The National General ___ Law of 1938 gave the government sweeping power over labour, capital, and production. Economist Noguchi Yukio argued that this wartime framework — not the Allied occupation — created the template for Japan's postwar ___ state, including MITI, main banks, and lifetime employment.","blanks":[{"ans":["Mobilization","Mobilisation"]},{"ans":["developmental"]}],"hint":"What the law did to the economy; the type of state that emerged after the war.","explanation":"Nazi Germany's Four-Year Plan placed the entire economy under state direction — Japan's law did the same thing at nearly the same time. The crucial difference: in Germany, the wartime system collapsed with defeat and was rebuilt from scratch. In Japan, much of the wartime economic framework quietly continued into peacetime and shaped Japan's growth model for decades. (Okushi et al. 2025 p.313)\n\nThe National General Mobilization Law of 1938 gave the government sweeping powers without needing parliamentary approval. New institutions were built: long-term industrial banks, government-directed credit channels, and industry control associations. After the war, GHQ dismantled the military apparatus — but many economic institutions survived and became foundations of postwar industrial policy. Noguchi's '1940 system' thesis argues this continuity explains MITI, main banks, and lifetime employment. (Takeda 2019 pp.196–201; Miwa 2021 pp.150–155)"},{"id":"s3q08b9c1","type":"fill","pts":1,"q":"The Marshall Plan, which provided $13 billion to rebuild Western Europe between 1948 and 1952, is history's most celebrated economic recovery programme. Japan received no Marshall Plan. Its recovery was instead ignited by geography: when the ___ War broke out in June 1950, American forces needed a nearby manufacturing base, and Japanese factories suddenly had more orders than they could fill. This military ___ boom injected more dollars into Japan in three years than the entire Marshall Plan sent to Britain — launching a recovery that occupation-era reforms had prepared but not yet ignited.","blanks":[{"ans":["Korean"]},{"ans":["procurement"]}],"hint":"The war that began in June 1950; the term for military purchasing from civilian factories.","explanation":"The Marshall Plan gave Western Europe $13 billion to rebuild — history's most celebrated recovery programme. Japan received no Marshall Plan. Some historians put it bluntly: 'America did not give Japan its recovery. America purchased it.' Japan happened to be in the right place when a war started. (Okushi et al. 2025 p.323)\n\nWhen the Korean War broke out in June 1950, the US military urgently needed a nearby production base. American forces placed enormous orders with Japanese factories. By 1951, industrial output had recovered to prewar levels. Total US military procurement over three years exceeded $1 billion — more foreign currency per year than Britain received under the Marshall Plan. (Miwa 2021 pp.183–184; Takeda 2019 pp.335–336)"},{"id":"s3q09e4d7","type":"fill","pts":1,"q":"In postwar West Germany, large banks like Deutsche Bank held major stakes in industrial companies, sat on supervisory boards, and provided long-term financing — a 'house bank' system that tied finance and industry together. Japan evolved a similar structure after GHQ dissolved the old zaibatsu holding companies. Firms regrouped into loose ___ networks bound by cross-shareholding, with a designated '___ bank' at the centre serving as lender, monitor, and crisis backstop for all member companies.","blanks":[{"ans":["keiretsu"]},{"ans":["main"]}],"hint":"The Japanese term for these corporate networks; the adjective describing the central bank.","explanation":"Postwar West Germany developed a strikingly similar structure: large banks held equity in industrial companies, sat on supervisory boards, and provided long-term finance. Both Japan and Germany channelled capital through relationship banking rather than open markets. 'Managed capitalism' was a common postwar response to the failures of the 1930s, not a uniquely Japanese invention. (Okushi et al. 2025 pp.214–215)\n\nGHQ's postwar reforms dissolved zaibatsu holding companies and dispersed their shares. But former group companies did not stay scattered. Through the 1950s they regrouped around cross-shareholding and preferential lending, forming keiretsu networks. At the centre of each sat a main bank that provided not just loans but also monitoring, crisis management, and emergency rescue for member companies. (Takeda 2019 pp.356–358; Miwa 2021 pp.203–205)"},{"id":"s3q10f6a3","type":"fill","pts":1,"q":"France's postwar 'indicative planning' system — where the state set growth targets for key industries and directed bank credit toward them — was widely admired as a middle path between Soviet command planning and American laissez-faire. Japan's equivalent was even more hands-on. The Ministry of International Trade and ___, universally known by its acronym ___, wielded import licences, subsidised loans, and industry-wide negotiations to steer private investment into steel, petrochemicals, and consumer electronics.","blanks":[{"ans":["Industry","industry"]},{"ans":["MITI"]}],"hint":"The second word of the ministry's name; the famous four-letter acronym.","explanation":"France's postwar planification system used national plans to steer investment — widely admired as a middle road between Soviet planning and American free markets. MITI operated on similar logic but was more hands-on: it could restrict imports, direct credit, and negotiate capacity limits across entire industries. (Okushi et al. 2025 pp.329–330; Francks 2015 p.162)\n\nThe Ministry of International Trade and Industry, founded in 1949 and known as MITI, was the central coordinator of Japan's postwar industrial strategy. Steel, petrochemicals, shipbuilding, automobiles, and consumer electronics all benefited from MITI's targeted support at critical stages. Interestingly, later research suggested MITI's influence was weakest in Japan's most successful export sectors — raising the question of how much credit it actually deserves. (Miwa 2021 pp.185–187; Takeda 2019 pp.346–350)"},{"id":"s3q11c2b8","type":"fill","pts":2,"q":"When OPEC's 1973 oil embargo quadrupled crude prices, every oil-importing nation scrambled to adapt. Most Western European economies took years to bring energy consumption under control. Japan, which imported over 99% of its oil, had the most to lose — and adapted most dramatically. By ___, Japanese manufacturers had cut energy consumption per unit of industrial output by nearly 40% from its 1973 peak, a performance unmatched by any other major economy, transforming an acute vulnerability into a global competitive advantage in ___ -efficient products.","blanks":[{"ans":["1985"]},{"ans":["energy"]}],"hint":"The year by which the 40% reduction was achieved; the thing that was being used more efficiently.","explanation":"The first oil shock hit Western Europe just as hard, triggering recessions in Britain, France, and Italy. But when oil prices fell in the mid-1980s, the urgency of conservation faded in most Western countries. Japan maintained its focus, and the efficiency gains became a lasting competitive advantage. What began as Japan's greatest vulnerability became one of its greatest strengths. (Okushi et al. 2025 pp.337–338)\n\nThe 1973 OPEC oil embargo quadrupled crude prices almost overnight. Japan, importing over 99% of its oil, faced an existential manufacturing threat. The government enacted an Energy Conservation Law in 1979, and companies invested heavily in more efficient machinery, processes, and materials. By 1985, Japanese manufacturers were producing the same output using roughly 40% less energy per unit than in 1973 — unmatched by any other major economy. (Miwa 2021 pp.211–213; Takeda 2019 pp.402–405)"},{"id":"s3q12d1e5","type":"fill","pts":2,"q":"In September 1985, the finance ministers of the five largest economies met at New York's ___ Hotel and agreed to weaken the US dollar through coordinated market intervention. For Japan, the yen nearly doubled in value against the dollar within two years — from around 240 to under 130 — crushing export profits overnight. The government's response, flooding the economy with cheap credit to offset the shock, inadvertently inflated the land and stock-price ___ that would collapse spectacularly in 1990.","blanks":[{"ans":["Plaza","plaza"]},{"ans":["bubble"]}],"hint":"The hotel in New York where the G5 met; the word for an unsustainable asset price inflation.","explanation":"The Plaza Accord is celebrated as a landmark of international monetary cooperation. In practice, the unintended side effects were enormous. The cheap-money response in Japan, and a similar dynamic in Germany after reunification, both produced asset price booms that ended badly. 'Successful coordination' turned out to have a very high price tag. (Okushi et al. 2025 p.336)\n\nOn 22 September 1985, the G5 gathered at the Plaza Hotel in New York and agreed to push down the US dollar through coordinated intervention. For Japan, the yen roughly doubled against the dollar within two years. To prevent a deep recession, the Bank of Japan cut interest rates five times between 1986 and 1987, bringing the key rate to just 2.5%. Cheap money flooded into real estate and stocks, inflating the asset bubble that collapsed in 1990. (Miwa 2021 pp.218–220; Takeda 2019 pp.416–418)"},{"id":"s3q13a7f9","type":"fill","pts":2,"q":"Italy faces one of Europe's worst demographic crises: with a fertility rate of around 1.2 children per woman, its welfare state was never designed for such rapid ageing. Japan's situation is more extreme still. Japan's ___ rate has hovered near 1.2–1.3 for decades, and unlike Italy, Japan has historically accepted almost no immigration as a demographic buffer. The result: Japan's working-age population peaked in ___ and has been shrinking ever since — a structural drag on growth that no policy alone can fully reverse.","blanks":[{"ans":["fertility"]},{"ans":["1995"]}],"hint":"The demographic measure of average children per woman; the year Japan's working-age population peaked.","explanation":"Italy faces a similarly severe fertility crisis but benefits from EU labour mobility — workers from Eastern Europe and elsewhere. Japan has the same birth rate without that safety valve. Japan's demographic transition is happening faster and with fewer offsetting factors than in comparable European countries. In this sense, Japan is running the experiment that other ageing societies will face later. (Okushi et al. 2025 p.360)\n\nJapan's fertility rate first fell below 2.0 in 1974 and has stayed there ever since, hovering around 1.2–1.3 in recent decades. Japan's working-age population peaked at around 87 million in 1995 and has been shrinking ever since. Consequences are structural: a smaller workforce supports a larger retired population, pension and healthcare costs rise, and growth becomes harder to sustain. (Takeda 2019 pp.431–432; Nakanishi 2023 pp.398–399)"},{"id":"s3q14b3c4","type":"fill","pts":2,"q":"At the peak of the 1920s Florida land boom, swampland near Miami was selling for more than fertile Iowa farmland — prices completely disconnected from any realistic rental income. Japan's late-1980s asset bubble made Florida look modest. At its 1989 peak, the land beneath the ___ Palace grounds in central Tokyo was estimated to be worth more than the entire real-estate value of the state of ___ — based on assessed land prices in the surrounding district.","blanks":[{"ans":["Imperial","imperial"]},{"ans":["California"]}],"hint":"The royal residence in central Tokyo; the US state used for comparison.","explanation":"The 1920s Florida land boom — where swampland sold for more than productive farmland — is a classic example of prices disconnected from reality. But Florida's bubble was local and resolved quickly. Japan's bubble was nationwide, embedded in the banking system through trillions of yen in real-estate collateral loans. Its aftermath lasted not months but decades. Economists now regard it as one of the most damaging asset price collapses in modern history. (Okushi et al. 2025 p.306)\n\nJapan's late-1980s asset bubble produced extraordinary numbers. At the 1989 peak, calculations based on assessed land values suggested the Imperial Palace grounds — 1.15 sq km in central Tokyo — were theoretically worth more than all real estate in California. Land prices had completely detached from any reasonable rental income estimate. When the bubble burst in 1990, the resulting bad loans dragged the financial system into a decade-long crisis. (Takeda 2019 pp.424–426; Miwa 2021 pp.222–224)"},{"id":"s3q15e8d6","type":"fill","pts":2,"q":"In September 1931, Britain was forced off the gold standard after a run on sterling — ending a century of British monetary leadership. Japan had returned to gold just eighteen months earlier at an overvalued prewar parity, triggering a deflation that devastated exports and bankrupted thousands of firms. When Finance Minister ___ Korekiyo abandoned gold in December 1931 and launched deficit spending, Japan's recovery was startlingly swift — making it the first major economy to exit what Japanese historians call the '___ Depression.'","blanks":[{"ans":["Takahashi"]},{"ans":["Showa"]}],"hint":"The finance minister's family name; the Japanese era name for the 1930s depression.","explanation":"Britain was forced off the gold standard in September 1931 — ending a century of British monetary leadership. Japan followed three months later, but more decisively and with more expansionary follow-through. Takahashi's policies anticipated what Keynes would recommend and what FDR would implement in 1933. Tragically, Takahashi was assassinated in February 1936 when he tried to cut the military budget — the story of good economics meeting a bad political fate. (Okushi et al. 2025 pp.307–310; Nakanishi 2023 pp.272–273)\n\nIn January 1930, Japan rejoined the gold standard at the prewar exchange rate — badly timed, as the global economy was already in freefall after the Wall Street Crash. Deflation took hold, exports collapsed, and thousands of businesses failed. This was the Showa Depression. In December 1931, Finance Minister Takahashi Korekiyo took Japan off gold, allowed the yen to depreciate sharply, and began financing government spending through Bank of Japan bond purchases. The economy bottomed in 1932 — faster than any other major country. (Miwa 2021 pp.121–124; Takeda 2019 pp.153–155)"}];
+
 const getRank=xp=>[...TIERS].reverse().find(t=>xp>=t.xp)||TIERS[0];
+const rName=(tier,lang)=>lang==='en'?tier.nameEN:tier.name;
 const getNext=xp=>TIERS.find(t=>t.xp>xp)||null;
 const calcXP=({score,ftc,combo,perfect})=>score*3+ftc*2+Math.min(combo,10)+(perfect?30:0);
 
@@ -442,25 +639,31 @@ function loadDecks(){
       const d=JSON.parse(v);
       if(d.length>0){
         // 古いデフォルトデッキ（EN Session 1）を新しいものに差し替え
-        const hasOldDefault=d.some(dk=>dk.id==="dk_default_session01"&&dk.name!=="第1回：イントロダクション");
-        if(hasOldDefault){
-          const updated=d.map(dk=>dk.id==="dk_default_session01"
-            ?{...dk,name:"第1回：イントロダクション",questions:DEFAULT_QS}
-            :dk);
+        // 旧デフォルトデッキの移行
+        const hasOldSingle=d.length===1&&d[0].id==="dk_default_session01";
+        if(hasOldSingle){
+          const now=new Date().toISOString();
+          const updated=[
+            {...d[0],id:"dk_default_ja_s01",name:"第1回：イントロダクション",folder:"日本経済史2",questions:DEFAULT_QS},
+            {id:"dk_default_en_s01",name:"Session 1 Introduction",
+             folder:"Introductory Lecture on History of Economic Policy",
+             questions:DEFAULT_QS_EN,createdAt:now},
+          ];
           try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(updated));}catch{}
           return updated;
         }
         return d;
       }
     }
-    // デッキが空の場合はデフォルトデッキを追加
-    const defaultDeck={
-      id:"dk_default_session01",
-      name:"第1回：イントロダクション",
-      questions:DEFAULT_QS,
-      createdAt:new Date().toISOString()
-    };
-    const initial=[defaultDeck];
+    // デッキが空の場合はデフォルト2デッキを追加
+    const now=new Date().toISOString();
+    const initial=[
+      {id:"dk_default_ja_s01",name:"第1回：イントロダクション",
+       folder:"日本経済史2",questions:DEFAULT_QS,createdAt:now},
+      {id:"dk_default_en_s01",name:"Session 1 Introduction",
+       folder:"Introductory Lecture on History of Economic Policy",
+       questions:DEFAULT_QS_EN,createdAt:now},
+    ];
     try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(initial));}catch{}
     return initial;
   }
@@ -623,17 +826,17 @@ function downloadJSON(data,filename){
 function readJSONFile(file){
   return new Promise((res,rej)=>{
     const r=new FileReader();
-    r.onload=e=>{try{res(JSON.parse(e.target.result));}catch{rej(new Error("JSON解析エラー"));}};
-    r.onerror=()=>rej(new Error("読み込みエラー"));
+    r.onload=e=>{try{res(JSON.parse(e.target.result));}catch{rej(new Error("JSON parse error"));}};
+    r.onerror=()=>rej(new Error("Load error"));
     r.readAsText(file);
   });
 }
 function validateQS(qs){
-  if(!Array.isArray(qs)||qs.length===0)return"問題が空です";
+  if(!Array.isArray(qs)||qs.length===0)return"No questions";
   for(const q of qs){
-    if(!q.id||!q.type||!q.pts||!q.q)return`問題ID ${q.id}: 必須フィールドが不足`;
-    if(q.type==="mc"&&(!Array.isArray(q.opts)||q.opts.length<2))return`問題ID ${q.id}: optsが不正`;
-    if(q.type==="fill"&&(!Array.isArray(q.blanks)||q.blanks.length===0))return`問題ID ${q.id}: blanksが不正`;
+    if(!q.id||!q.type||!q.pts||!q.q)return`ID ${q.id}: missing required fields`;
+    if(q.type==="mc"&&(!Array.isArray(q.opts)||q.opts.length<2))return`ID ${q.id}: invalid opts`;
+    if(q.type==="fill"&&(!Array.isArray(q.blanks)||q.blanks.length===0))return`ID ${q.id}: invalid blanks`;
   }
   return null;
 }
@@ -1023,14 +1226,15 @@ function reducer(s,a){
    XPバー
 ══════════════════════════════════════════════════════════════ */
 function XpBar({totalXP,compact=false}){
+  const lang=React.useContext(LangCtx);
   const rank=getRank(totalXP),next=getNext(totalXP);
   const p=next?Math.min((totalXP-rank.xp)/(next.xp-rank.xp)*100,100):100;
   return(
     <div style={{width:"100%"}}>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:compact?11:12,color:"#888",marginBottom:4}}>
-        <span style={{color:rank.color,fontWeight:700}}>{rank.icon} {rank.name}</span>
-        {next?<span>{totalXP} XP → {next.name}まで {next.xp-totalXP}</span>
-             :<span style={{color:"#f0c040"}}>最高位！ {totalXP} XP</span>}
+        <span style={{color:rank.color,fontWeight:700}}>{rank.icon} {rName(rank,lang)}</span>
+        {next?<span>{totalXP} XP → {rName(next,lang)} {lang==="en"?"in":"まで"} {next.xp-totalXP}</span>
+             :<span style={{color:"#f0c040"}}>{lang==="en"?"Max rank! ":"最高位！"}{totalXP} XP</span>}
       </div>
       <div style={{height:compact?5:7,background:"#1e1e32",borderRadius:4,overflow:"hidden"}}>
         <div style={{height:"100%",width:`${p}%`,background:rank.color,borderRadius:4,transition:"width 1s ease"}}/>
@@ -1095,14 +1299,14 @@ const charTick=()=>{
 
 const SENT_END=/[.。!?！？]/;
 
-function TypewriterText({text,qkey,style}){
+function TypewriterText({text,qkey,style,onDone}){
   const[shown,setShown]=useState(0);
   useEffect(()=>{
     setShown(0);if(!text)return;
     let i=0;
     const id=setInterval(()=>{
       i++;setShown(i);charTick();
-      if(i>=text.length)clearInterval(id);
+      if(i>=text.length){clearInterval(id);onDone&&onDone();}
     },38);
     return()=>clearInterval(id);
   },[text,qkey]);
@@ -1112,7 +1316,7 @@ function TypewriterText({text,qkey,style}){
 /* ══════════════════════════════════════════════════════════════
    穴埋めコンポーネント（文末で一時停止・Enter で続き）
 ══════════════════════════════════════════════════════════════ */
-function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,ghostingRef}){
+function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,ghostingRef,onDone}){
   const[shown,setShown]=useState(0);
   const[paused,setPaused]=useState(false);
   const[activeBlank,setActiveBlank]=useState(null);
@@ -1150,6 +1354,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   // 新規カード：全文表示完了から2秒後に正解を自動タイプ
   useEffect(()=>{
+    if(shown>=fullText.length&&onDone)onDone();
     if(!isNew||isFB||shown<fullText.length)return;
     clearTimeout(ghostTid.current);
     ghostTid.current=setTimeout(()=>{
@@ -1327,6 +1532,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
    問題別成績パネル
 ══════════════════════════════════════════════════════════════ */
 function StatsPanel({QS,gSt,onClose}){
+  const T=useT();
   const qs=gSt?.questionStats||{};
   const [sort,setSort]=useState("id"); // id | wrong | rate
 
@@ -1353,26 +1559,26 @@ function StatsPanel({QS,gSt,onClose}){
 
         {/* ヘッダー */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📊 問題別成績</span>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>{T.statsTitle}</span>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
         </div>
 
         {totalSessions===0?(
-          <div style={{color:"#555",fontSize:13,textAlign:"center",padding:"24px 0"}}>
-            まだ成績がありません。<br/>プレイするとここに記録されます。
+          <div style={{color:"#555",fontSize:13,textAlign:"center",padding:"24px 0",whiteSpace:"pre-line"}}>
+            {T.statsEmpty}
           </div>
         ):(
           <>
             {/* 凡例 */}
             <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap"}}>
-              <span><span style={{color:"#4ade80"}}>●</span> 一発正解率</span>
-              <span><span style={{color:"#f97316"}}>●</span> 誤答累計</span>
-              <span><span style={{color:"#888"}}>出題</span> = ゲーム完了回数</span>
+              <span><span style={{color:"#4ade80"}}>●</span> {T.leg1}</span>
+              <span><span style={{color:"#f97316"}}>●</span> {T.leg2}</span>
+              <span><span style={{color:"#888"}}>{T.leg3}</span></span>
             </div>
 
             {/* ソートボタン */}
             <div style={{display:"flex",gap:6}}>
-              {[["id","問題順"],["wrong","誤答が多い順"],["rate","正解率が低い順"]].map(([k,label])=>(
+              {[["id",T.sortId],["wrong",T.sortWrong],["rate",T.sortRate]].map(([k,label])=>(
                 <button key={k} onClick={()=>setSort(k)}
                   style={{background:sort===k?"#c9a84c":"#1e1e36",
                     border:`1px solid ${sort===k?"#c9a84c":"#333"}`,
@@ -1397,34 +1603,34 @@ function StatsPanel({QS,gSt,onClose}){
                       <span style={{color:"#555",marginRight:4}}>Q{q.id}</span>{shortQ}
                     </div>
                     <div style={{fontSize:11,color:"#c9a84c",marginBottom:8}}>
-                      正解: {correctAns}
+                      {T.ansLabel} {correctAns}
                     </div>
 
                     {neverPlayed?(
-                      <div style={{fontSize:11,color:"#444"}}>未出題</div>
+                      <div style={{fontSize:11,color:"#444"}}>{T.notPlayed}</div>
                     ):(
                       <>
                         {/* 数値行 */}
                         <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:6}}>
                           <div style={{textAlign:"center"}}>
                             <div style={{fontSize:16,fontWeight:800,color:"#888"}}>{sessions}</div>
-                            <div style={{fontSize:10,color:"#555"}}>出題回数</div>
+                            <div style={{fontSize:10,color:"#555"}}>{T.colPlays}</div>
                           </div>
                           <div style={{textAlign:"center"}}>
                             <div style={{fontSize:16,fontWeight:800,color:"#4ade80"}}>{firstTry}</div>
-                            <div style={{fontSize:10,color:"#555"}}>一発正解</div>
+                            <div style={{fontSize:10,color:"#555"}}>{T.colFirst}</div>
                           </div>
                           <div style={{textAlign:"center"}}>
                             <div style={{fontSize:16,fontWeight:800,color:"#60a5fa"}}>{retryOk}</div>
-                            <div style={{fontSize:10,color:"#555"}}>再挑戦正解</div>
+                            <div style={{fontSize:10,color:"#555"}}>{T.colRetry}</div>
                           </div>
                           <div style={{textAlign:"center"}}>
                             <div style={{fontSize:16,fontWeight:800,color:"#f87171"}}>{wrong}</div>
-                            <div style={{fontSize:10,color:"#555"}}>誤答累計</div>
+                            <div style={{fontSize:10,color:"#555"}}>{T.colWrong}</div>
                           </div>
                           <div style={{textAlign:"center"}}>
                             <div style={{fontSize:16,fontWeight:800,color:"#f97316"}}>{avgWrong}</div>
-                            <div style={{fontSize:10,color:"#555"}}>平均ミス数</div>
+                            <div style={{fontSize:10,color:"#555"}}>{T.colAvg}</div>
                           </div>
                         </div>
 
@@ -1432,7 +1638,7 @@ function StatsPanel({QS,gSt,onClose}){
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
                           <div style={{flex:1}}>
                             <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#555",marginBottom:2}}>
-                              <span>一発正解率</span>
+                              <span>{T.ftRate}</span>
                               <span style={{color:ftRate>=80?"#4ade80":ftRate>=50?"#f97316":"#f87171",fontWeight:700}}>{ftRate}%</span>
                             </div>
                             <div style={{height:5,background:"#1e1e32",borderRadius:3,overflow:"hidden"}}>
@@ -1459,6 +1665,7 @@ function StatsPanel({QS,gSt,onClose}){
    問題管理パネル（複数選択・一括削除）
 ══════════════════════════════════════════════════════════════ */
 function QManagePanel({QS,setQS,onClose}){
+  const T=useT();
   const[selected,setSelected]=useState(new Set());
   const[confirm,setConfirm]=useState(false);
 
@@ -1489,7 +1696,7 @@ function QManagePanel({QS,setQS,onClose}){
 
         {/* ヘッダー */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📝 問題を編集</span>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>{T.manageTitle}</span>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
         </div>
 
@@ -1501,7 +1708,7 @@ function QManagePanel({QS,setQS,onClose}){
             <input type="checkbox" checked={allChecked} onChange={toggleAll}
               style={{width:16,height:16,cursor:"pointer",accentColor:"#c9a84c"}}/>
             <span style={{fontSize:12,color:"#aaa"}}>
-              {someChecked?`${selected.size}問選択中`:"すべて選択"}
+              {someChecked?T.selectedN(selected.size):T.selectAll}
             </span>
           </label>
           <div style={{flex:1}}/>
@@ -1509,21 +1716,21 @@ function QManagePanel({QS,setQS,onClose}){
             <button onClick={()=>setConfirm(true)}
               style={{background:"#3a1010",border:"1px solid #c04040",borderRadius:8,
                 padding:"5px 14px",fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-              {selected.size}問を削除
+              {T.deleteN(selected.size)}
             </button>
           )}
           {confirm&&(
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <span style={{fontSize:11,color:"#f87171"}}>本当に削除しますか？</span>
+              <span style={{fontSize:11,color:"#f87171"}}>{T.confirmDel}</span>
               <button onClick={deleteSelected}
                 style={{background:"#c04040",border:"none",borderRadius:6,
                   padding:"4px 12px",fontSize:12,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                削除
+                {T.delBtn}
               </button>
               <button onClick={()=>setConfirm(false)}
                 style={{background:"#2a2a44",border:"none",borderRadius:6,
                   padding:"4px 10px",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
-                戻る
+                {T.backBtn}
               </button>
             </div>
           )}
@@ -1548,7 +1755,7 @@ function QManagePanel({QS,setQS,onClose}){
                     <span style={{color:"#555",marginRight:4,fontSize:11}}>#{idx+1}</span>
                     {shortQ}
                   </div>
-                  <div style={{fontSize:11,color:"#c9a84c",marginTop:2}}>正解: {correctAns}</div>
+                  <div style={{fontSize:11,color:"#c9a84c",marginTop:2}}>{T.ansLabel} {correctAns}</div>
                 </div>
               </label>
             );
@@ -1557,7 +1764,7 @@ function QManagePanel({QS,setQS,onClose}){
 
         {QS.length===0&&(
           <div style={{color:"#555",fontSize:13,textAlign:"center",padding:"12px 0"}}>
-            問題がありません。インポートで追加してください。
+            {T.noQs}
           </div>
         )}
       </div>
@@ -1569,7 +1776,9 @@ function QManagePanel({QS,setQS,onClose}){
    インポート/エクスポートパネル
 ══════════════════════════════════════════════════════════════ */
 function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
+  const T=useT();
   const[msg,setMsg]=useState(null);
+  const[confirmReset,setConfirmReset]=useState(null); // "stats" | "qs" | null
   const[pendingImport,setPendingImport]=useState(null);
   const[pendingBackup,setPendingBackup]=useState(null);
   const qRef=useRef(),sRef=useRef(),bRef=useRef();
@@ -1583,13 +1792,13 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
       decks,srs,stats:gSt,
     };
     downloadJSON(backup,`econ_backup_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
-    flash("全データをバックアップしました");
+    flash(T.backupOk);
   };
   const importBackup=async e=>{
     const file=e.target.files[0];if(!file)return;
     try{
       const data=await readJSONFile(file);
-      if(data._type!=="econ_backup"){flash("エラー：バックアップファイルではありません",false);return;}
+      if(data._type!=="econ_backup"){flash(T.errNotBackup,false);return;}
       setPendingBackup(data);
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
@@ -1601,7 +1810,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
       if(data.decks){setDecks(data.decks);saveDecks(data.decks);}
       if(data.srs){setSRS(data.srs);saveSRS(data.srs);}
       if(data.stats){const st={...DEF_ST,...data.stats};setGSt(st);saveSt(st);}
-      flash("全データを上書きしました");
+      flash(T.overwriteOk);
     }else{
       // マージ：デッキはID重複スキップ、SRSはnextDueが新しい方を優先、statsはXPが高い方
       if(data.decks){
@@ -1624,7 +1833,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
         };
         setGSt(st);saveSt(st);
       }
-      flash("データをマージしました");
+      flash(T.mergeOk);
     }
     setPendingBackup(null);
   };
@@ -1632,7 +1841,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
   const exportQ=()=>{
     downloadJSON({_type:"econ_quiz_questions",version:1,questions:QS},
       `questions_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
-    flash("問題セットをエクスポートしました");
+    flash(T.qsExported);
   };
   const importQ=async e=>{
     const file=e.target.files[0];if(!file)return;
@@ -1643,7 +1852,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
       const newIds=new Set(qs.map(q=>q.id));
       const merged=[...QS.filter(q=>!newIds.has(q.id)),...qs];
       if(QS.length===0){
-        setQS(qs);flash(`${qs.length}問を読み込みました`);
+        setQS(qs);flash(T.loadedN(qs.length));
       } else {
         setPendingImport({qs,merged});
       }
@@ -1651,28 +1860,28 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
     e.target.value="";
   };
   const exportS=()=>{
-    if(!gSt){flash("成績データがありません",false);return;}
+    if(!gSt){flash(T.noStats,false);return;}
     downloadJSON({_type:"econ_quiz_stats",version:1,...gSt},
       `stats_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
-    flash("成績をエクスポートしました");
+    flash(T.statsExported);
   };
   const importS=async e=>{
     const file=e.target.files[0];if(!file)return;
     try{
       const data=await readJSONFile(file);
-      if(typeof data.totalXP!=="number"){flash("エラー：成績データの形式が違います",false);return;}
+      if(typeof data.totalXP!=="number"){flash(T.errStatsFormat,false);return;}
       const clean={...DEF_ST,...data};
-      setGSt(clean);saveSt(clean);flash("成績をインポートしました");
+      setGSt(clean);saveSt(clean);flash(T.statsImported);
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
   };
   const resetS=()=>{
-    if(!window.confirm("成績をリセットしますか？この操作は取り消せません。"))return;
-    saveSt(DEF_ST);setGSt({...DEF_ST});flash("成績をリセットしました");
+    saveSt(DEF_ST);setGSt({...DEF_ST});flash(T.statsReset);
+    setConfirmReset(null);
   };
   const resetQ=()=>{
-    if(!window.confirm("問題をデフォルトに戻しますか？"))return;
-    setQS(DEFAULT_QS);flash("デフォルト問題に戻しました");
+    setQS(DEFAULT_QS);flash(T.qsReset);
+    setConfirmReset(null);
   };
   const Btn=({onClick,color,children})=>(
     <button onClick={onClick} style={{background:color||"#1e1e36",border:`1px solid ${color||"#3a3a58"}`,
@@ -1687,7 +1896,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
       <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
         padding:"24px 20px",width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📦 インポート / エクスポート</span>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>{T.ioTitle}</span>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
         </div>
         {msg&&<div style={{background:msg.ok?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",
@@ -1698,27 +1907,27 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
         {pendingImport&&(
           <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px"}}>
             <div style={{fontSize:13,color:"#ece8d8",fontWeight:700,marginBottom:4}}>
-              {pendingImport.qs.length}問を読み込みます
+              {T.pendingN(QS.length, pendingImport.merged.length, pendingImport.qs.length)}
             </div>
             <div style={{fontSize:11,color:"#888",marginBottom:12}}>
-              現在 {QS.length}問 → 追加後 {pendingImport.merged.length}問 / 置き換え後 {pendingImport.qs.length}問
+              
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>{
                 setQS(pendingImport.merged);
                 setPendingImport(null);
-                flash(`${pendingImport.merged.length}問になりました（${pendingImport.qs.length}問を追加）`);
+                flash(T.mergedN(pendingImport.merged.length,pendingImport.qs.length));
               }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                 padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                ➕ 追加する
+                {T.addBtn}
               </button>
               <button onClick={()=>{
                 setQS(pendingImport.qs);
                 setPendingImport(null);
-                flash(`${pendingImport.qs.length}問に置き換えました`);
+                flash(T.replacedN(pendingImport.qs.length));
               }} style={{flex:1,background:"#1e1e36",border:"1px solid #555",borderRadius:8,
                 padding:"8px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                🔄 置き換える
+                {T.replaceBtn}
               </button>
               <button onClick={()=>setPendingImport(null)}
                 style={{background:"none",border:"1px solid #333",borderRadius:8,
@@ -1729,26 +1938,26 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
           </div>
         )}
         <div>
-          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>── 💾 全データバックアップ</div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>{T.backupSec}</div>
           {pendingBackup&&(
             <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginBottom:8}}>
               <div style={{fontSize:13,color:"#ece8d8",fontWeight:700,marginBottom:4}}>
-                バックアップを読み込みます
+                {T.backupLabel}
               </div>
               <div style={{fontSize:11,color:"#888",marginBottom:12}}>
-                {new Date(pendingBackup.exportedAt).toLocaleDateString("ja-JP")} のバックアップ
-                · デッキ {pendingBackup.decks?.length||0}個
+                {new Date(pendingBackup.exportedAt).toLocaleDateString()}
+                · {T.backupDecks(pendingBackup.decks?.length||0)}
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>applyBackup("overwrite")}
                   style={{flex:1,background:"#3a1010",border:"1px solid #c04040",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                  ⚠ 上書き
+                  {T.overwriteBtn}
                 </button>
                 <button onClick={()=>applyBackup("merge")}
                   style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                  ＋ マージ
+                  {T.mergeBtn}
                 </button>
                 <button onClick={()=>setPendingBackup(null)}
                   style={{background:"none",border:"1px solid #333",borderRadius:8,
@@ -1757,32 +1966,48 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
                 </button>
               </div>
               <div style={{fontSize:10,color:"#555",marginTop:8}}>
-                上書き：現在のデータを全て置き換え｜マージ：既存データに追加・新しい方を優先
+                {T.overwriteInfo}
               </div>
             </div>
           )}
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <Btn onClick={exportBackup}>⬇ 全データをバックアップ</Btn>
-            <Btn onClick={()=>bRef.current.click()}>⬆ バックアップから復元</Btn>
+            <Btn onClick={exportBackup}>{T.exportBackupBtn}</Btn>
+            <Btn onClick={()=>bRef.current.click()}>{T.importBackupBtn}</Btn>
             <input ref={bRef} type="file" accept=".json" style={{display:"none"}} onChange={importBackup}/>
           </div>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>── 問題セット（{QS.length}問）</div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>{T.qsSec(QS.length)}</div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <Btn onClick={exportQ}>⬇ 問題セットをダウンロード</Btn>
-            <Btn onClick={()=>qRef.current.click()}>⬆ 問題セットを読み込む</Btn>
+            <Btn onClick={exportQ}>{T.exportQBtn}</Btn>
+            <Btn onClick={()=>qRef.current.click()}>{T.importQBtn}</Btn>
             <input ref={qRef} type="file" accept=".json" style={{display:"none"}} onChange={importQ}/>
-            <Btn onClick={resetQ}>↩ デフォルト問題に戻す</Btn>
+            {confirmReset==="qs"?(
+          <div style={{display:"flex",gap:6,alignItems:"center",background:"rgba(239,68,68,0.08)",border:"1px solid #c04040",borderRadius:9,padding:"9px 12px"}}>
+            <span style={{fontSize:12,color:"#f87171",flex:1}}>{T.confirmResetQs}</span>
+            <button onClick={resetQ} style={{background:"#c04040",border:"none",borderRadius:6,padding:"4px 10px",fontSize:12,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✓</button>
+            <button onClick={()=>setConfirmReset(null)} style={{background:"none",border:"1px solid #333",borderRadius:6,padding:"4px 8px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        ):(
+          <Btn onClick={()=>setConfirmReset("qs")}>{T.resetQBtn}</Btn>
+        )}
           </div>
         </div>
         <div>
-          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>── 成績データ</div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>{T.statsSec}</div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <Btn onClick={exportS}>⬇ 成績をダウンロード</Btn>
-            <Btn onClick={()=>sRef.current.click()}>⬆ 成績を読み込む</Btn>
+            <Btn onClick={exportS}>{T.exportSBtn}</Btn>
+            <Btn onClick={()=>sRef.current.click()}>{T.importSBtn}</Btn>
             <input ref={sRef} type="file" accept=".json" style={{display:"none"}} onChange={importS}/>
-            <Btn onClick={resetS} color="#c04040">⚠ 成績をリセット</Btn>
+            {confirmReset==="stats"?(
+          <div style={{display:"flex",gap:6,alignItems:"center",background:"rgba(239,68,68,0.08)",border:"1px solid #c04040",borderRadius:9,padding:"9px 12px"}}>
+            <span style={{fontSize:12,color:"#f87171",flex:1}}>{T.confirmResetStats}</span>
+            <button onClick={resetS} style={{background:"#c04040",border:"none",borderRadius:6,padding:"4px 10px",fontSize:12,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✓</button>
+            <button onClick={()=>setConfirmReset(null)} style={{background:"none",border:"1px solid #333",borderRadius:6,padding:"4px 8px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        ):(
+          <Btn onClick={()=>setConfirmReset("stats")} color="#c04040">{T.resetSBtn}</Btn>
+        )}
           </div>
         </div>
         <details style={{fontSize:11,color:"#555",cursor:"pointer"}}>
@@ -1819,11 +2044,14 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
    デッキ管理パネル
 ══════════════════════════════════════════════════════════════ */
 function DeckManagerPanel({decks,setDecks,QS,onClose}){
+  const T=useT();
   const[msg,setMsg]=useState(null);
   const[editId,setEditId]=useState(null);
   const[editName,setEditName]=useState("");
-  const[cardEditDeck,setCardEditDeck]=useState(null); // カード編集中のデッキ
-  const[selected,setSelected]=useState(new Set()); // 選択中カードID
+  const[cardEditDeck,setCardEditDeck]=useState(null);
+  const[selected,setSelected]=useState(new Set());
+  const[confirmDeleteId,setConfirmDeleteId]=useState(null);
+  const[editFolder,setEditFolder]=useState("");
   const fileRef=useRef();
   const addRef=useRef();
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
@@ -1837,22 +2065,22 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
       const name=data.session||file.name.replace(/\.json$/,"");
       const newDeck={id:"dk_"+Date.now(),name,questions:qs,createdAt:new Date().toISOString()};
       const updated=[...decks,newDeck];setDecks(updated);saveDecks(updated);
-      flash(`「${name}」を追加しました（${qs.length}問）`);
+      flash(T.addedDeck(name,qs.length));
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
   };
   const deleteDeck=id=>{
-    if(!window.confirm("このデッキを削除しますか？"))return;
     const updated=decks.filter(d=>d.id!==id);setDecks(updated);saveDecks(updated);
+    setConfirmDeleteId(null);
   };
   const saveName=id=>{
-    const updated=decks.map(d=>d.id===id?{...d,name:editName}:d);
+    const updated=decks.map(d=>d.id===id?{...d,name:editName,folder:editFolder}:d);
     setDecks(updated);saveDecks(updated);setEditId(null);
   };
   const exportDeck=dk=>{
     downloadJSON({_type:"econ_quiz_questions",version:1,session:dk.name,questions:dk.questions},
       dk.name.replace(/\s/g,"_")+".json");
-    flash(`「${dk.name}」をエクスポートしました`);
+    flash(T.exportedDeck(dk.name));
   };
 
   // カード編集：削除
@@ -1864,7 +2092,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
     const newDk=updated.find(d=>d.id===cardEditDeck.id);
     setCardEditDeck(newDk);
     setSelected(new Set());
-    flash(`${selected.size}問を削除しました`);
+    flash(T.deletedN(selected.size));
   };
 
   // カード編集：JSONから追加
@@ -1881,7 +2109,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
       setDecks(updated);saveDecks(updated);
       const newDk=updated.find(d=>d.id===cardEditDeck.id);
       setCardEditDeck(newDk);
-      flash(`${newQs.length}問を追加しました（重複${qs.length-newQs.length}問スキップ）`);
+      flash(T.addedN(newQs.length,qs.length-newQs.length));
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
   };
@@ -1921,7 +2149,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
               <input type="checkbox" checked={allChecked} onChange={toggleAll}
                 style={{width:16,height:16,accentColor:"#c9a84c"}}/>
               <span style={{fontSize:12,color:"#aaa"}}>
-                {selected.size>0?`${selected.size}問選択中`:"すべて選択"}
+                {selected.size>0?T.selectedN(selected.size):T.selectAll}
               </span>
             </label>
             <div style={{flex:1}}/>
@@ -1929,13 +2157,13 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
               <button onClick={deleteSelected}
                 style={{background:"#3a1010",border:"1px solid #c04040",borderRadius:8,
                   padding:"5px 12px",fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                {selected.size}問を削除
+                {T.deleteN(selected.size)}
               </button>
             )}
             <button onClick={()=>addRef.current.click()}
               style={{background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                 padding:"5px 12px",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-              ＋ 追加
+              {T.addCardsBtn}
             </button>
             <input ref={addRef} type="file" accept=".json" style={{display:"none"}} onChange={addCards}/>
           </div>
@@ -1963,7 +2191,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
               );
             })}
             {dk.questions.length===0&&<div style={{color:"#555",fontSize:13,textAlign:"center",padding:"16px 0"}}>
-              カードがありません
+              {T.noCards}
             </div>}
           </div>
         </div>
@@ -1978,7 +2206,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
       <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
         padding:"20px 18px",width:"100%",maxWidth:460,display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>📚 デッキ管理</span>
+          <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>{T.deckMgrTitle}</span>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
         </div>
         {msg&&<div style={{background:msg.ok?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",
@@ -1986,41 +2214,65 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
           padding:"8px 12px",fontSize:13,color:msg.ok?"#4ade80":"#f87171"}}>{msg.text}</div>}
 
         {decks.length===0&&<div style={{color:"#555",fontSize:13,textAlign:"center",padding:"16px 0"}}>
-          デッキがありません。<br/>JSONファイルをインポートして追加してください。
+          <span style={{whiteSpace:"pre-line"}}>{T.noDecksImport}</span>
         </div>}
 
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {decks.map(dk=>(
             <div key={dk.id} style={{background:"#0d0d20",borderRadius:12,padding:"12px 14px"}}>
               {editId===dk.id?(
-                <div style={{display:"flex",gap:8}}>
-                  <input value={editName} onChange={e=>setEditName(e.target.value)}
-                    onKeyDown={e=>e.key==="Enter"&&saveName(dk.id)}
-                    style={{flex:1,background:"#1e1e3a",border:"1px solid #c9a84c",borderRadius:8,
-                      padding:"6px 10px",color:"#ece8d8",fontSize:14,fontFamily:"inherit",outline:"none"}}
-                    autoFocus/>
-                  <button onClick={()=>saveName(dk.id)}
-                    style={{background:"#c9a84c",border:"none",borderRadius:8,padding:"6px 12px",
-                      fontSize:12,fontWeight:700,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>保存</button>
-                  <button onClick={()=>setEditId(null)}
-                    style={{background:"#1e1e36",border:"1px solid #333",borderRadius:8,padding:"6px 10px",
-                      fontSize:12,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  <div style={{display:"flex",gap:8}}>
+                    <input value={editName} onChange={e=>setEditName(e.target.value)}
+                      onKeyDown={e=>e.key==="Enter"&&saveName(dk.id)}
+                      style={{flex:1,background:"#1e1e3a",border:"1px solid #c9a84c",borderRadius:8,
+                        padding:"6px 10px",color:"#ece8d8",fontSize:14,fontFamily:"inherit",outline:"none"}}
+                      autoFocus/>
+                    <button onClick={()=>saveName(dk.id)}
+                      style={{background:"#c9a84c",border:"none",borderRadius:8,padding:"6px 12px",
+                        fontSize:12,fontWeight:700,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>{T.saveBtn}</button>
+                    <button onClick={()=>setEditId(null)}
+                      style={{background:"#1e1e36",border:"1px solid #333",borderRadius:8,padding:"6px 10px",
+                        fontSize:12,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:11,color:"#666"}}>📁</span>
+                    <input value={editFolder} onChange={e=>setEditFolder(e.target.value)}
+                      placeholder={T.folderPlaceholder}
+                      style={{flex:1,background:"#1e1e3a",border:"1px solid #3a3a58",borderRadius:8,
+                        padding:"5px 10px",color:"#aaa",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                  </div>
                 </div>
               ):(
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>setCardEditDeck(dk)}>
-                    <div style={{fontSize:14,fontWeight:700,color:"#ece8d8"}}>{dk.name}</div>
-                    <div style={{fontSize:11,color:"#555"}}>{dk.questions.length}問 · タップしてカードを編集</div>
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setCardEditDeck(dk)}>
+                    <div style={{fontSize:14,fontWeight:700,color:"#ece8d8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dk.name}</div>
+                    <div style={{fontSize:11,color:"#555",marginTop:2}}>
+                      {dk.folder&&<span style={{color:"#4a6a88",marginRight:6}}>📁 {dk.folder}</span>}
+                      {dk.questions.length} · {T.deckEditSub}
+                    </div>
                   </div>
-                  <button onClick={()=>{setEditId(dk.id);setEditName(dk.name);}}
+                  <button onClick={()=>{setEditId(dk.id);setEditName(dk.name);setEditFolder(dk.folder||'');}}
                     style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
                       fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✏️</button>
                   <button onClick={()=>exportDeck(dk)}
                     style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
                       fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>⬇</button>
-                  <button onClick={()=>deleteDeck(dk.id)}
-                    style={{background:"none",border:"1px solid #3a1010",borderRadius:7,padding:"4px 8px",
-                      fontSize:11,color:"#f87171",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+                  {confirmDeleteId===dk.id?(
+                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:"#f87171"}}>{T.confirmDelDeck}</span>
+                      <button onClick={()=>deleteDeck(dk.id)}
+                        style={{background:"#c04040",border:"none",borderRadius:6,padding:"3px 8px",
+                          fontSize:11,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✓</button>
+                      <button onClick={()=>setConfirmDeleteId(null)}
+                        style={{background:"none",border:"1px solid #333",borderRadius:6,padding:"3px 6px",
+                          fontSize:11,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                    </div>
+                  ):(
+                    <button onClick={()=>setConfirmDeleteId(dk.id)}
+                      style={{background:"none",border:"1px solid #3a1010",borderRadius:7,padding:"4px 8px",
+                        fontSize:11,color:"#f87171",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+                  )}
                 </div>
               )}
             </div>
@@ -2030,7 +2282,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
         <button onClick={()=>fileRef.current.click()}
           style={{background:"#1e1e36",border:"1px solid #c9a84c",borderRadius:10,
             padding:"11px",fontSize:14,fontWeight:700,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit"}}>
-          ＋ JSONからデッキを追加
+          {T.addDeckBtn}
         </button>
         <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={importDeck}/>
       </div>
@@ -2041,7 +2293,30 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
-function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,savedGame,onResume,onClearSave}){
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang}){
+  const T=useT();
+  const[collapsedFolders,setCollapsedFolders]=useState(()=>{
+    try{return new Set(JSON.parse(localStorage.getItem('econ_collapsed')||'[]'));}
+    catch{return new Set();}
+  });
+  const toggleFolder=name=>{
+    setCollapsedFolders(prev=>{
+      const s=new Set(prev);
+      s.has(name)?s.delete(name):s.add(name);
+      localStorage.setItem('econ_collapsed',JSON.stringify([...s]));
+      return s;
+    });
+  };
+  const folderGroups=useMemo(()=>{
+    const g={};
+    decks.forEach(dk=>{const f=dk.folder||'';if(!g[f])g[f]=[];g[f].push(dk);});
+    return g;
+  },[decks]);
+  const folderNames=Object.keys(folderGroups).sort((a,b)=>{
+    if(a===''&&b!=='')return 1;
+    if(a!==''&&b==='')return -1;
+    return a.localeCompare(b);
+  });
   const rank=gSt?getRank(gSt.totalXP):null;
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
@@ -2054,9 +2329,17 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
 
         {/* ヘッダー */}
         <div style={{textAlign:"center",paddingBottom:4}}>
-          <div style={{fontSize:DK?40:30,letterSpacing:4,color:"#c9a84c",fontWeight:900,
-            borderBottom:"2px solid #c9a84c",paddingBottom:6,display:"inline-block"}}>経済史</div>
-          <h1 style={{fontSize:DK?28:22,fontWeight:900,color:"#ece8d8",marginTop:8}}>道場クイズ</h1>
+          <div style={{position:"relative",display:"inline-block"}}>
+            <div style={{fontSize:DK?40:30,letterSpacing:4,color:"#c9a84c",fontWeight:900,
+              borderBottom:"2px solid #c9a84c",paddingBottom:6,display:"inline-block"}}>{T.appLogo}</div>
+            <button onClick={onToggleLang}
+              style={{position:"absolute",top:-2,right:-52,background:"#1e1e36",
+                border:"1px solid #c9a84c",borderRadius:8,padding:"3px 8px",
+                fontSize:11,fontWeight:700,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit"}}>
+              {T.langToggle}
+            </button>
+          </div>
+          <h1 style={{fontSize:DK?28:22,fontWeight:900,color:"#ece8d8",marginTop:8}}>{T.appTitle}</h1>
         </div>
 
         {/* ランク・XPバー */}
@@ -2065,11 +2348,11 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <span style={{fontSize:24}}>{rank.icon}</span>
               <div>
-                <div style={{fontSize:16,fontWeight:800,color:rank.color}}>{rank.name}</div>
-                <div style={{fontSize:11,color:"#555"}}>{gSt.plays}回プレイ</div>
+                <div style={{fontSize:16,fontWeight:800,color:rank.color}}>{rName(rank,lang)}</div>
+                <div style={{fontSize:11,color:"#555"}}>{T.plays(gSt.plays)}</div>
               </div>
               <div style={{marginLeft:"auto",textAlign:"right"}}>
-                <div style={{fontSize:11,color:"#666"}}>最高得点</div>
+                <div style={{fontSize:11,color:"#666"}}>{T.bestScore}</div>
                 <div style={{fontSize:14,fontWeight:700,color:"#c9a84c"}}>{gSt.bestScore}pt</div>
               </div>
             </div>
@@ -2087,11 +2370,11 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
             <span style={{fontSize:28}}>📅</span>
             <div style={{flex:1}}>
               <div style={{fontSize:DK?18:16,fontWeight:800,
-                color:todayCount>0?"#4ade80":"#555"}}>今日のデッキ</div>
+                color:todayCount>0?"#4ade80":"#555"}}>{T.todayDeck}</div>
               <div style={{fontSize:12,color:todayCount>0?"#888":"#444",marginTop:2}}>
                 {todayCount>0
-                  ?`${todayCount}問が今日の復習対象 · 間隔反復`
-                  :decks.length===0?"デッキを追加してください":"今日の復習は完了しています 🎉"}
+                  ?T.todayDue(todayCount)
+                  :decks.length===0?T.todayAdd:T.todayDone}
               </div>
             </div>
             {todayCount>0&&<div style={{background:"#22c55e",color:"#0d0d18",
@@ -2102,13 +2385,13 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
         </button>
 
         {/* デッキ一覧 */}
-        <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>── マイデッキ</div>
+        <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>{T.myDecks}</div>
         {decks.length===0&&(
           <div style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,
             padding:"20px",textAlign:"center",color:"#555",fontSize:13}}>
-            デッキがありません<br/>
+            {T.noDecks}<br/>
             <span style={{color:"#c9a84c",cursor:"pointer"}} onClick={onManageDecks}>
-              デッキを追加する →
+              {T.addDeckLink}
             </span>
           </div>
         )}
@@ -2130,8 +2413,8 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
                   fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:22}}>▶</span>
                 <div>
-                  <div>通常プレイ</div>
-                  <div style={{fontSize:11,fontWeight:400,opacity:0.7,marginTop:2}}>出題順 · 自動入力なし</div>
+                  <div>{T.normalPlay}</div>
+                  <div style={{fontSize:11,fontWeight:400,opacity:0.7,marginTop:2}}>{T.normalPlaySub}</div>
                 </div>
               </button>
               <button onClick={()=>{setDeckDialog(null);onPlayDeck(deckDialog,true);}}
@@ -2140,49 +2423,72 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
                   fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:22}}>📖</span>
                 <div>
-                  <div>初回確認モード</div>
-                  <div style={{fontSize:11,fontWeight:400,color:"#888",marginTop:2}}>正解を自動表示して確認</div>
+                  <div>{T.previewMode}</div>
+                  <div style={{fontSize:11,fontWeight:400,color:"#888",marginTop:2}}>{T.previewModeSub}</div>
                 </div>
               </button>
               <button onClick={()=>setDeckDialog(null)}
                 style={{background:"none",border:"none",color:"#555",fontSize:13,
                   cursor:"pointer",fontFamily:"inherit",marginTop:2}}>
-                キャンセル
+                {T.cancel}
               </button>
             </div>
           </div>
         )}
-        {decks.map(dk=>{
-          const dueCount=countDue(dk.questions,srs);
+        {folderNames.map(folderName=>{
+          const folderDecks=folderGroups[folderName];
+          const isCollapsed=collapsedFolders.has(folderName);
+          const hasFolder=folderName!=='';
           return(
-            <button key={dk.id} onClick={()=>setDeckDialog(dk)}
-              style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,
-                padding:"14px 16px",cursor:"pointer",fontFamily:"inherit",
-                textAlign:"left",transition:"all 0.15s",width:"100%"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <span style={{fontSize:22}}>📚</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:DK?16:14,fontWeight:700,color:"#ece8d8",
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {dk.name}
-                  </div>
-                  <div style={{fontSize:11,color:"#666",marginTop:2}}>
-                    {dk.questions.length}問 · 出題順
-                  </div>
-                </div>
-                {dueCount>0&&<div style={{background:"rgba(201,168,76,0.2)",color:"#c9a84c",
-                  borderRadius:20,padding:"3px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>
-                  {dueCount}due
-                </div>}
-              </div>
-            </button>
+            <div key={folderName||'__none__'}>
+              {hasFolder&&(
+                <button onClick={()=>toggleFolder(folderName)}
+                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",
+                    background:"none",border:"none",cursor:"pointer",
+                    padding:"6px 4px 4px",fontFamily:"inherit"}}>
+                  <span style={{fontSize:11,color:"#4a6a88",fontWeight:700,letterSpacing:0.5}}>
+                    {isCollapsed?"▶":"▼"} 📁 {folderName}
+                  </span>
+                  <span style={{fontSize:10,color:"#444",marginLeft:"auto"}}>
+                    {folderDecks.length}
+                  </span>
+                </button>
+              )}
+              {!isCollapsed&&folderDecks.map(dk=>{
+                const dueCount=countDue(dk.questions,srs);
+                return(
+                  <button key={dk.id} onClick={()=>setDeckDialog(dk)}
+                    style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,
+                      padding:"14px 16px",cursor:"pointer",fontFamily:"inherit",
+                      textAlign:"left",transition:"all 0.15s",width:"100%",
+                      marginBottom:hasFolder?4:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:22}}>📚</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:DK?16:14,fontWeight:700,color:"#ece8d8",
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {dk.name}
+                        </div>
+                        <div style={{fontSize:11,color:"#666",marginTop:2}}>
+                          {T.deckCards(dk.questions.length)}
+                        </div>
+                      </div>
+                      {dueCount>0&&<div style={{background:"rgba(201,168,76,0.2)",color:"#c9a84c",
+                        borderRadius:20,padding:"3px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>
+                        {dueCount}due
+                      </div>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           );
         })}
 
         {/* 続きから再開 */}
         {savedGame&&(
           <div style={{background:"#0a1a0a",border:"1px solid #22c55e",borderRadius:12,padding:"12px 14px"}}>
-            <div style={{fontSize:12,color:"#4ade80",fontWeight:700,marginBottom:4}}>⏸ 続きのゲームがあります</div>
+            <div style={{fontSize:12,color:"#4ade80",fontWeight:700,marginBottom:4}}>{T.savedBanner}</div>
             <div style={{fontSize:11,color:"#666",marginBottom:8}}>
               {new Date(savedGame.savedAt).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} 中断
               · {savedGame.state.answeredCorrectly?.length||0}/{savedGame.QS?.length||0}問 · {savedGame.state.score}pt
@@ -2191,7 +2497,7 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
               <button onClick={onResume}
                 style={{flex:1,background:"#22c55e",border:"none",borderRadius:8,
                   padding:"8px 0",fontSize:13,fontWeight:800,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>
-                ▶ 続きから再開
+                {T.savedResume}
               </button>
               <button onClick={onClearSave}
                 style={{background:"none",border:"1px solid #333",borderRadius:8,padding:"8px 12px",
@@ -2204,19 +2510,33 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
           <button onClick={onManageDecks}
             style={{flex:1,background:"#1e1e36",border:"1px solid #333",borderRadius:10,
               padding:"10px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
-            📚 デッキ管理
+            {T.navDecks}
           </button>
           <button onClick={()=>onSettings("stats")}
             style={{flex:1,background:"#1e1e36",border:"1px solid #333",borderRadius:10,
               padding:"10px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
-            📊 問題別成績
+            {T.navStats}
           </button>
           <button onClick={()=>onSettings("io")}
             style={{flex:1,background:"#1e1e36",border:"1px solid #333",borderRadius:10,
               padding:"10px 0",fontSize:12,color:"#aaa",cursor:"pointer",fontFamily:"inherit"}}>
-            📦 管理
+            {T.navData}
           </button>
         </div>
+
+        {/* Support button */}
+        <div style={{textAlign:"center",paddingTop:4,paddingBottom:8}}>
+          <a href="https://paypal.me/mk7qn" target="_blank" rel="noopener noreferrer"
+            style={{display:"inline-block",background:"none",border:"1px solid #2a2a44",
+              borderRadius:20,padding:"6px 18px",fontSize:11,color:"#555",
+              textDecoration:"none",fontFamily:"inherit",cursor:"pointer",
+              transition:"all 0.2s"}}
+            onMouseEnter={e=>e.currentTarget.style.color="#c9a84c"}
+            onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+            {T.supportBtn}
+          </a>
+        </div>
+
       </div>
     </div>
   );
@@ -2226,7 +2546,14 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
    APP
 ══════════════════════════════════════════════════════════════ */
 function QuizApp(){
+  const[lang,setLang]=useState(()=>localStorage.getItem('econ_lang')||'ja');
+  const toggleLang=()=>{
+    const nl=lang==='ja'?'en':'ja';
+    setLang(nl);localStorage.setItem('econ_lang',nl);
+  };
+  const T=lang==='en'?T_EN:T_JA;
   const[QS,setQS]=useState(DEFAULT_QS);
+  const[typingDone,setTypingDone]=useState(false);
   const[s,dispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
   const{phase,queue,pendingQueue,score,combo,maxCombo,inputs,timeLeft,feedback,
         showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart,viewedNewCount,newCardIds}=s;
@@ -2361,14 +2688,16 @@ function QuizApp(){
   const isFB=phase==="feedback";
   const isNew=q&&Array.isArray(newCardIds)?newCardIds.includes(q.id):false;
   const maxT=qTimer(q||QS[0]);
-  const timerPct=timeLeft/maxT*100;
-  const timerColor=timeLeft<=5?"#ef4444":timeLeft<=10?"#f97316":"#c9a84c";
+  const timerPct=typingDone?Math.min(100,timeLeft/maxT*100):100;
+  const timerColor=!typingDone?"#3a3a58":timeLeft<=5?"#ef4444":timeLeft<=10?"#f97316":"#c9a84c";
 
+  // reset typingDone on each new question
+  useEffect(()=>{setTypingDone(false);},[questionKey]);
   useEffect(()=>{
-    if(phase!=="question")return;
+    if(phase!=="question"||!typingDone)return;
     const id=setInterval(()=>dispatch({type:"TICK"}),1000);
     return()=>clearInterval(id);
-  },[questionKey]);
+  },[questionKey,typingDone]);
   useEffect(()=>{
     if(phase!=="question")return;
     if(timeLeft<=5&&timeLeft>0){SFX.tick();setTimerEdge(true);}
@@ -2517,6 +2846,7 @@ function QuizApp(){
   /* ── ロビー画面 ─────────────────────────────────────────────── */
   if(phase==="start"){
     return(
+      <LangCtx.Provider value={lang}>
       <div>
         {showDeckMgr&&<DeckManagerPanel decks={decks} setDecks={setDecks} QS={QS}
           onClose={()=>setShowDeckMgr(false)}/>}
@@ -2537,8 +2867,10 @@ function QuizApp(){
           savedGame={savedGame}
           onResume={doResume}
           onClearSave={()=>{clearGame();setSavedGame(null);}}
+          lang={lang} onToggleLang={toggleLang}
         />
       </div>
+      </LangCtx.Provider>
     );
   }
 
@@ -2547,6 +2879,7 @@ function QuizApp(){
     const newRankObj=gSt?getRank(gSt.totalXP):null;
     const isBest=gSt&&score>0&&score===gSt.bestScore&&gSt.plays>1;
     return(
+      <LangCtx.Provider value={lang}>
       <div style={S.root}>
         <div style={S.center}>
           <div style={{...S.card,gap:12,maxWidth:400}}>
@@ -2555,24 +2888,24 @@ function QuizApp(){
             </div>
             <div style={{display:"flex",alignItems:"baseline",gap:4}}>
               <span style={{fontSize:50,fontWeight:900,color:scoreColor(score)}}>{score}</span>
-              <span style={{fontSize:17,color:"#555",alignSelf:"flex-end",marginBottom:7}}>/{MAX_SCORE}点</span>
+              <span style={{fontSize:17,color:"#555",alignSelf:"flex-end",marginBottom:7}}>{T.ptsSuffix(MAX_SCORE)}</span>
             </div>
             <div style={S.statsRow}>
-              <div style={S.stat}><div style={{...S.statN,color:scoreColor(score)}}>{answeredCorrectly.length}/{QS.length}</div><div style={S.statL}>正解</div></div>
-              <div style={S.stat}><div style={S.statN}>{xpInfo?.ftc||0}/{QS.length}</div><div style={S.statL}>一発正解</div></div>
-              <div style={S.stat}><div style={{...S.statN,color:"#f97316"}}>{maxCombo}</div><div style={S.statL}>最大コンボ</div></div>
+              <div style={S.stat}><div style={{...S.statN,color:scoreColor(score)}}>{answeredCorrectly.length}/{QS.length}</div><div style={S.statL}>{T.correctStat}</div></div>
+              <div style={S.stat}><div style={S.statN}>{xpInfo?.ftc||0}/{QS.length}</div><div style={S.statL}>{T.firstTryStat}</div></div>
+              <div style={S.stat}><div style={{...S.statN,color:"#f97316"}}>{maxCombo}</div><div style={S.statL}>{T.maxComboStat}</div></div>
             </div>
             {xpInfo&&(
               <div style={{width:"100%",background:"#0d0d20",borderRadius:12,padding:"12px 14px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                  <span style={{fontSize:12,color:"#aaa"}}>今回の獲得XP</span>
+                  <span style={{fontSize:12,color:"#aaa"}}>{T.xpEarned}</span>
                   <span style={{fontSize:16,fontWeight:800,color:"#c9a84c"}}>+{xpInfo.earned} XP</span>
                 </div>
                 {[
-                  [`得点 ${score}pt × 3`,xpInfo.scoreXP],
-                  [`一発正解 ${xpInfo.ftc}問 × 2`,xpInfo.ftcXP],
-                  [`コンボボーナス`,xpInfo.comboXP],
-                  xpInfo.perfect?[`全問一発正解ボーナス 🎉`,xpInfo.perfectXP]:null,
+                  [T.xpScore(score),xpInfo.scoreXP],
+                  [T.xpFirst(xpInfo.ftc),xpInfo.ftcXP],
+                  [T.xpCombo,xpInfo.comboXP],
+                  xpInfo.perfect?[T.xpPerfect,xpInfo.perfectXP]:null,
                 ].filter(Boolean).map(([label,val])=>(
                   <div key={label} style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#555",marginBottom:3}}>
                     <span>{label}</span><span style={{color:"#777"}}>+{val}</span>
@@ -2585,31 +2918,31 @@ function QuizApp(){
             )}
             {isBest&&<div style={{background:"rgba(240,192,64,0.1)",border:"1px solid #f0c040",
               borderRadius:10,padding:"7px 14px",fontSize:12,color:"#f0c040",animation:"bounceIn 0.5s ease"}}>
-              🏆 自己ベスト更新！
+              {T.newBest}
             </div>}
             {isToday&&xpInfo&&(
               <div style={{background:"rgba(34,197,94,0.08)",border:"1px solid #22c55e",
                 borderRadius:10,padding:"8px 14px",fontSize:12,color:"#4ade80",textAlign:"center"}}>
-                📅 今日のデッキ完了！SRS更新済み
+                {T.todayDone2}
               </div>
             )}
             {rankUp&&(
               <div style={{width:"100%",background:"rgba(255,255,255,0.03)",
                 border:`2px solid ${rankUp.to.color}`,borderRadius:14,
                 padding:"12px",textAlign:"center",animation:"rankUpAnim 0.6s ease"}}>
-                <div style={{fontSize:10,letterSpacing:3,color:"#aaa",marginBottom:6}}>⬆ 昇　格</div>
+                <div style={{fontSize:10,letterSpacing:3,color:"#aaa",marginBottom:6}}>{T.rankUpLabel}</div>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
-                  <span style={{fontSize:13,color:rankUp.from.color}}>{rankUp.from.icon} {rankUp.from.name}</span>
+                  <span style={{fontSize:13,color:rankUp.from.color}}>{rankUp.from.icon} {rName(rankUp.from,lang)}</span>
                   <span style={{color:"#555",fontSize:16}}>→</span>
-                  <span style={{fontSize:17,fontWeight:800,color:rankUp.to.color}}>{rankUp.to.icon} {rankUp.to.name}</span>
+                  <span style={{fontSize:17,fontWeight:800,color:rankUp.to.color}}>{rankUp.to.icon} {rName(rankUp.to,lang)}</span>
                 </div>
               </div>
             )}
             {newRankObj&&<div style={{fontSize:11,color:"#555"}}>
-              現在の称号：<span style={{color:newRankObj.color,fontWeight:700}}>{newRankObj.icon} {newRankObj.name}</span>
+              {T.currentRank}<span style={{color:newRankObj.color,fontWeight:700}}>{newRankObj.icon} {rName(newRankObj,lang)}</span>
             </div>}
             <div style={{display:"flex",gap:8,width:"100%"}}>
-              <button style={{...S.btnG,flex:1}} onClick={doStart}>もう一度</button>
+              <button style={{...S.btnG,flex:1}} onClick={doStart}>{T.playAgain}</button>
               <button onClick={goLobby}
                 style={{background:"none",border:"1px solid #2a2a44",color:"#888",
                   borderRadius:12,padding:"12px 16px",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🏠</button>
@@ -2617,6 +2950,7 @@ function QuizApp(){
           </div>
         </div>
       </div>
+      </LangCtx.Provider>
     );
   }
 
@@ -2624,6 +2958,7 @@ function QuizApp(){
 
   /* ── 問題画面 ─────────────────────────────────────────────── */
   return(
+    <LangCtx.Provider value={lang}>
     <div style={S.root}>
       {/* 既存フィードバックフラッシュ */}
       {isFB&&<div className="flashFade" style={{...S.flashOverlay,
@@ -2637,7 +2972,7 @@ function QuizApp(){
           <div style={{background:"rgba(96,165,250,0.18)",border:"1px solid #60a5fa",
             borderRadius:14,padding:"12px 28px",textAlign:"center"}}>
             <div style={{fontSize:DK?18:15,fontWeight:800,color:"#60a5fa"}}>🆕 新しい問題</div>
-            <div style={{fontSize:DK?13:11,color:"#888",marginTop:3}}>復習完了！未出題の問題へ</div>
+            <div style={{fontSize:DK?13:11,color:"#888",marginTop:3}}>{T.nextPhase}</div>
           </div>
         </div>
       )}
@@ -2699,22 +3034,22 @@ function QuizApp(){
       <div style={S.timerW}>
         <div style={{...S.timerF,width:`${timerPct}%`,background:timerColor,
           animation:phase==="question"&&timeLeft<=5?"timerPulse 0.5s ease infinite":"none"}}/>
-        <span style={{...S.timerN,color:timerColor}}>{phase==="question"?`${timeLeft}s`:""}</span>
+        <span style={{...S.timerN,color:timerColor}}>{phase==="question"?(typingDone?`${timeLeft}s`:"--"):""}</span>
       </div>
       <div style={S.qcard}
         className={isFB&&!isNew&&!feedback?.correct?"shake":""}>
         <div style={S.qmeta}>
           {q.type==="fill"?"穴埋め":"選択式"} · {q.pts}点
-          {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>🔄 再挑戦 {wrongCount}回目</span>}
-          {q.type==="fill"&&!isFB&&<span style={{color:"#555",marginLeft:8,fontSize:10}}>← タップして入力</span>}
+          {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>{T.retryN(wrongCount)}</span>}
+          {q.type==="fill"&&!isFB&&<span style={{color:"#555",marginLeft:8,fontSize:10}}>{lang==="en"?"← tap to type":"← タップして入力"}</span>}
         </div>
-        {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt}/>
+        {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
-              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef}/>}
-        {!showHint&&!isFB&&<button style={S.hintBtn} onClick={()=>dispatch({type:"HINT"})}>💡 ヒント</button>}
+              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)}/>}
+        {!showHint&&!isFB&&<button style={S.hintBtn} onClick={()=>dispatch({type:"HINT"})}>{T.hintBtn}</button>}
         {q.type==="fill"&&!isFB&&(
           <button style={{...S.btnG,marginTop:10,padding:"10px 28px",fontSize:14}}
-            onClick={submitFill} disabled={inputs.some(v=>!v.trim())}>回答する ✓</button>
+            onClick={submitFill} disabled={inputs.some(v=>!v.trim())}>{T.submitBtn}</button>
         )}
         {showHint&&<div style={S.hintBox}>💡 {q.hint}</div>}
         {q.type==="mc"&&(
@@ -2742,8 +3077,8 @@ function QuizApp(){
               padding:"10px 14px",background:"rgba(201,168,76,0.1)",
               border:"1px solid #c9a84c",borderRadius:10,flexWrap:"wrap",marginBottom:8}}>
               <span style={{fontSize:20}}>📖</span>
-              <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>初回確認</span>
-              <span style={{color:"#777",fontSize:12,marginLeft:4}}>次回から本番です</span>
+              <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>{T.previewLabel}</span>
+              <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
@@ -2751,7 +3086,7 @@ function QuizApp(){
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
                 opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
-              次へ →
+              {T.nextBtn}
             </button>
           </div>
         )}
@@ -2759,11 +3094,11 @@ function QuizApp(){
           <div style={{marginTop:12}}>
             <div style={S.correctBanner}>
               <span style={{fontSize:22}}>⭕</span>
-              <span style={{color:"#4ade80",fontWeight:700,fontSize:15}}>正解！</span>
+              <span style={{color:"#4ade80",fontWeight:700,fontSize:15}}>{T.correctLabel}</span>
               {feedback.isFirst
-                ?<span style={{color:"#c9a84c",fontWeight:700,fontSize:13,marginLeft:4}}>+{q.pts}pt</span>
-                :<span style={{color:"#777",fontSize:12,marginLeft:4}}>再挑戦正解（加点なし）</span>}
-              {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>🔥{combo}コンボ！</span>}
+                ?<span style={{color:"#c9a84c",fontWeight:700,fontSize:13,marginLeft:4}}>{T.firstTryBonus(q.pts)}</span>
+                :<span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.retryCorrect}</span>}
+              {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>{T.combo(combo)}</span>}
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
@@ -2771,7 +3106,7 @@ function QuizApp(){
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
                 opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
-              次へ →
+              {T.nextBtn}
             </button>
           </div>
         )}
@@ -2779,9 +3114,9 @@ function QuizApp(){
           <div style={S.wrongReveal}>
             <div style={S.wrongTop}>
               <span style={{fontSize:20}}>❌</span>
-              <span style={{fontSize:15,fontWeight:700,color:"#f87171"}}>不正解</span>
+              <span style={{fontSize:15,fontWeight:700,color:"#f87171"}}>{T.wrongLabel}</span>
             </div>
-            <div style={S.correctLabel}>正　解</div>
+            <div style={S.correctLabel}>{T.answerHeader}</div>
             <div style={S.correctBlock}>
               {feedback.correctAns.map((ans,i)=>(
                 <div key={i} style={S.correctAnsRow}>
@@ -2791,19 +3126,20 @@ function QuizApp(){
               ))}
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
-            <div style={S.retryMsg}>🔄 もう一度チャレンジ！</div>
+            <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
                 opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
-              次へ →
+              {T.nextBtn}
             </button>
           </div>
         )}
       </div>
 
     </div>
+    </LangCtx.Provider>
   );
 }
 
@@ -2849,7 +3185,7 @@ const S={
   correctAnsRow:{display:"flex",alignItems:"center",gap:DK?10:6},
   correctAns:{fontSize:DK?38:28,fontWeight:900,color:"#f0c060",lineHeight:1.4},
   retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
-  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?17:15,color:"#93c5fd",lineHeight:1.8},
+  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?17:15,color:"#93c5fd",lineHeight:1.8,whiteSpace:"pre-wrap"},
 };
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
