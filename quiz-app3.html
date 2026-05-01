@@ -3118,6 +3118,12 @@ function QuizApp(){
         </div>
         {q.image&&<img src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
         {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
+        {q.images&&q.images.map((img,i)=>(
+          <div key={i} style={{marginBottom:8}}>
+            <img src={img.url} alt={img.caption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
+            {img.caption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{img.caption}</p>}
+          </div>
+        ))}
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
               isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)}/>}
@@ -3155,7 +3161,7 @@ function QuizApp(){
               <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>{T.previewLabel}</span>
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
           </div>
         )}
         {isFB&&!isNew&&feedback?.correct&&(
@@ -3168,7 +3174,7 @@ function QuizApp(){
                 :<span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.retryCorrect}</span>}
               {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>{T.combo(combo)}</span>}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3193,7 +3199,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
