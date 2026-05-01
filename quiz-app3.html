@@ -664,7 +664,6 @@ function loadDecks(){
       const d=JSON.parse(v);
       if(d.length>0){
         // 古いデフォルトデッキ（EN Session 1）を新しいものに差し替え
-        // 旧デフォルトデッキの移行
         const hasOldSingle=d.length===1&&d[0].id==="dk_default_session01";
         if(hasOldSingle){
           const now=new Date().toISOString();
@@ -677,20 +676,7 @@ function loadDecks(){
           try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(updated));}catch{}
           return updated;
         }
-        // デフォルトデッキのquestionsを常に最新で上書き（imageなど新フィールドを反映）
-        let refreshed=d.map(dk=>{
-          if(dk.id==="dk_default_ja_s01") return {...dk,questions:DEFAULT_QS};
-          if(dk.id==="dk_default_en_s01") return {...dk,questions:DEFAULT_QS_EN};
-          if(dk.id==="dk_default_img_test") return {...dk,questions:DEFAULT_QS_IMG_TEST};
-          return dk;
-        });
-        // 画像テストデッキがなければ追加
-        if(!refreshed.find(dk=>dk.id==="dk_default_img_test")){
-          const now=new Date().toISOString();
-          refreshed=[...refreshed,{id:"dk_default_img_test",name:"画像テスト",folder:"テスト",questions:DEFAULT_QS_IMG_TEST,createdAt:now}];
-        }
-        try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(refreshed));}catch{}
-        return refreshed;
+        return d;
       }
     }
     // デッキが空の場合はデフォルト3デッキを追加
