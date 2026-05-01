@@ -3155,14 +3155,7 @@ function QuizApp(){
               <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>{T.previewLabel}</span>
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
-            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
-              style={{background:"#1e1e36",border:"1px solid #3a3a58",
-                borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
-                cursor:"pointer",fontFamily:"inherit",width:"100%",
-                opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
-              {T.nextBtn}
-            </button>
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}</div>}
           </div>
         )}
         {isFB&&!isNew&&feedback?.correct&&(
@@ -3175,7 +3168,7 @@ function QuizApp(){
                 :<span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.retryCorrect}</span>}
               {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>{T.combo(combo)}</span>}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3200,7 +3193,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
