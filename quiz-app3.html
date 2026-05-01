@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Dojo Quiz / 道場クイズ</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body,#root{height:100%;background:#0d0d18}
+html,body{min-height:100%;background:#0d0d18;overflow-y:auto;-webkit-overflow-scrolling:touch;}#root{min-height:100%;background:#0d0d18;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
 button:hover:not(:disabled){filter:brightness(1.14);cursor:pointer}
 input:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0 0 0 2px rgba(201,168,76,0.2) !important}
 .flashFade{animation:flashFade 3s ease forwards}
@@ -263,6 +263,8 @@ const DEFAULT_QS = [
       }
     ],
     "hint": "江戸時代の長さ＋幕藩体制を支えた経済制度の名前",
+    "image": "https://lh3.googleusercontent.com/pw/AP1GczMaGm1D9Z3i07AyUR0lf87vf7stabVqCGanEL1moTUCjGLrOOUYSwlv4EJ_CyWYM9gycsumn3sfO6wmwFgNyaPeEkoY-cMMa-P2sdHelQM2FY0su1IB=w800",
+    "imageCaption": "テスト画像",
     "explanation": "江戸幕府（1603〜1868）は265年間続いた。武田（2019）は幕藩制社会を「2世紀半を超える長期間」と表現し、この間に都市の市場経済の発展や農村での商品経済の深化によって「近代の可能性を懐胎する社会」になったと述べている（武田 pp.23-24）。石高制は、太閤検地を通じて成立した制度で、田畑も屋敷地も一様に米の収穫高で測り、この収穫高（石高）を基準に年貢を徴収した。大名は石高に応じた軍役を幕府に負い、石高制は単なる税制ではなく幕藩体制全体を支える政治的・経済的な基盤だった（武田 p.24）。／【世界史との比較】17世紀に世界は「全般的危機」を迎え、地球規模の寒冷期が飢饉や疫病の蔓延をもたらし、各地で戦乱や反乱が同時多発した。中国では明朝が滅亡し清朝が開かれたが（中西（2023） p.88）、日本は例外的に人口増加を実現した。260年の安定は世界史的にはむしろ異例だった。"
   },
   {
@@ -652,7 +654,13 @@ function loadDecks(){
           try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(updated));}catch{}
           return updated;
         }
-        return d;
+        // デフォルトデッキのquestionsを常に最新で上書き（imageなど新フィールドを反映）
+        const refreshed=d.map(dk=>{
+          if(dk.id==="dk_default_ja_s01") return {...dk,questions:DEFAULT_QS};
+          if(dk.id==="dk_default_en_s01") return {...dk,questions:DEFAULT_QS_EN};
+          return dk;
+        });
+        return refreshed;
       }
     }
     // デッキが空の場合はデフォルト2デッキを追加
@@ -841,6 +849,14 @@ function validateQS(qs){
   return null;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   HAPTICS
+══════════════════════════════════════════════════════════════ */
+const Hap={
+  impact:(style)=>{try{if(window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Haptics){window.Capacitor.Plugins.Haptics.impact({style:style||"Medium"});}}catch(e){}},
+  notification:(type)=>{try{if(window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Haptics){window.Capacitor.Plugins.Haptics.notification({type:type||"Success"});}}catch(e){}},
+  vibrate:(ms)=>{try{if(window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Haptics){window.Capacitor.Plugins.Haptics.vibrate({duration:ms||400});}}catch(e){}},
+};
 /* ══════════════════════════════════════════════════════════════
    AUDIO
 ══════════════════════════════════════════════════════════════ */
@@ -1284,7 +1300,7 @@ function DotMap({QS,queue,pendingQueue,answeredCorrectly,attemptedIds,wrongCount
 /* ══════════════════════════════════════════════════════════════
    タイプライター Hook（キャラ音付き）
 ══════════════════════════════════════════════════════════════ */
-const charTick=()=>{
+const charTick=(ch)=>{
   try{
     const c=getCtx();const t=c.currentTime;
     const freq=900+Math.random()*400;
@@ -1295,9 +1311,14 @@ const charTick=()=>{
     g.gain.exponentialRampToValueAtTime(0.001,t+0.022);
     o.start(t);o.stop(t+0.025);
   }catch(_){}
+  if(ch&&/[。！？!?]/.test(ch)){
+    const now=Date.now();
+    if(now-_lastHapChar>400){_lastHapChar=now;Hap.vibrate(20);}
+  }
 };
 
 const SENT_END=/[.。!?！？]/;
+let _lastHapChar=0;
 
 function TypewriterText({text,qkey,style,onDone}){
   const[shown,setShown]=useState(0);
@@ -1305,7 +1326,7 @@ function TypewriterText({text,qkey,style,onDone}){
     setShown(0);if(!text)return;
     let i=0;
     const id=setInterval(()=>{
-      i++;setShown(i);charTick();
+      i++;setShown(i);charTick(text[i-1]);
       if(i>=text.length){clearInterval(id);onDone&&onDone();}
     },38);
     return()=>clearInterval(id);
@@ -1392,7 +1413,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
     tidRef.current=setInterval(()=>{
       setShown(prev=>{
         const next=prev+1;
-        charTick();
+        charTick(fullText[prev]);
         if(SENT_END.test(fullText[prev])&&next<fullText.length){
           const parts=fullText.split("___");
           let cur=0;
@@ -1403,12 +1424,38 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
           });
           if(anyBlankVisible&&!isNew){clearInterval(tidRef.current);setPaused(true);}
         }
-        if(next>=fullText.length)clearInterval(tidRef.current);
+        if(next>=fullText.length){clearInterval(tidRef.current);setPaused(true);}
         return next;
       });
     },38);
     return()=>clearInterval(tidRef.current);
   },[paused,isFB,qkey]);
+
+  // 一時停止時：該当の空欄に自動フォーカス
+  useEffect(()=>{
+    if(!paused||isFB||isNew)return;
+    // activeBlankがすでに設定されている場合はそれを使う、なければ最初の表示済み空欄
+    const parts=fullText.split("___");
+    let cur=0;
+    let target=null;
+    for(let i=0;i<parts.length;i++){
+      const partEnd=cur+parts[i].length;
+      cur=partEnd+3;
+      if(q.blanks[i]!=null&&shown>partEnd){
+        if(activeBlank===null||activeBlank===i){target=i;break;}
+      }
+    }
+    if(target!==null){
+      setActiveBlank(target);
+      SFX.blankOk();
+      setPoppingBlank(target);
+      setTimeout(()=>setPoppingBlank(null),400);
+      setTimeout(()=>refs.current[target]?.focus(),80);
+    } else if(activeBlank!==null){
+      // 次の空欄がまだ表示されていない途中停止 → 自動再開
+      setTimeout(()=>setPaused(false),150);
+    }
+  },[paused]);
 
   // タップ時：即座にタイプ停止＋音＋pop
   const activateBlank=(blankIdx)=>{
@@ -1433,6 +1480,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       }else if(!isLast){
         // 次の空欄へフォーカス移動＋タイプ再開
         SFX.blankOk();
+        Hap.vibrate(80);
         setPaused(false);
         setPoppingBlank(blankIdx+1);
         setTimeout(()=>setPoppingBlank(null),400);
@@ -1440,6 +1488,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
       }else{
         // 最後の空欄・まだ全文未表示：タイプ再開のみ
+        Hap.vibrate(80);
         setPaused(false);
       }
     }
@@ -2715,12 +2764,18 @@ function QuizApp(){
     }
     if(feedback.correct){
       SFX.correct();
+      Hap.vibrate(50);
+      setTimeout(()=>Hap.vibrate(50),150);
+      setTimeout(()=>Hap.vibrate(50),300);
+      setTimeout(()=>Hap.vibrate(50),450);
+      setTimeout(()=>Hap.vibrate(150),620);
       setCorrectAnim(true);
       setTimeout(()=>setCorrectAnim(false),700);
-      if(combo===3){setTimeout(SFX.combo3,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);}
-      else if(combo===5||combo===10){setTimeout(SFX.combo5,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);}
+      if(combo===3){setTimeout(SFX.combo3,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);setTimeout(()=>Hap.impact("Heavy"),320);}
+      else if(combo===5||combo===10){setTimeout(SFX.combo5,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);setTimeout(()=>Hap.impact("Heavy"),320);}
     }else{
       SFX.wrong();
+      Hap.notification("Error");
       setWrongAnim(true);
       setTimeout(()=>setWrongAnim(false),500);
     }
@@ -2791,7 +2846,7 @@ function QuizApp(){
   };
   const doStart=()=>{
     try{getCtx().resume().catch(()=>{});}catch(_){}
-    SFX.start();setRankUp(null);setXpInfo(null);
+    SFX.start();Hap.impact("Medium");setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
     dispatch({type:"START",QS});
   };
@@ -3043,6 +3098,8 @@ function QuizApp(){
           {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>{T.retryN(wrongCount)}</span>}
           {q.type==="fill"&&!isFB&&<span style={{color:"#555",marginLeft:8,fontSize:10}}>{lang==="en"?"← tap to type":"← タップして入力"}</span>}
         </div>
+        {q.image&&<img src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
+        {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
               isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)}/>}
@@ -3081,7 +3138,7 @@ function QuizApp(){
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
-            <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
@@ -3101,7 +3158,7 @@ function QuizApp(){
               {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>{T.combo(combo)}</span>}
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
-            <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
@@ -3127,7 +3184,7 @@ function QuizApp(){
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
-            <button onClick={()=>feedbackReadyKey===questionKey&&dispatch({type:"NEXT",QS})}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
