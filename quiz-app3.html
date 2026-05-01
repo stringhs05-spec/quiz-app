@@ -660,6 +660,7 @@ function loadDecks(){
           if(dk.id==="dk_default_en_s01") return {...dk,questions:DEFAULT_QS_EN};
           return dk;
         });
+        try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(refreshed));}catch{}
         return refreshed;
       }
     }
