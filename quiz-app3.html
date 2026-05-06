@@ -37,6 +37,9 @@ input:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#1a1a30}
 ::-webkit-scrollbar-thumb{background:#3a3a58;border-radius:2px}
+@keyframes rewardPulse{0%,100%{box-shadow:0 0 0 0 rgba(29,161,242,0.5)}50%{box-shadow:0 0 0 10px rgba(29,161,242,0)}}@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes rewardIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tweetBird{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(8deg) scale(1.12)}}
 </style>
 </head>
 <body>
@@ -653,33 +656,94 @@ function loadGame(){
 function clearGame(){try{localStorage.removeItem(GK);}catch{}}
 
 
-// ── デッキストレージ ─────────────────────────────────────────────
-const DK_LIST_KEY="econ_decks_v1";
+// ── デッキストレージ（IndexedDB版）────────────────────────────
 const SRS_KEY="econ_srs_v1";
+const IDB_NAME="dojoQuizDB";
+const IDB_VER=1;
+const IDB_STORE="decks";
 
-function loadDecks(){
+// IndexedDBを開く（Promise）
+function openIDB(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(IDB_NAME,IDB_VER);
+    req.onupgradeneeded=e=>{
+      const db=e.target.result;
+      if(!db.objectStoreNames.contains(IDB_STORE)){
+        db.createObjectStore(IDB_STORE,{keyPath:"id"});
+      }
+    };
+    req.onsuccess=e=>resolve(e.target.result);
+    req.onerror=e=>reject(e.target.error);
+  });
+}
+
+// 全デッキ保存（非同期）
+async function saveDecksAsync(decks){
   try{
-    const v=localStorage.getItem(DK_LIST_KEY);
-    if(v){
-      const d=JSON.parse(v);
-      if(d.length>0){
-        // 古いデフォルトデッキ（EN Session 1）を新しいものに差し替え
-        const hasOldSingle=d.length===1&&d[0].id==="dk_default_session01";
-        if(hasOldSingle){
-          const now=new Date().toISOString();
-          const updated=[
-            {...d[0],id:"dk_default_ja_s01",name:"第1回：イントロダクション",folder:"日本経済史2",questions:DEFAULT_QS},
-            {id:"dk_default_en_s01",name:"Session 1 Introduction",
-             folder:"Introductory Lecture on History of Economic Policy",
-             questions:DEFAULT_QS_EN,createdAt:now},
-          ];
-          try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(updated));}catch{}
-          return updated;
-        }
-        return d;
+    const db=await openIDB();
+    const tx=db.transaction(IDB_STORE,"readwrite");
+    const store=tx.objectStore(IDB_STORE);
+    // 現在のIDセット
+    const currentIds=new Set(decks.map(d=>d.id));
+    // 既存キーを取得して不要なものを削除
+    const allKeys=await new Promise((res,rej)=>{
+      const r=store.getAllKeys();r.onsuccess=()=>res(r.result);r.onerror=rej;
+    });
+    allKeys.forEach(k=>{if(!currentIds.has(k)) store.delete(k);});
+    // 全デッキをput
+    decks.forEach(d=>store.put(d));
+    await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
+    db.close();
+    // LocalStorageの旧データをクリア
+    Object.keys(localStorage).filter(k=>k.startsWith("econ_deck")).forEach(k=>localStorage.removeItem(k));
+  }catch(e){console.warn("saveDecksAsync failed",e);}
+}
+
+// 全デッキ読み込み（非同期）
+async function loadDecksAsync(){
+  try{
+    const db=await openIDB();
+    const tx=db.transaction(IDB_STORE,"readonly");
+    const store=tx.objectStore(IDB_STORE);
+    const decks=await new Promise((res,rej)=>{
+      const r=store.getAll();r.onsuccess=()=>res(r.result);r.onerror=rej;
+    });
+    db.close();
+    if(decks&&decks.length>0){
+      // 古いデフォルトデッキ差し替え
+      const hasOldSingle=decks.length===1&&decks[0].id==="dk_default_session01";
+      if(hasOldSingle){
+        const now=new Date().toISOString();
+        const updated=[
+          {...decks[0],id:"dk_default_ja_s01",name:"第1回：イントロダクション",folder:"日本経済史2",questions:DEFAULT_QS},
+          {id:"dk_default_en_s01",name:"Session 1 Introduction",
+           folder:"Introductory Lecture on History of Economic Policy",
+           questions:DEFAULT_QS_EN,createdAt:now},
+        ];
+        await saveDecksAsync(updated);
+        return updated;
+      }
+      return decks;
+    }
+    // IDBが空 → LocalStorageから移行を試みる
+    const lsData=localStorage.getItem("econ_decks_v1");
+    if(lsData){
+      const parsed=JSON.parse(lsData);
+      if(parsed&&parsed.length>0){
+        // 旧形式（questionsあり）またはメタのみ
+        const migrated=parsed.map(d=>{
+          if(!d.questions){
+            // メタのみ → LocalStorageの個別キーから復元
+            const qRaw=localStorage.getItem("econ_deck_data_"+d.id);
+            return{...d,questions:qRaw?JSON.parse(qRaw):[]};
+          }
+          return d;
+        });
+        await saveDecksAsync(migrated);
+        return migrated;
       }
     }
-    // デッキが空の場合はデフォルト3デッキを追加
+    // 何もなければデフォルトデッキ
     const now=new Date().toISOString();
     const initial=[
       {id:"dk_default_ja_s01",name:"第1回：イントロダクション",
@@ -690,12 +754,16 @@ function loadDecks(){
       {id:"dk_default_img_test",name:"画像テスト",
        folder:"テスト",questions:DEFAULT_QS_IMG_TEST,createdAt:now},
     ];
-    try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(initial));}catch{}
+    await saveDecksAsync(initial);
     return initial;
+  }catch(e){
+    console.warn("loadDecksAsync failed",e);
+    return[];
   }
-  catch{return[];}
 }
-function saveDecks(decks){try{localStorage.setItem(DK_LIST_KEY,JSON.stringify(decks));}catch{}}
+
+// 同期ラッパー（useEffectから呼ぶ用）
+function saveDecks(decks){saveDecksAsync(decks);}
 
 function loadSRS(){
   try{const v=localStorage.getItem(SRS_KEY);return v?JSON.parse(v):{};}
@@ -756,6 +824,17 @@ function updateSRS(srs,qId,correct){
   // 正解
   const newStreak=streak+1;
   const required=calcRequiredStreak(totalWrong);
+
+  // 初回一発正解（新カード、ミスなし、streak=0→1）→ 即卒業
+  if(prev.state==="new"&&streak===0&&totalWrong===0){
+    const ease=calcEase(0);
+    const gradInterval=Math.max(Math.round(1*ease),1);
+    return{...srs,[qId]:{
+      ...prev,state:"review",step:0,streak:1,
+      totalWrong:0,intervalDays:gradInterval,
+      nextDue:addDaysISO(gradInterval),reps:1,
+    }};
+  }
 
   if(prev.state==="review"){
     // review中の正解 → ease×interval
@@ -1331,7 +1410,7 @@ const charTick=(ch)=>{
   }catch(_){}
   if(ch&&/[。！？!?]/.test(ch)){
     const now=Date.now();
-    if(now-_lastHapChar>400){_lastHapChar=now;Hap.vibrate(20);}
+    if(now-_lastHapChar>400){_lastHapChar=now;Hap.impact("Light");}
   }
 };
 
@@ -1498,7 +1577,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       }else if(!isLast){
         // 次の空欄へフォーカス移動＋タイプ再開
         SFX.blankOk();
-        Hap.vibrate(80);
+        Hap.impact("Light");
         setPaused(false);
         setPoppingBlank(blankIdx+1);
         setTimeout(()=>setPoppingBlank(null),400);
@@ -1506,7 +1585,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
       }else{
         // 最後の空欄・まだ全文未表示：タイプ再開のみ
-        Hap.vibrate(80);
+        Hap.impact("Light");
         setPaused(false);
       }
     }
@@ -2119,27 +2198,72 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
   const[selected,setSelected]=useState(new Set());
   const[confirmDeleteId,setConfirmDeleteId]=useState(null);
   const[editFolder,setEditFolder]=useState("");
+  // デッキ一括操作用
+  const[deckSelected,setDeckSelected]=useState(new Set());
+  const[bulkMode,setBulkMode]=useState(false);
+  const[bulkFolder,setBulkFolder]=useState("");
+  const[showBulkFolder,setShowBulkFolder]=useState(false);
   const fileRef=useRef();
   const addRef=useRef();
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
 
+  // デッキ選択トグル
+  const toggleDeck=id=>setDeckSelected(prev=>{
+    const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;
+  });
+  const toggleAllDecks=()=>setDeckSelected(prev=>
+    prev.size===decks.length?new Set():new Set(decks.map(d=>d.id))
+  );
+
+  // 一括インポート（複数ファイル対応）
   const importDeck=async e=>{
-    const file=e.target.files[0];if(!file)return;
-    try{
-      const data=await readJSONFile(file);
-      const qs=data.questions||data;
-      const err=validateQS(qs);if(err){flash("エラー："+err,false);return;}
-      const name=data.session||file.name.replace(/\.json$/,"");
-      const newDeck={id:"dk_"+Date.now(),name,questions:qs,createdAt:new Date().toISOString()};
-      const updated=[...decks,newDeck];setDecks(updated);saveDecks(updated);
-      flash(T.addedDeck(name,qs.length));
-    }catch(err){flash("エラー："+err.message,false);}
+    const files=Array.from(e.target.files);if(!files.length)return;
+    let added=0,errors=[];
+    const existIds=new Set(decks.map(d=>d.id));
+    const newDecks=[...decks];
+    for(const file of files){
+      try{
+        const data=await readJSONFile(file);
+        const qs=data.questions||data;
+        const err=validateQS(qs);if(err){errors.push(file.name+": "+err);continue;}
+        const name=data.session||file.name.replace(/\.json$/,"");
+        const id="dk_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+        if(!existIds.has(id)){
+          newDecks.push({id,name,questions:qs,createdAt:new Date().toISOString()});
+          existIds.add(id);
+          added++;
+        }
+      }catch(err){errors.push(file.name+": "+err.message);}
+    }
+    setDecks(newDecks);saveDecks(newDecks);
+    if(errors.length) flash(errors.join(" / "),false);
+    else flash(added+"個のデッキを追加しました");
     e.target.value="";
   };
+
   const deleteDeck=id=>{
     const updated=decks.filter(d=>d.id!==id);setDecks(updated);saveDecks(updated);
     setConfirmDeleteId(null);
   };
+
+  // 一括削除
+  const bulkDelete=()=>{
+    if(deckSelected.size===0)return;
+    const updated=decks.filter(d=>!deckSelected.has(d.id));
+    setDecks(updated);saveDecks(updated);
+    flash(deckSelected.size+"個のデッキを削除しました");
+    setDeckSelected(new Set());setBulkMode(false);
+  };
+
+  // 一括フォルダ変更
+  const bulkChangeFolder=()=>{
+    if(deckSelected.size===0)return;
+    const updated=decks.map(d=>deckSelected.has(d.id)?{...d,folder:bulkFolder}:d);
+    setDecks(updated);saveDecks(updated);
+    flash(deckSelected.size+"個のデッキのフォルダを変更しました");
+    setDeckSelected(new Set());setBulkMode(false);setShowBulkFolder(false);setBulkFolder("");
+  };
+
   const saveName=id=>{
     const updated=decks.map(d=>d.id===id?{...d,name:editName,folder:editFolder}:d);
     setDecks(updated);saveDecks(updated);setEditId(null);
@@ -2284,9 +2408,52 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
           <span style={{whiteSpace:"pre-line"}}>{T.noDecksImport}</span>
         </div>}
 
+        {/* 一括操作バー */}
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <button onClick={()=>{setBulkMode(b=>!b);setDeckSelected(new Set());setShowBulkFolder(false);}}
+            style={{background:bulkMode?"#c9a84c":"#1e1e36",border:`1px solid ${bulkMode?"#c9a84c":"#333"}`,
+              borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,
+              color:bulkMode?"#0d0d18":"#888",cursor:"pointer",fontFamily:"inherit"}}>
+            {bulkMode?"選択終了":"複数選択"}
+          </button>
+          {bulkMode&&deckSelected.size>0&&(<>
+            <button onClick={()=>{setShowBulkFolder(b=>!b);}}
+              style={{background:"#1e3a4a",border:"1px solid #4a8aaa",borderRadius:8,padding:"5px 12px",
+                fontSize:12,color:"#7ac8e8",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+              📁 フォルダ変更 ({deckSelected.size})
+            </button>
+            <button onClick={bulkDelete}
+              style={{background:"#3a1010",border:"1px solid #c04040",borderRadius:8,padding:"5px 12px",
+                fontSize:12,color:"#f87171",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+              🗑 一括削除 ({deckSelected.size})
+            </button>
+          </>)}
+          {bulkMode&&<label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",marginLeft:"auto"}}>
+            <input type="checkbox" checked={deckSelected.size===decks.length&&decks.length>0}
+              onChange={toggleAllDecks} style={{accentColor:"#c9a84c"}}/>
+            <span style={{fontSize:11,color:"#888"}}>全選択</span>
+          </label>}
+        </div>
+
+        {/* フォルダ一括変更入力 */}
+        {showBulkFolder&&(
+          <div style={{display:"flex",gap:8,alignItems:"center",background:"#0d1a24",
+            border:"1px solid #4a8aaa",borderRadius:10,padding:"10px 12px"}}>
+            <span style={{fontSize:12,color:"#7ac8e8"}}>📁</span>
+            <input value={bulkFolder} onChange={e=>setBulkFolder(e.target.value)}
+              placeholder="新しいフォルダ名（空欄で解除）"
+              style={{flex:1,background:"transparent",border:"none",outline:"none",
+                color:"#ece8d8",fontSize:13,fontFamily:"inherit"}}/>
+            <button onClick={bulkChangeFolder}
+              style={{background:"#4a8aaa",border:"none",borderRadius:7,padding:"5px 12px",
+                fontSize:12,fontWeight:700,color:"#fff",cursor:"pointer",fontFamily:"inherit"}}>適用</button>
+          </div>
+        )}
+
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {decks.map(dk=>(
-            <div key={dk.id} style={{background:"#0d0d20",borderRadius:12,padding:"12px 14px"}}>
+            <div key={dk.id} style={{background:"#0d0d20",borderRadius:12,padding:"12px 14px",
+              border:`1px solid ${bulkMode&&deckSelected.has(dk.id)?"#c9a84c":"transparent"}`}}>
               {editId===dk.id?(
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   <div style={{display:"flex",gap:8}}>
@@ -2312,34 +2479,41 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
                 </div>
               ):(
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setCardEditDeck(dk)}>
+                  {bulkMode&&(
+                    <input type="checkbox" checked={deckSelected.has(dk.id)} onChange={()=>toggleDeck(dk.id)}
+                      style={{width:16,height:16,accentColor:"#c9a84c",flexShrink:0,cursor:"pointer"}}/>
+                  )}
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}}
+                    onClick={()=>bulkMode?toggleDeck(dk.id):setCardEditDeck(dk)}>
                     <div style={{fontSize:14,fontWeight:700,color:"#ece8d8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dk.name}</div>
                     <div style={{fontSize:11,color:"#555",marginTop:2}}>
                       {dk.folder&&<span style={{color:"#4a6a88",marginRight:6}}>📁 {dk.folder}</span>}
                       {dk.questions.length} · {T.deckEditSub}
                     </div>
                   </div>
-                  <button onClick={()=>{setEditId(dk.id);setEditName(dk.name);setEditFolder(dk.folder||'');}}
-                    style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
-                      fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✏️</button>
-                  <button onClick={()=>exportDeck(dk)}
-                    style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
-                      fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>⬇</button>
-                  {confirmDeleteId===dk.id?(
-                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                      <span style={{fontSize:10,color:"#f87171"}}>{T.confirmDelDeck}</span>
-                      <button onClick={()=>deleteDeck(dk.id)}
-                        style={{background:"#c04040",border:"none",borderRadius:6,padding:"3px 8px",
-                          fontSize:11,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✓</button>
-                      <button onClick={()=>setConfirmDeleteId(null)}
-                        style={{background:"none",border:"1px solid #333",borderRadius:6,padding:"3px 6px",
-                          fontSize:11,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
-                    </div>
-                  ):(
-                    <button onClick={()=>setConfirmDeleteId(dk.id)}
-                      style={{background:"none",border:"1px solid #3a1010",borderRadius:7,padding:"4px 8px",
-                        fontSize:11,color:"#f87171",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
-                  )}
+                  {!bulkMode&&<>
+                    <button onClick={()=>{setEditId(dk.id);setEditName(dk.name);setEditFolder(dk.folder||'');}}
+                      style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
+                        fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>✏️</button>
+                    <button onClick={()=>exportDeck(dk)}
+                      style={{background:"none",border:"1px solid #333",borderRadius:7,padding:"4px 8px",
+                        fontSize:11,color:"#888",cursor:"pointer",fontFamily:"inherit"}}>⬇</button>
+                    {confirmDeleteId===dk.id?(
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        <span style={{fontSize:10,color:"#f87171"}}>{T.confirmDelDeck}</span>
+                        <button onClick={()=>deleteDeck(dk.id)}
+                          style={{background:"#c04040",border:"none",borderRadius:6,padding:"3px 8px",
+                            fontSize:11,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✓</button>
+                        <button onClick={()=>setConfirmDeleteId(null)}
+                          style={{background:"none",border:"1px solid #333",borderRadius:6,padding:"3px 6px",
+                            fontSize:11,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                      </div>
+                    ):(
+                      <button onClick={()=>setConfirmDeleteId(dk.id)}
+                        style={{background:"none",border:"1px solid #3a1010",borderRadius:7,padding:"4px 8px",
+                          fontSize:11,color:"#f87171",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+                    )}
+                  </>}
                 </div>
               )}
             </div>
@@ -2349,9 +2523,9 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
         <button onClick={()=>fileRef.current.click()}
           style={{background:"#1e1e36",border:"1px solid #c9a84c",borderRadius:10,
             padding:"11px",fontSize:14,fontWeight:700,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit"}}>
-          {T.addDeckBtn}
+          {T.addDeckBtn}（複数選択可）
         </button>
-        <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={importDeck}/>
+        <input ref={fileRef} type="file" accept=".json" multiple style={{display:"none"}} onChange={importDeck}/>
       </div>
     </div>
   );
@@ -2640,9 +2814,129 @@ function QuizApp(){
   const[timerEdge,setTimerEdge]=useState(false);
   const[rankBurst,setRankBurst]=useState(null);
   const feedbackReadyKeyRef=useRef(-1); // ゴーストタップ防止（ref で常に最新値）
+
+  /* ── NextDNS 報酬タイマー ── */
+  const[ndConfig,setNdConfig]=useState(()=>{try{return JSON.parse(localStorage.getItem('nd_config'))||null;}catch{return null;}});
+  const[showNdSettings,setShowNdSettings]=useState(false);
+  const[ndApiKey,setNdApiKey]=useState('');
+  const[ndProfileId,setNdProfileId]=useState('');
+  const[rewardActive,setRewardActive]=useState(false);
+  const[rewardSecs,setRewardSecs]=useState(300);
+  const[rewardStatus,setRewardStatus]=useState('');
+  const rewardTimerRef=useRef(null);
+  const prevCorrectLenRef=useRef(0);
+  const ND_DOMAINS=['twitter.com','x.com','t.co','abs.twimg.com'];
+  const ND_MINUTES=5;
+
+  useEffect(()=>{
+    const curr=answeredCorrectly.length;
+    const prev=prevCorrectLenRef.current;
+    // lengthが減った=新ゲーム開始。refだけ更新してカウントしない
+    if(curr<prev){prevCorrectLenRef.current=curr;return;}
+    if(curr>prev){
+      const added=curr-prev;
+      const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
+      const newTotal=oldTotal+added;
+      localStorage.setItem('nd_total_correct',String(newTotal));
+      const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
+      if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
+    }
+    prevCorrectLenRef.current=curr;
+  },[answeredCorrectly.length]);
+
+  const ND_WORKER_URL='https://nd-timer.stringhs05.workers.dev';
+
+  const ndPCUnlock=async(cfg)=>{
+    await fetch(`${ND_WORKER_URL}/start`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({apiKey:cfg.apiKey,profileId:cfg.profileId,minutes:ND_MINUTES})
+    });
+  };
+  const ndPCLock=async(_cfg)=>{
+    // 再ブロックはWorker側のアラームが自動で行うため何もしない
+  };
+
+  // タイマー開始（残り秒数を受け取る共通関数）
+  const startRewardTimer=(cfg,secs)=>{
+    if(rewardTimerRef.current){clearInterval(rewardTimerRef.current);rewardTimerRef.current=null;}
+    setRewardActive(true);
+    setRewardSecs(secs);
+    setRewardStatus('active');
+    let remaining=secs;
+    rewardTimerRef.current=setInterval(async()=>{
+      remaining--;
+      setRewardSecs(remaining);
+      if(remaining<=0){
+        clearInterval(rewardTimerRef.current);rewardTimerRef.current=null;
+        localStorage.removeItem('nd_reward_until');
+        setRewardStatus('relocking');
+        try{await ndPCLock(cfg);}catch(e){}
+        setRewardActive(false);setRewardStatus('');
+      }
+    },1000);
+  };
+
+  // 新規報酬：APIで解除してタイマー開始
+  const triggerReward=async(cfg)=>{
+    setRewardActive(true);
+    setRewardSecs(ND_MINUTES*60);
+    setRewardStatus('unlocking');
+    try{
+      await ndPCUnlock(cfg);
+    }catch(e){
+      setRewardStatus('error');
+      return;
+    }
+    const until=Date.now()+ND_MINUTES*60*1000;
+    localStorage.setItem('nd_reward_until',String(until));
+    startRewardTimer(cfg,ND_MINUTES*60);
+  };
+
+  // 起動時 or フォアグラウンド復帰時：開放状態を確認して復元 or 再ブロック
+  const checkAndRestoreReward=()=>{
+    const until=parseInt(localStorage.getItem('nd_reward_until')||'0');
+    const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
+    if(!cfg?.apiKey||!cfg?.profileId) return;
+    if(!until){
+      // nd_reward_untilがない = 正常状態。何もしない
+      return;
+    }
+    const remaining=Math.floor((until-Date.now())/1000);
+    if(remaining>0){
+      // まだ開放中 → タイマーが動いていなければ再開
+      if(!rewardTimerRef.current) startRewardTimer(cfg,remaining);
+    } else {
+      // 期限切れ → 再ブロック
+      localStorage.removeItem('nd_reward_until');
+      setRewardActive(false);setRewardStatus('relocking');
+      ndPCLock(cfg).catch(()=>{}).finally(()=>setRewardStatus(''));
+    }
+  };
+
+  useEffect(()=>{
+    checkAndRestoreReward();
+    const onVisible=()=>{if(document.visibilityState==='visible') checkAndRestoreReward();};
+    document.addEventListener('visibilitychange',onVisible);
+    return ()=>document.removeEventListener('visibilitychange',onVisible);
+  },[]);
+
+  const saveNdConfig=()=>{
+    const cfg={apiKey:ndApiKey.trim(),profileId:ndProfileId.trim()};
+    localStorage.setItem('nd_config',JSON.stringify(cfg));
+    setNdConfig(cfg);setShowNdSettings(false);
+  };
+  const fmtSecs=s=>`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   const[feedbackReadyKey,setFeedbackReadyKey]=useState(-1);
   // デッキ・SRS
-  const[decks,setDecks]=useState(()=>loadDecks());
+  const[decks,setDecks]=useState([]);
+  const[dbReady,setDbReady]=useState(false);
+  useEffect(()=>{
+    loadDecksAsync().then(loaded=>{
+      setDecks(loaded);
+      setDbReady(true);
+    });
+  },[]);
   const[srs,setSRS]=useState(()=>loadSRS());
   const[showDeckMgr,setShowDeckMgr]=useState(false);
   const[isToday,setIsToday]=useState(false); // 今日のデッキモード
@@ -2729,13 +3023,14 @@ function QuizApp(){
     QS.forEach(q=>{
       const wc=wrongCounts[q.id]||0;
       const wasAnswered=answeredCorrectly.includes(q.id);
-      if(wasAnswered&&wc===0){
-        // 一発正解 → 通常SRS（間隔を伸ばす）
+      if(wasAnswered){
+        // 最終的に正解 → SRS間隔を伸ばす（途中ミスはeaseに反映済み）
         newSRS=updateSRS(newSRS,q.id,true);
-      }else if(wc>0){
-        // 1回でも間違えた → nextDue=今日（正解していても今日のデッキに再出題）
+      }else if(wc>0&&!wasAnswered){
+        // 最後まで正解できなかった → 10分後に再出題
         newSRS=updateSRSPause(newSRS,q.id);
       }
+      // 未回答（キューに残ったまま終了）は何もしない
     });
     setSRS(newSRS);saveSRS(newSRS);
     if(newRank.name!==oldRank.name){
@@ -2782,11 +3077,11 @@ function QuizApp(){
     }
     if(feedback.correct){
       SFX.correct();
-      Hap.vibrate(50);
-      setTimeout(()=>Hap.vibrate(50),150);
-      setTimeout(()=>Hap.vibrate(50),300);
-      setTimeout(()=>Hap.vibrate(50),450);
-      setTimeout(()=>Hap.vibrate(150),620);
+      Hap.impact("Light");
+      setTimeout(()=>Hap.impact("Light"),150);
+      setTimeout(()=>Hap.impact("Medium"),300);
+      setTimeout(()=>Hap.impact("Medium"),450);
+      setTimeout(()=>Hap.impact("Heavy"),620);
       setCorrectAnim(true);
       setTimeout(()=>setCorrectAnim(false),700);
       if(combo===3){setTimeout(SFX.combo3,320);setComboAnim(combo);setTimeout(()=>setComboAnim(null),900);setTimeout(()=>Hap.impact("Heavy"),320);}
@@ -2918,9 +3213,26 @@ function QuizApp(){
 
   /* ── ロビー画面 ─────────────────────────────────────────────── */
   if(phase==="start"){
+    if(!dbReady) return(
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+        height:"100vh",background:"#0d0d18",flexDirection:"column",gap:12}}>
+        <div style={{width:32,height:32,border:"3px solid #2a2a42",
+          borderTop:"3px solid #c9a84c",borderRadius:"50%",
+          animation:"spin 0.8s linear infinite"}}/>
+        <div style={{color:"#555",fontSize:13}}>データを読み込み中…</div>
+      </div>
+    );
     return(
       <LangCtx.Provider value={lang}>
       <div>
+        {/* NextDNS 報酬オーバーレイ */}
+        {(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
+        {/* NextDNS 設定モーダル */}
+        {showNdSettings&&<NdSettingsModal
+          initKey={ndConfig?.apiKey||''} initId={ndConfig?.profileId||''}
+          onClose={()=>setShowNdSettings(false)}
+          onSave={(k,p)=>{const cfg={apiKey:k,profileId:p};localStorage.setItem('nd_config',JSON.stringify(cfg));setNdConfig(cfg);setShowNdSettings(false);}}
+        />}
         {showDeckMgr&&<DeckManagerPanel decks={decks} setDecks={setDecks} QS={QS}
           onClose={()=>setShowDeckMgr(false)}/>}
         {showStats&&<StatsPanel QS={QS} gSt={gSt} onClose={()=>setShowStats(false)}/>}
@@ -2928,6 +3240,10 @@ function QuizApp(){
           decks={decks} setDecks={setDecks} srs={srs} setSRS={setSRS}
           onClose={()=>setShowIO(false)}/>}
         {showQManage&&<QManagePanel QS={QS} setQS={setQS} onClose={()=>setShowQManage(false)}/>}
+        {/* 🐦 設定ボタン（ロビー固定） */}
+        <button onClick={()=>setShowNdSettings(true)} title="報酬タイマー設定" style={{position:'fixed',bottom:20,right:20,zIndex:9000,background:ndConfig?'rgba(29,161,242,0.18)':'rgba(40,40,70,0.9)',border:`1px solid ${ndConfig?'rgba(29,161,242,0.5)':'#2a2a42'}`,borderRadius:12,padding:'8px 11px',cursor:'pointer',fontSize:16,lineHeight:1}}>
+          🐦
+        </button>
         <Lobby
           decks={decks} srs={srs} gSt={gSt}
           onPlayDeck={playDeck}
@@ -3057,6 +3373,8 @@ function QuizApp(){
             animation:"correctRing 0.65s ease-out forwards"}}/>
         </div>
       )}
+      {/* NextDNS 報酬オーバーレイ（ゲーム中） */}
+      {(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
       {/* 不正解：画面縁が赤く光る */}
       {wrongAnim&&(
         <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:60,
@@ -3115,6 +3433,21 @@ function QuizApp(){
           {q.type==="fill"?"穴埋め":"選択式"} · {q.pts}点
           {wrongCount>0&&<span style={{color:"#f97316",marginLeft:8,fontSize:11}}>{T.retryN(wrongCount)}</span>}
           {q.type==="fill"&&!isFB&&<span style={{color:"#555",marginLeft:8,fontSize:10}}>{lang==="en"?"← tap to type":"← タップして入力"}</span>}
+          {(()=>{
+            const sr=srs&&srs[q.id];
+            if(!sr||sr.state==="new") return null;
+            const STEPS=["10分","1h","6h","1日","3日"];
+            let label,color;
+            if(sr.state==="learning"){
+              label="学習中 "+( STEPS[sr.step]||"?");
+              color="#818cf8";
+            } else {
+              const d=sr.intervalDays||1;
+              label=d>=30?`復習 ${Math.round(d/30)}ヶ月`:d>=7?`復習 ${Math.round(d/7)}週`:`復習 ${d}日`;
+              color="#34d399";
+            }
+            return <span style={{marginLeft:8,fontSize:10,color,fontWeight:600}}>{label}</span>;
+          })()}
         </div>
         {q.image&&<img src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
         {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
@@ -3162,6 +3495,13 @@ function QuizApp(){
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
+              style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
+                borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
+                cursor:"pointer",fontFamily:"inherit",width:"100%",
+                opacity:feedbackReadyKey===questionKey?1:0,transition:"opacity 0.4s ease"}}>
+              {T.nextBtn}
+            </button>
           </div>
         )}
         {isFB&&!isNew&&feedback?.correct&&(
@@ -3173,6 +3513,14 @@ function QuizApp(){
                 ?<span style={{color:"#c9a84c",fontWeight:700,fontSize:13,marginLeft:4}}>{T.firstTryBonus(q.pts)}</span>
                 :<span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.retryCorrect}</span>}
               {combo>=3&&<span className="comboPop" style={{color:"#f97316",fontWeight:700,marginLeft:4}}>{T.combo(combo)}</span>}
+            </div>
+            <div style={S.correctBlock}>
+              {feedback.correctAns.map((ans,i)=>(
+                <div key={i} style={S.correctAnsRow}>
+                  {q.blanks&&q.blanks.length>1&&<span style={{fontSize:12,color:"#888",marginRight:4}}>（{i+1}）</span>}
+                  <span style={S.correctAns}>{ans}</span>
+                </div>
+              ))}
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
@@ -3261,6 +3609,70 @@ const S={
   retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
   explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?17:15,color:"#93c5fd",lineHeight:1.8,whiteSpace:"pre-wrap"},
 };
+
+/* ── NextDNS 報酬オーバーレイ ── */
+function RewardOverlay({rewardStatus,rewardSecs,fmtSecs,onClose}){
+  const pct=rewardSecs/(5*60);
+  const color=pct>0.5?'#1d9bf0':pct>0.2?'#f59e0b':'#ef4444';
+  if(rewardStatus==='unlocking') return(
+    <div style={{position:'fixed',top:0,left:0,right:0,zIndex:9999,background:'rgba(29,161,242,0.97)',padding:'14px 20px',display:'flex',alignItems:'center',gap:12,animation:'rewardIn 0.4s ease',boxShadow:'0 4px 24px rgba(29,161,242,0.5)'}}>
+      <span style={{fontSize:28,animation:'tweetBird 1s ease infinite'}}>🐦</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:900,fontSize:15,color:'#fff'}}>Twitter 解放中…</div>
+        <div style={{fontSize:12,color:'rgba(255,255,255,0.8)'}}>NextDNS のブロックを解除しています</div>
+      </div>
+    </div>
+  );
+  if(rewardStatus==='error') return(
+    <div style={{position:'fixed',top:0,left:0,right:0,zIndex:9999,background:'rgba(239,68,68,0.97)',padding:'14px 20px',display:'flex',alignItems:'center',gap:12,animation:'rewardIn 0.4s ease'}}>
+      <span style={{fontSize:26}}>⚠️</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:900,fontSize:14,color:'#fff'}}>API エラー</div>
+        <div style={{fontSize:11,color:'rgba(255,255,255,0.9)'}}>CORS 制限の可能性あり。APIキー・Profile IDを確認してください。</div>
+      </div>
+      <button onClick={onClose} style={{background:'rgba(0,0,0,0.3)',border:'none',color:'#fff',borderRadius:8,padding:'6px 12px',fontSize:12,cursor:'pointer'}}>閉じる</button>
+    </div>
+  );
+  if(rewardStatus==='relocking') return(
+    <div style={{position:'fixed',top:0,left:0,right:0,zIndex:9999,background:'rgba(100,100,100,0.97)',padding:'14px 20px',display:'flex',alignItems:'center',gap:12,animation:'rewardIn 0.4s ease'}}>
+      <span style={{fontSize:26}}>🔒</span>
+      <div style={{fontWeight:700,fontSize:14,color:'#fff'}}>Twitter を再ブロック中…</div>
+    </div>
+  );
+  if(rewardStatus==='active') return null;
+  return null;
+}
+
+/* ── NextDNS 設定モーダル ── */
+function NdSettingsModal({onClose,onSave,initKey,initId}){
+  const[k,setK]=useState(initKey||'');
+  const[p,setP]=useState(initId||'');
+  const total=parseInt(localStorage.getItem('nd_total_correct')||'0');
+  const next=total%15===0?15:15-(total%15);
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:'#13132a',border:'1px solid #2a2a48',borderRadius:20,padding:24,width:'100%',maxWidth:400}}>
+        <div style={{fontWeight:900,fontSize:16,color:'#c9a84c',marginBottom:4}}>🐦 報酬タイマー設定</div>
+        <div style={{fontSize:12,color:'#666',marginBottom:18}}>15問正解ごとに Twitter が {5} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next === 30 ? 30 : next}問</span></div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:12,color:'#888',marginBottom:6}}>NextDNS API Key</div>
+          <input type="password" value={k} onChange={e=>setK(e.target.value)} placeholder="my.nextdns.io/account の下部" style={{width:'100%',background:'#0d0d1a',border:'1px solid #2a2a42',borderRadius:8,padding:'10px 12px',color:'#ece8d8',fontSize:13}}/>
+        </div>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:12,color:'#888',marginBottom:6}}>Configuration ID (Profile ID)</div>
+          <input type="text" value={p} onChange={e=>setP(e.target.value)} placeholder="Setup タブの英数字6〜7文字" style={{width:'100%',background:'#0d0d1a',border:'1px solid #2a2a42',borderRadius:8,padding:'10px 12px',color:'#ece8d8',fontSize:13}}/>
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={onClose} style={{flex:1,background:'#1a1a32',border:'1px solid #2a2a42',borderRadius:10,padding:'10px',color:'#888',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+          <button onClick={()=>onSave(k.trim(),p.trim())} disabled={!k.trim()||!p.trim()} style={{flex:2,background:k.trim()&&p.trim()?'#1d9bf0':'#1a1a32',border:'none',borderRadius:10,padding:'10px',color:k.trim()&&p.trim()?'#fff':'#444',fontSize:13,fontWeight:700,cursor:k.trim()&&p.trim()?'pointer':'default'}}>保存</button>
+        </div>
+        <div style={{marginTop:14,padding:'10px 12px',background:'rgba(29,161,242,0.07)',border:'1px solid rgba(29,161,242,0.2)',borderRadius:8,fontSize:11,color:'#666',lineHeight:1.7}}>
+          ⚠️ CORS制限で失敗する場合: SafariよりもChrome系ブラウザで開くと動作しやすい場合があります。それでも失敗する場合はAPIキーを確認してください。
+        </div>
+      </div>
+    </div>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
 </script>
