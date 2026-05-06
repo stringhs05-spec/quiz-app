@@ -922,8 +922,39 @@ function countDue(questions,srs){
 /* ══════════════════════════════════════════════════════════════
    FILE UTILS
 ══════════════════════════════════════════════════════════════ */
-function downloadJSON(data,filename){
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+async function downloadJSON(data,filename){
+  const json=JSON.stringify(data,null,2);
+  // Capacitor iOS → Filesystem + Share でシェアシートを出す
+  const isCapacitor=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform();
+  if(isCapacitor){
+    try{
+      const Filesystem=window.Capacitor.Plugins.Filesystem;
+      const Share=window.Capacitor.Plugins.Share;
+      if(!Filesystem) throw new Error("Filesystem plugin not found");
+      // CACHE directoryに書き込み（Documentsより権限が緩い）
+      await Filesystem.writeFile({
+        path:filename,
+        data:json,
+        directory:"CACHE",
+        encoding:"utf8",
+      });
+      const result=await Filesystem.getUri({path:filename,directory:"CACHE"});
+      if(Share){
+        await Share.share({
+          title:filename,
+          url:result.uri,
+          dialogTitle:"ファイルを保存",
+        });
+      }
+      return;
+    }catch(e){
+      console.warn("Capacitor download failed",e);
+      alert("保存に失敗しました: "+e.message);
+      return;
+    }
+  }
+  // ブラウザ版フォールバック
+  const blob=new Blob([json],{type:"application/json"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download=filename;a.click();
   URL.revokeObjectURL(url);
@@ -1931,13 +1962,13 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
 
   // ── 全データバックアップ ──────────────────────────────────────
-  const exportBackup=()=>{
+  const exportBackup=async()=>{
     const backup={
       _type:"econ_backup",version:1,
       exportedAt:new Date().toISOString(),
       decks,srs,stats:gSt,
     };
-    downloadJSON(backup,`econ_backup_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
+    await downloadJSON(backup,`econ_backup_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
     flash(T.backupOk);
   };
   const importBackup=async e=>{
@@ -1984,8 +2015,8 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
     setPendingBackup(null);
   };
 
-  const exportQ=()=>{
-    downloadJSON({_type:"econ_quiz_questions",version:1,questions:QS},
+  const exportQ=async()=>{
+    await downloadJSON({_type:"econ_quiz_questions",version:1,questions:QS},
       `questions_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
     flash(T.qsExported);
   };
@@ -2005,9 +2036,9 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
   };
-  const exportS=()=>{
+  const exportS=async()=>{
     if(!gSt){flash(T.noStats,false);return;}
-    downloadJSON({_type:"econ_quiz_stats",version:1,...gSt},
+    await downloadJSON({_type:"econ_quiz_stats",version:1,...gSt},
       `stats_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
     flash(T.statsExported);
   };
@@ -2268,8 +2299,8 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
     const updated=decks.map(d=>d.id===id?{...d,name:editName,folder:editFolder}:d);
     setDecks(updated);saveDecks(updated);setEditId(null);
   };
-  const exportDeck=dk=>{
-    downloadJSON({_type:"econ_quiz_questions",version:1,session:dk.name,questions:dk.questions},
+  const exportDeck=async dk=>{
+    await downloadJSON({_type:"econ_quiz_questions",version:1,session:dk.name,questions:dk.questions},
       dk.name.replace(/\s/g,"_")+".json");
     flash(T.exportedDeck(dk.name));
   };
