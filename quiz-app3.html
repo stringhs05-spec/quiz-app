@@ -92,6 +92,9 @@ const T_JA={
   noStats:"成績データがありません",statsExported:"成績をエクスポートしました",
   errStatsFormat:"エラー：成績データの形式が違います",
   statsImported:"成績をインポートしました",
+  progressExported:"SRS＋成績をエクスポートしました",
+  progressImported:"SRS＋成績をインポートしました",
+  errProgressFormat:"エラー：SRS＋成績ファイルの形式が違います",
   confirmResetStats:"成績をリセットしますか？この操作は取り消せません。",
   statsReset:"成績をリセットしました",
   confirmResetQs:"問題をデフォルトに戻しますか？",
@@ -112,10 +115,14 @@ const T_JA={
   exportQBtn:"⬇ 問題セットをダウンロード",
   importQBtn:"⬆ 問題セットを読み込む",
   resetQBtn:"↩ デフォルト問題に戻す",
-  statsSec:"── 成績データ",
-  exportSBtn:"⬇ 成績をダウンロード",
-  importSBtn:"⬆ 成績を読み込む",
+  statsSec:"── SRS＋成績データ",
+  exportSBtn:"⬇ SRS＋成績をダウンロード",
+  importSBtn:"⬆ SRS＋成績を読み込む",
   resetSBtn:"⚠ 成績をリセット",
+  syncSec:"── ☁️ クラウド同期（GAS）",
+  syncUrlPlaceholder:"GAS ウェブアプリのURLを貼り付け",
+  syncSaveBtn:"保存",
+  syncStatusIdle:"未設定",syncStatusOk:"同期済み",syncStatusErr:"エラー",syncStatusing:"同期中…",
   deckMgrTitle:"📚 デッキ管理",
   noDecksImport:"デッキがありません。\nJSONファイルをインポートして追加してください。",
   addDeckBtn:"＋ JSONからデッキを追加",
@@ -186,6 +193,9 @@ const T_EN={
   noStats:"No stats data",statsExported:"Stats exported",
   errStatsFormat:"Error: invalid stats format",
   statsImported:"Stats imported",
+  progressExported:"SRS + Stats exported",
+  progressImported:"SRS + Stats imported",
+  errProgressFormat:"Error: invalid SRS + Stats file",
   confirmResetStats:"Reset all stats? This cannot be undone.",
   statsReset:"Stats reset",
   confirmResetQs:"Reset to default questions?",
@@ -206,10 +216,14 @@ const T_EN={
   exportQBtn:"⬇ Download Questions",
   importQBtn:"⬆ Import Questions",
   resetQBtn:"↩ Reset to Defaults",
-  statsSec:"── Stats Data",
-  exportSBtn:"⬇ Export Stats",
-  importSBtn:"⬆ Import Stats",
+  statsSec:"── SRS + Stats",
+  exportSBtn:"⬇ Download SRS + Stats",
+  importSBtn:"⬆ Import SRS + Stats",
   resetSBtn:"⚠ Reset Stats",
+  syncSec:"── ☁️ Cloud Sync (GAS)",
+  syncUrlPlaceholder:"Paste GAS web app URL",
+  syncSaveBtn:"Save",
+  syncStatusIdle:"Not configured",syncStatusOk:"Synced",syncStatusErr:"Error",syncStatusing:"Syncing…",
   deckMgrTitle:"📚 Deck Manager",
   noDecksImport:"No decks.\nImport a JSON file to add one.",
   addDeckBtn:"＋ Add deck from JSON",
@@ -810,6 +824,44 @@ function loadSRS(){
   catch{return{};}
 }
 function saveSRS(srs){try{localStorage.setItem(SRS_KEY,JSON.stringify(srs));}catch{}}
+
+// ── クラウド同期（GAS）────────────────────────────────────────
+const SYNC_URL_KEY="econ_sync_url_v1";
+const SYNC_TS_KEY="econ_sync_ts_v1";
+let _syncCooldownTs=0;
+const SYNC_COOLDOWN_MS=30000;
+
+async function syncSave(url,srs,stats,{force=false}={}){
+  if(!url)return false;
+  const now=Date.now();
+  if(!force&&now-_syncCooldownTs<SYNC_COOLDOWN_MS)return false;
+  _syncCooldownTs=now;
+  try{
+    const exportedAt=new Date().toISOString();
+    const res=await fetch(url,{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({_type:"econ_progress",version:1,exportedAt,srs,stats})});
+    if(res.ok){localStorage.setItem(SYNC_TS_KEY,exportedAt);return true;}
+    return false;
+  }catch{return false;}
+}
+function syncSaveBeacon(url,srs,stats){
+  if(!url||!navigator.sendBeacon)return;
+  const exportedAt=new Date().toISOString();
+  const blob=new Blob([JSON.stringify({_type:"econ_progress",version:1,exportedAt,srs,stats})],
+    {type:"application/json"});
+  navigator.sendBeacon(url,blob);
+  localStorage.setItem(SYNC_TS_KEY,exportedAt);
+}
+async function syncLoad(url){
+  if(!url)return null;
+  try{
+    const res=await fetch(url);
+    if(!res.ok)return null;
+    const data=await res.json();
+    return(data&&data._type==="econ_progress")?data:null;
+  }catch{return null;}
+}
 
 // 今日のISO日付（YYYY-MM-DD）
 function today(){return new Date().toISOString().slice(0,10);}
@@ -2033,12 +2085,13 @@ function QManagePanel({QS,setQS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    インポート/エクスポートパネル
 ══════════════════════════════════════════════════════════════ */
-function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
+function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncUrl,onClose}){
   const T=useT();
   const[msg,setMsg]=useState(null);
-  const[confirmReset,setConfirmReset]=useState(null); // "stats" | "qs" | null
+  const[confirmReset,setConfirmReset]=useState(null);
   const[pendingImport,setPendingImport]=useState(null);
   const[pendingBackup,setPendingBackup]=useState(null);
+  const[syncUrlInput,setSyncUrlInput]=useState(syncUrl||"");
   const qRef=useRef(),sRef=useRef(),bRef=useRef();
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
 
@@ -2117,19 +2170,24 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
   };
-  const exportS=async()=>{
+  const exportProgress=async()=>{
     if(!gSt){flash(T.noStats,false);return;}
-    await downloadJSON({_type:"econ_quiz_stats",version:1,...gSt},
-      `stats_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
-    flash(T.statsExported);
+    await downloadJSON({_type:"econ_progress",version:1,
+      exportedAt:new Date().toISOString(),srs,stats:gSt},
+      `progress_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
+    flash(T.progressExported);
   };
-  const importS=async e=>{
+  const importProgress=async e=>{
     const file=e.target.files[0];if(!file)return;
     try{
       const data=await readJSONFile(file);
-      if(typeof data.totalXP!=="number"){flash(T.errStatsFormat,false);return;}
-      const clean={...DEF_ST,...data};
-      setGSt(clean);saveSt(clean);flash(T.statsImported);
+      if(data._type!=="econ_progress"&&typeof data.totalXP!=="number"){
+        flash(T.errProgressFormat,false);return;
+      }
+      if(data.srs){setSRS(data.srs);saveSRS(data.srs);}
+      const st={...DEF_ST,...(data.stats||data)};
+      setGSt(st);saveSt(st);
+      flash(T.progressImported);
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
   };
@@ -2254,9 +2312,9 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
         <div>
           <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>{T.statsSec}</div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            <Btn onClick={exportS}>{T.exportSBtn}</Btn>
+            <Btn onClick={exportProgress}>{T.exportSBtn}</Btn>
             <Btn onClick={()=>sRef.current.click()}>{T.importSBtn}</Btn>
-            <input ref={sRef} type="file" accept=".json" style={{display:"none"}} onChange={importS}/>
+            <input ref={sRef} type="file" accept=".json" style={{display:"none"}} onChange={importProgress}/>
             {confirmReset==="stats"?(
           <div style={{display:"flex",gap:6,alignItems:"center",background:"rgba(239,68,68,0.08)",border:"1px solid #c04040",borderRadius:9,padding:"9px 12px"}}>
             <span style={{fontSize:12,color:"#f87171",flex:1}}>{T.confirmResetStats}</span>
@@ -2266,6 +2324,28 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,onClose}){
         ):(
           <Btn onClick={()=>setConfirmReset("stats")} color="#c04040">{T.resetSBtn}</Btn>
         )}
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#666",letterSpacing:1,marginBottom:8}}>{T.syncSec}</div>
+          <div style={{display:"flex",gap:6,marginBottom:6}}>
+            <input value={syncUrlInput} onChange={e=>setSyncUrlInput(e.target.value)}
+              placeholder={T.syncUrlPlaceholder}
+              style={{flex:1,background:"#0d0d20",border:"1px solid #333",borderRadius:8,
+                padding:"8px 10px",fontSize:11,color:"#ccc",fontFamily:"inherit",minWidth:0}}/>
+            <button onClick={()=>{
+              const v=syncUrlInput.trim();
+              setSyncUrl(v);
+              localStorage.setItem(SYNC_URL_KEY,v);
+              flash(v?"URL を保存しました":"同期を無効にしました");
+            }} style={{background:"#1e1e36",border:"1px solid #3a3a58",borderRadius:8,
+              padding:"8px 12px",fontSize:12,color:"#c9a84c",cursor:"pointer",
+              fontFamily:"inherit",fontWeight:700,whiteSpace:"nowrap"}}>
+              {T.syncSaveBtn}
+            </button>
+          </div>
+          <div style={{fontSize:10,color:"#555",lineHeight:1.6}}>
+            GAS ウェブアプリのURLを設定すると、起動時・セッション終了時・タブ切り替え時に自動同期します。
           </div>
         </div>
         <details style={{fontSize:11,color:"#555",cursor:"pointer"}}>
@@ -2919,6 +2999,40 @@ function QuizApp(){
   const[showStats,setShowStats]=useState(false);
   const[showQManage,setShowQManage]=useState(false);
   const[savedGame,setSavedGame]=useState(()=>loadGame());
+  const[syncUrl,setSyncUrl]=useState(()=>localStorage.getItem(SYNC_URL_KEY)||"");
+  const srsRef=useRef(srs);
+  const gStRef=useRef(gSt);
+  const syncUrlRef=useRef(syncUrl);
+  useEffect(()=>{srsRef.current=srs;},[srs]);
+  useEffect(()=>{gStRef.current=gSt;},[gSt]);
+  useEffect(()=>{syncUrlRef.current=syncUrl;},[syncUrl]);
+
+  // 起動時：クラウドにデータがあれば常に適用
+  useEffect(()=>{
+    if(!syncUrl)return;
+    syncLoad(syncUrl).then(remote=>{
+      if(!remote)return;
+      if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
+      if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
+    });
+  },[]);// eslint-disable-line
+
+  // visibilitychange：タブ切り替え・ホームボタン
+  useEffect(()=>{
+    const handler=()=>{
+      if(document.hidden)
+        syncSave(syncUrlRef.current,srsRef.current,gStRef.current);
+    };
+    document.addEventListener("visibilitychange",handler);
+    return()=>document.removeEventListener("visibilitychange",handler);
+  },[]);
+
+  // beforeunload：タブ・ウィンドウを閉じる
+  useEffect(()=>{
+    const handler=()=>syncSaveBeacon(syncUrlRef.current,srsRef.current,gStRef.current);
+    window.addEventListener("beforeunload",handler);
+    return()=>window.removeEventListener("beforeunload",handler);
+  },[]);
   // アニメーション用ステート
   const[correctAnim,setCorrectAnim]=useState(false);
   const[wrongAnim,setWrongAnim]=useState(false);
@@ -3191,6 +3305,7 @@ function QuizApp(){
       // 正解済みはfeedback時に既に保存済みなのでスキップ
     });
     setSRS(newSRS);saveSRS(newSRS);
+    syncSave(syncUrlRef.current,newSRS,newSt,{force:true});
     if(newRank.name!==oldRank.name){
       setRankUp({from:oldRank,to:newRank});
       setTimeout(SFX.rankUp,900);
@@ -3396,6 +3511,7 @@ function QuizApp(){
         {showStats&&<StatsPanel QS={QS} gSt={gSt} onClose={()=>setShowStats(false)}/>}
         {showIO&&<IOPanel QS={QS} setQS={setQS} gSt={gSt} setGSt={setGSt}
           decks={decks} setDecks={setDecks} srs={srs} setSRS={setSRS}
+          syncUrl={syncUrl} setSyncUrl={setSyncUrl}
           onClose={()=>setShowIO(false)}/>}
         {showQManage&&<QManagePanel QS={QS} setQS={setQS} onClose={()=>setShowQManage(false)}/>}
         {/* 🐦 設定ボタン（ロビー固定） */}
