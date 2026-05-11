@@ -659,8 +659,9 @@ function clearGame(){try{localStorage.removeItem(GK);}catch{}}
 // ── デッキストレージ（IndexedDB版）────────────────────────────
 const SRS_KEY="econ_srs_v1";
 const IDB_NAME="dojoQuizDB";
-const IDB_VER=1;
+const IDB_VER=2;
 const IDB_STORE="decks";
+const IDB_HIST="questionHistory";
 
 // IndexedDBを開く（Promise）
 function openIDB(){
@@ -671,10 +672,49 @@ function openIDB(){
       if(!db.objectStoreNames.contains(IDB_STORE)){
         db.createObjectStore(IDB_STORE,{keyPath:"id"});
       }
+      if(!db.objectStoreNames.contains(IDB_HIST)){
+        const hs=db.createObjectStore(IDB_HIST,{keyPath:"id",autoIncrement:true});
+        hs.createIndex("qId","qId",{unique:false});
+      }
     };
     req.onsuccess=e=>resolve(e.target.result);
     req.onerror=e=>reject(e.target.error);
   });
+}
+
+// 問題履歴を1件保存
+async function saveQuestionHistory(qId,result,wrongCount){
+  try{
+    const db=await openIDB();
+    const tx=db.transaction(IDB_HIST,"readwrite");
+    const store=tx.objectStore(IDB_HIST);
+    store.add({
+      qId,
+      result, // "first" | "retry" | "wrong"
+      wrong:wrongCount,
+      ts:Date.now(),
+      datetime:new Date().toLocaleString("ja-JP",{
+        year:"numeric",month:"2-digit",day:"2-digit",
+        hour:"2-digit",minute:"2-digit"
+      }),
+    });
+    await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
+    db.close();
+  }catch(e){console.warn("saveQuestionHistory failed",e);}
+}
+
+// 問題履歴を取得（新しい順、最大100件）
+async function loadQuestionHistory(qId){
+  try{
+    const db=await openIDB();
+    const tx=db.transaction(IDB_HIST,"readonly");
+    const idx=tx.objectStore(IDB_HIST).index("qId");
+    const all=await new Promise((res,rej)=>{
+      const r=idx.getAll(qId);r.onsuccess=()=>res(r.result);r.onerror=rej;
+    });
+    db.close();
+    return all.sort((a,b)=>b.ts-a.ts).slice(0,100);
+  }catch(e){return[];}
 }
 
 // 全デッキ保存（非同期）
@@ -924,24 +964,25 @@ function countDue(questions,srs){
 ══════════════════════════════════════════════════════════════ */
 async function downloadJSON(data,filename){
   const json=JSON.stringify(data,null,2);
-  // Capacitor iOS → Filesystem + Share でシェアシートを出す
   const isCapacitor=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform();
   if(isCapacitor){
     try{
       const Filesystem=window.Capacitor.Plugins.Filesystem;
       const Share=window.Capacitor.Plugins.Share;
       if(!Filesystem) throw new Error("Filesystem plugin not found");
-      // CACHE directoryに書き込み（Documentsより権限が緩い）
+      // タイムスタンプをファイル名に付加して確実に新規ファイルを作成
+      const ts=Date.now();
+      const uniqueFilename=filename.replace(/\.json$/,"")+"_"+ts+".json";
       await Filesystem.writeFile({
-        path:filename,
+        path:uniqueFilename,
         data:json,
         directory:"CACHE",
         encoding:"utf8",
       });
-      const result=await Filesystem.getUri({path:filename,directory:"CACHE"});
+      const result=await Filesystem.getUri({path:uniqueFilename,directory:"CACHE"});
       if(Share){
         await Share.share({
-          title:filename,
+          title:filename, // 表示名は元のファイル名
           url:result.uri,
           dialogTitle:"ファイルを保存",
         });
@@ -1456,7 +1497,7 @@ function TypewriterText({text,qkey,style,onDone}){
     const id=setInterval(()=>{
       i++;setShown(i);charTick(text[i-1]);
       if(i>=text.length){clearInterval(id);onDone&&onDone();}
-    },38);
+    },15);
     return()=>clearInterval(id);
   },[text,qkey]);
   return <p style={style}>{text.slice(0,Math.min(shown,text.length))}</p>;
@@ -1555,7 +1596,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         if(next>=fullText.length){clearInterval(tidRef.current);setPaused(true);}
         return next;
       });
-    },38);
+    },15);
     return()=>clearInterval(tidRef.current);
   },[paused,isFB,qkey]);
 
@@ -1712,6 +1753,17 @@ function StatsPanel({QS,gSt,onClose}){
   const T=useT();
   const qs=gSt?.questionStats||{};
   const [sort,setSort]=useState("id"); // id | wrong | rate
+  const [expandedId,setExpandedId]=useState(null);
+  const [histMap,setHistMap]=useState({});
+
+  const toggleHistory=async(qId)=>{
+    if(expandedId===qId){setExpandedId(null);return;}
+    setExpandedId(qId);
+    if(!histMap[qId]){
+      const h=await loadQuestionHistory(qId);
+      setHistMap(prev=>({...prev,[qId]:h}));
+    }
+  };
 
   const rows=useMemo(()=>{
     const r=QS.map(q=>{
@@ -1825,6 +1877,35 @@ function StatsPanel({QS,gSt,onClose}){
                             </div>
                           </div>
                         </div>
+
+                        {/* 履歴トグルボタン */}
+                        <button onClick={()=>toggleHistory(q.id)}
+                          style={{background:"none",border:"1px solid #2a2a42",borderRadius:7,
+                            padding:"3px 10px",fontSize:10,color:"#666",cursor:"pointer",
+                            fontFamily:"inherit",marginTop:6}}>
+                          {expandedId===q.id?"▲ 履歴を閉じる":"▼ 出題履歴"}
+                        </button>
+
+                        {/* 履歴一覧 */}
+                        {expandedId===q.id&&(
+                          <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
+                            {!histMap[q.id]?(
+                              <div style={{fontSize:11,color:"#555"}}>読み込み中…</div>
+                            ):histMap[q.id].length===0?(
+                              <div style={{fontSize:11,color:"#555"}}>履歴なし（このバージョン以降の記録のみ表示）</div>
+                            ):histMap[q.id].map((h,i)=>{
+                              const col=h.result==="first"?"#4ade80":h.result==="retry"?"#60a5fa":"#f87171";
+                              const label=h.result==="first"?"一発正解":h.result==="retry"?`再挑戦正解(${h.wrong}ミス)`:`不正解(${h.wrong}ミス)`;
+                              return(
+                                <div key={i} style={{display:"flex",alignItems:"center",gap:8,
+                                  padding:"4px 8px",background:"#0a0a18",borderRadius:6}}>
+                                  <span style={{fontSize:10,color:"#555",minWidth:110}}>{h.datetime}</span>
+                                  <span style={{fontSize:10,color:col,fontWeight:600}}>{label}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -2871,6 +2952,7 @@ function QuizApp(){
       localStorage.setItem('nd_total_correct',String(newTotal));
       const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
       if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
+
     }
     prevCorrectLenRef.current=curr;
   },[answeredCorrectly.length]);
@@ -2924,7 +3006,59 @@ function QuizApp(){
     startRewardTimer(cfg,ND_MINUTES*60);
   };
 
-  // 起動時 or フォアグラウンド復帰時：開放状態を確認して復元 or 再ブロック
+  // 正解フィードバック時にSRS・成績を即座に保存（中断対策）
+  const lastSavedSRSRef=useRef({});
+  useEffect(()=>{
+    if(phase==='feedback'&&feedback?.qId&&!feedback?.isNewCard){
+      const qId=feedback.qId;
+      const isCorrect=!!feedback.correct;
+      const wc=wrongCounts[qId]||0;
+
+      // SRS即保存（正解時のみ）
+      if(isCorrect&&!lastSavedSRSRef.current[qId]){
+        lastSavedSRSRef.current[qId]=true;
+        setSRS(prevSRS=>{
+          const updated=updateSRS(prevSRS,qId,true);
+          saveSRS(updated);
+          return updated;
+        });
+      }
+
+      // 履歴を保存
+      const histResult=isCorrect?(wc===0?'first':'retry'):'wrong';
+      saveQuestionHistory(qId,histResult,wc);
+
+      // 成績即保存（正解・不正解ともに）
+      setGSt(prevGSt=>{
+        if(!prevGSt) return prevGSt;
+        const prevQS=prevGSt.questionStats||{};
+        const prev=prevQS[qId]||{sessions:0,firstTry:0,retryOk:0,wrong:0};
+        // wrongCountは今回の不正解数のみ（前回分と重複しないよう差分で計算）
+        const savedWrong=prev._savedWrong||0;
+        const newWrong=Math.max(0,wc-savedWrong);
+        const isFirstTry=isCorrect&&wc===0&&prev.sessions===prev._savedSessions;
+        const isRetryOk=isCorrect&&wc>0&&prev.sessions===prev._savedSessions;
+        const newQS={
+          ...prevQS,
+          [qId]:{
+            sessions: prev.sessions+(isCorrect?1:0),
+            firstTry: prev.firstTry+(isFirstTry?1:0),
+            retryOk:  prev.retryOk+(isRetryOk?1:0),
+            wrong:    prev.wrong+newWrong,
+            _savedWrong: wc,
+            _savedSessions: prev.sessions+(isCorrect?1:0),
+          }
+        };
+        const newSt={...prevGSt,questionStats:newQS};
+        saveSt(newSt);
+        return newSt;
+      });
+    }
+    if(phase==='start'){
+      lastSavedSRSRef.current={};
+    }
+  },[phase,feedback?.qId,feedback?.correct]);
+
   const checkAndRestoreReward=()=>{
     const until=parseInt(localStorage.getItem('nd_reward_until')||'0');
     const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
@@ -3010,8 +3144,8 @@ function QuizApp(){
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
     const reviewCount=withLapses.length+noLapses.length;
-    const newIds=newCards.map(q=>q.id);
-    dispatch({type:"START",QS:combined,pendingStart:reviewCount||combined.length,newCardIds:newIds});
+    // 今日のデッキでは新カードも通常モードで出題（自動入力なし）
+    dispatch({type:"START",QS:combined,pendingStart:reviewCount||combined.length,newCardIds:[]});
   };
 
   /* 完了時：XP + 問題別成績を保存 */
@@ -3024,18 +3158,12 @@ function QuizApp(){
     // 問題別成績を更新
     const prevQS=gSt.questionStats||{};
     const newQS={...prevQS};
-    QS.forEach(q=>{
-      const prev=prevQS[q.id]||{sessions:0,firstTry:0,retryOk:0,wrong:0};
-      const wasAnswered=answeredCorrectly.includes(q.id);
-      const wc=wrongCounts[q.id]||0;
-      const isFirstTry=wasAnswered&&wc===0;
-      const isRetryOk=wasAnswered&&wc>0;
-      newQS[q.id]={
-        sessions: prev.sessions+(wasAnswered?1:0),
-        firstTry: prev.firstTry+(isFirstTry?1:0),
-        retryOk:  prev.retryOk+(isRetryOk?1:0),
-        wrong:    prev.wrong+wc,
-      };
+    // questionStatsは即保存済みなのでここでは更新不要
+    // _savedWrongと_savedSessionsの一時キーをクリーンアップ
+    const cleanQS={};
+    Object.entries(gSt.questionStats||{}).forEach(([id,v])=>{
+      const{_savedWrong,_savedSessions,...rest}=v;
+      cleanQS[id]=rest;
     });
 
     const oldRank=getRank(gSt.totalXP),newXP=gSt.totalXP+earned,newRank=getRank(newXP);
@@ -3044,24 +3172,23 @@ function QuizApp(){
       bestScore:Math.max(gSt.bestScore,score),bestCombo:Math.max(gSt.bestCombo,maxCombo),
       history:[...gSt.history.slice(-9),{score,xp:earned,
         date:new Date().toLocaleDateString("ja-JP",{month:"numeric",day:"numeric"})}],
-      questionStats:newQS,
+      questionStats:cleanQS,
     };
     setGSt(newSt);saveSt(newSt);
     clearGame();setSavedGame(null);
 
     // SRS更新
+    // セッション完了時：正解済み問題はfeedback時に既にSRS保存済みなので
+    // ここではミスのみ対応（pauseのみ）
     let newSRS={...srs};
     QS.forEach(q=>{
       const wc=wrongCounts[q.id]||0;
       const wasAnswered=answeredCorrectly.includes(q.id);
-      if(wasAnswered){
-        // 最終的に正解 → SRS間隔を伸ばす（途中ミスはeaseに反映済み）
-        newSRS=updateSRS(newSRS,q.id,true);
-      }else if(wc>0&&!wasAnswered){
+      if(!wasAnswered&&wc>0){
         // 最後まで正解できなかった → 10分後に再出題
         newSRS=updateSRSPause(newSRS,q.id);
       }
-      // 未回答（キューに残ったまま終了）は何もしない
+      // 正解済みはfeedback時に既に保存済みなのでスキップ
     });
     setSRS(newSRS);saveSRS(newSRS);
     if(newRank.name!==oldRank.name){
@@ -3480,7 +3607,7 @@ function QuizApp(){
             return <span style={{marginLeft:8,fontSize:10,color,fontWeight:600}}>{label}</span>;
           })()}
         </div>
-        {q.image&&<img src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
+        {q.image&&<ZoomableImage src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
         {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
         {q.images&&q.images.map((img,i)=>(
           <div key={i} style={{marginBottom:8}}>
@@ -3525,7 +3652,7 @@ function QuizApp(){
               <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>{T.previewLabel}</span>
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3553,7 +3680,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3578,7 +3705,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<img src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
@@ -3703,6 +3830,80 @@ function NdSettingsModal({onClose,onSave,initKey,initId}){
       </div>
     </div>
   );
+}
+
+/* ── ZoomableImage：タップで全画面・ピンチズーム ── */
+function ZoomableImage({src,alt,style}){
+  const[open,setOpen]=useState(false);
+  const[scale,setScale]=useState(1);
+  const[pos,setPos]=useState({x:0,y:0});
+  const lastDist=useRef(null);
+  const lastPos=useRef(null);
+  const isDragging=useRef(false);
+
+  const dist=(t)=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+  const mid=(t)=>({x:(t[0].clientX+t[1].clientX)/2,y:(t[0].clientY+t[1].clientY)/2});
+
+  const onTouchStart=e=>{
+    if(e.touches.length===2){
+      lastDist.current=dist(e.touches);
+      lastPos.current=mid(e.touches);
+      isDragging.current=false;
+    } else if(e.touches.length===1){
+      lastPos.current={x:e.touches[0].clientX,y:e.touches[0].clientY};
+      isDragging.current=true;
+    }
+  };
+  const onTouchMove=e=>{
+    e.preventDefault();
+    if(e.touches.length===2){
+      const d=dist(e.touches);
+      const m=mid(e.touches);
+      if(lastDist.current){
+        const ratio=d/lastDist.current;
+        setScale(s=>Math.min(Math.max(s*ratio,1),5));
+        if(lastPos.current){
+          setPos(p=>({x:p.x+(m.x-lastPos.current.x),y:p.y+(m.y-lastPos.current.y)}));
+        }
+      }
+      lastDist.current=d;
+      lastPos.current=m;
+      isDragging.current=false;
+    } else if(e.touches.length===1&&isDragging.current&&scale>1){
+      const dx=e.touches[0].clientX-lastPos.current.x;
+      const dy=e.touches[0].clientY-lastPos.current.y;
+      setPos(p=>({x:p.x+dx,y:p.y+dy}));
+      lastPos.current={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    }
+  };
+  const onTouchEnd=()=>{lastDist.current=null;};
+  const close=()=>{setOpen(false);setScale(1);setPos({x:0,y:0});};
+
+  return(<>
+    <img src={src} alt={alt||""} style={{...style,cursor:"zoom-in"}} onClick={()=>setOpen(true)}/>
+    {open&&(
+      <div onClick={close}
+        style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(0,0,0,0.92)",
+          display:"flex",alignItems:"center",justifyContent:"center",touchAction:"none"}}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+        <img src={src} alt={alt||""}
+          style={{maxWidth:"100vw",maxHeight:"100vh",objectFit:"contain",
+            transform:`scale(${scale}) translate(${pos.x/scale}px,${pos.y/scale}px)`,
+            transformOrigin:"center",userSelect:"none",pointerEvents:"none"}}
+          onClick={e=>e.stopPropagation()}/>
+        <div style={{position:"fixed",top:16,right:16,color:"#fff",fontSize:24,cursor:"pointer",
+          background:"rgba(0,0,0,0.5)",borderRadius:"50%",width:36,height:36,
+          display:"flex",alignItems:"center",justifyContent:"center"}}
+          onClick={close}>✕</div>
+        {scale>1&&(
+          <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",
+            color:"#888",fontSize:11,background:"rgba(0,0,0,0.5)",padding:"4px 10px",borderRadius:8}}>
+            ダブルタップでリセット
+          </div>
+        )}
+      </div>
+    )}
+  </>);
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
