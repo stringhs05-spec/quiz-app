@@ -3305,7 +3305,7 @@ function QuizApp(){
       // 正解済みはfeedback時に既に保存済みなのでスキップ
     });
     setSRS(newSRS);saveSRS(newSRS);
-    syncSave(syncUrlRef.current,newSRS,newSt,{force:true});
+    setTimeout(()=>syncSave(syncUrlRef.current,srsRef.current,gStRef.current,{force:true}),500);
     if(newRank.name!==oldRank.name){
       setRankUp({from:oldRank,to:newRank});
       setTimeout(SFX.rankUp,900);
