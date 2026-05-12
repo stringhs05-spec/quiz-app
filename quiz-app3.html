@@ -3071,7 +3071,14 @@ function QuizApp(){
   useEffect(()=>{gStRef.current=gSt;},[gSt]);
   useEffect(()=>{syncUrlRef.current=syncUrl;},[syncUrl]);
 
-  // visibilitychange：タブ切り替え・ホームボタン
+  // SRS変更を検知して5秒後に自動クラウド保存（デバウンス）
+  useEffect(()=>{
+    if(!syncUrl)return;
+    const tid=setTimeout(()=>{
+      syncSave(syncUrlRef.current,srs,gStRef.current);
+    },5000);
+    return()=>clearTimeout(tid);
+  },[srs]);// eslint-disable-line
   useEffect(()=>{
     const handler=()=>{
       if(document.hidden)
