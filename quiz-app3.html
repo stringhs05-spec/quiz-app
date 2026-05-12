@@ -1849,7 +1849,7 @@ function StatsPanel({QS,gSt,onClose}){
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
       display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:200,padding:"16px",overflowY:"auto"}}>
-      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
         padding:"20px 18px",width:"100%",maxWidth:480,display:"flex",flexDirection:"column",gap:14}}>
 
         {/* ヘッダー */}
@@ -2015,7 +2015,7 @@ function QManagePanel({QS,setQS,onClose}){
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
       display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:200,
       padding:"16px",overflowY:"auto"}}>
-      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
         padding:"20px 18px",width:"100%",maxWidth:480,display:"flex",flexDirection:"column",gap:12}}>
 
         {/* ヘッダー */}
@@ -2225,7 +2225,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
-      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
         padding:"24px 20px",width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>{T.ioTitle}</span>
@@ -2631,7 +2631,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
         display:"flex",alignItems:"flex-start",justifyContent:"center",
         zIndex:200,padding:16,overflowY:"auto"}}>
-        <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+        <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
           padding:"20px 18px",width:"100%",maxWidth:460,display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button onClick={()=>{setCardEditDeck(null);setSelected(new Set());}}
@@ -2705,7 +2705,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",
       display:"flex",alignItems:"flex-start",justifyContent:"center",
       zIndex:200,padding:16,overflowY:"auto"}}>
-      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+      <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
         padding:"20px 18px",width:"100%",maxWidth:460,display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:16,fontWeight:800,color:"#ece8d8"}}>{T.deckMgrTitle}</span>
@@ -2952,7 +2952,7 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",
             display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}
             onClick={()=>setDeckDialog(null)}>
-            <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+            <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
               padding:"22px 20px",width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:12}}
               onClick={e=>e.stopPropagation()}>
               <div style={{fontSize:15,fontWeight:800,color:"#ece8d8",marginBottom:4}}>
