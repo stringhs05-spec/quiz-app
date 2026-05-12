@@ -1025,6 +1025,23 @@ function buildNewDeck(decks,srs,limit=15){
   return shuffle(newCards).slice(0,limit);
 }
 
+// SRS習得状況を6カテゴリで集計
+function srsCategories(srs){
+  const c={seed:0,mid:0,short1:0,short2:0,medium:0,long:0};
+  Object.values(srs||{}).forEach(v=>{
+    const state=v.state,step=v.step||0,iv=v.intervalDays||0;
+    if(state==='learning'){
+      if(step<=1)c.seed++;else c.mid++;
+    }else{
+      if(iv<=3)c.short1++;
+      else if(iv<=6)c.short2++;
+      else if(iv<=13)c.medium++;
+      else c.long++;
+    }
+  });
+  return c;
+}
+
 // 今日のデッキ：時間ベースdueで復習/新カードを分ける
 function shuffle(arr){return [...arr].sort(()=>Math.random()-0.5);}
 function buildTodaysDeck(decks,srs,limit=30){
@@ -2123,6 +2140,41 @@ function QManagePanel({QS,setQS,onClose}){
   );
 }
 
+const SRS_CAT_ROWS=[
+  {key:"seed",  icon:"🌱", label:"学習中（〜1時間）"},
+  {key:"mid",   icon:"🔄", label:"定着中（6h〜3日）"},
+  {key:"short1",icon:"🟡", label:"復習（2〜3日）"},
+  {key:"short2",icon:"📅", label:"復習（4〜6日）"},
+  {key:"medium",icon:"📘", label:"復習（7〜13日）"},
+  {key:"long",  icon:"⭐", label:"定着（14日以上）"},
+];
+function SrsCmpTable({left,right}){
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+        {[left,right].map(({label,color,date})=>(
+          <div key={label} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"8px 10px"}}>
+            <div style={{fontSize:11,color,fontWeight:700}}>{label}</div>
+            <div style={{fontSize:10,color:"#666",marginTop:2}}>{date}</div>
+          </div>
+        ))}
+      </div>
+      {SRS_CAT_ROWS.map(({key,icon,label})=>(
+        <div key={key} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:4,
+          alignItems:"center",padding:"3px 0",borderBottom:"1px solid #1a1a2e"}}>
+          <div style={{fontSize:10,color:"#777"}}>{icon} {label}</div>
+          <div style={{fontSize:11,fontWeight:700,color:"#c9a84c",textAlign:"right",minWidth:36}}>
+            {left.cats?.[key]??0}
+          </div>
+          <div style={{fontSize:11,color:"#555",textAlign:"right",minWidth:36}}>
+            {right.cats?.[key]??0}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════
    インポート/エクスポートパネル
 ══════════════════════════════════════════════════════════════ */
@@ -2395,28 +2447,14 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
             {pendingSyncUpload&&(
               <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginTop:6}}>
                 <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドへ保存して上書きします</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
-                  {[
-                    {label:"💻 ローカル（送信）",
-                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
-                     plays:gSt?.plays??"-",
-                     srsCount:Object.keys(srs||{}).length,
-                     color:"#4ade80"},
-                    {label:"☁️ クラウド（上書き先）",
-                     date:pendingSyncUpload.remote?new Date(pendingSyncUpload.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"データなし",
-                     plays:pendingSyncUpload.remote?.stats?.plays??"-",
-                     srsCount:Object.keys(pendingSyncUpload.remote?.srs||{}).length,
-                     color:"#888"},
-                  ].map(({label,date,plays,srsCount,color})=>(
-                    <div key={label} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"8px 10px"}}>
-                      <div style={{fontSize:11,color,fontWeight:700,marginBottom:4}}>{label}</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>{date}</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>{plays} セッション</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>SRS {srsCount} 件</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"flex",gap:8}}>
+                <SrsCmpTable
+                  left={{label:"💻 ローカル（送信）",color:"#4ade80",
+                    date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
+                    cats:srsCategories(srs)}}
+                  right={{label:"☁️ クラウド（上書き先）",color:"#888",
+                    date:pendingSyncUpload.remote?new Date(pendingSyncUpload.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"データなし",
+                    cats:srsCategories(pendingSyncUpload.remote?.srs)}}/>
+                <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button onClick={async()=>{
                     const ok=await syncSave(syncUrlInput.trim(),srs,gSt,{force:true});
                     setPendingSyncUpload(null);
@@ -2427,52 +2465,33 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                   </button>
                   <button onClick={()=>setPendingSyncUpload(null)}
                     style={{background:"none",border:"1px solid #333",borderRadius:8,
-                      padding:"8px 12px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>
-                    ✕
-                  </button>
+                      padding:"8px 12px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                 </div>
               </div>
             )}
             {pendingSync&&(
               <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginTop:6}}>
                 <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドのデータを確認</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
-                  {[
-                    {label:"☁️ クラウド",
-                     date:new Date(pendingSync.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}),
-                     plays:pendingSync.remote.stats?.plays??"-",
-                     srsCount:Object.keys(pendingSync.remote.srs||{}).length,
-                     color:"#c9a84c"},
-                    {label:"💻 ローカル",
-                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
-                     plays:gSt?.plays??"-",
-                     srsCount:Object.keys(srs||{}).length,
-                     color:"#888"},
-                  ].map(({label,date,plays,srsCount,color})=>(
-                    <div key={label} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"8px 10px"}}>
-                      <div style={{fontSize:11,color,fontWeight:700,marginBottom:4}}>{label}</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>{date}</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>{plays} セッション</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>SRS {srsCount} 件</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"flex",gap:8}}>
+                <SrsCmpTable
+                  left={{label:"☁️ クラウド",color:"#c9a84c",
+                    date:new Date(pendingSync.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}),
+                    cats:srsCategories(pendingSync.remote.srs)}}
+                  right={{label:"💻 ローカル",color:"#888",
+                    date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
+                    cats:srsCategories(srs)}}/>
+                <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button onClick={()=>{
                     const remote=pendingSync.remote;
                     if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
                     if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
-                    setPendingSync(null);
-                    flash(T.syncLoadOk);
+                    setPendingSync(null);flash(T.syncLoadOk);
                   }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                     ✓ 適用する
                   </button>
                   <button onClick={()=>setPendingSync(null)}
                     style={{background:"none",border:"1px solid #333",borderRadius:8,
-                      padding:"8px 12px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>
-                    ✕
-                  </button>
+                      padding:"8px 12px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                 </div>
               </div>
             )}
