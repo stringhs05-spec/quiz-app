@@ -853,7 +853,6 @@ async function syncSave(url,srs,stats,{force=false}={}){
   try{
     const exportedAt=new Date().toISOString();
     const res=await fetch(url,{method:"POST",
-      headers:{"Content-Type":"application/json"},
       body:JSON.stringify({_type:"econ_progress",version:1,exportedAt,srs,stats})});
     if(res.ok){localStorage.setItem(SYNC_TS_KEY,exportedAt);return true;}
     return false;
