@@ -2406,6 +2406,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                 </div>
               </div>
             )}
+            {pendingSync&&(
               <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginTop:6}}>
                 <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドのデータを確認</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
