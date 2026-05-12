@@ -122,6 +122,10 @@ const T_JA={
   syncSec:"── ☁️ クラウド同期（GAS）",
   syncUrlPlaceholder:"GAS ウェブアプリのURLを貼り付け",
   syncSaveBtn:"保存",
+  syncLoadBtn:"⬇ クラウドから読み込む",
+  syncLoadOk:"クラウドのデータを適用しました",
+  syncLoadNone:"クラウドにデータがありません",
+  syncLoadErr:"読み込みに失敗しました",
   syncStatusIdle:"未設定",syncStatusOk:"同期済み",syncStatusErr:"エラー",syncStatusing:"同期中…",
   deckMgrTitle:"📚 デッキ管理",
   noDecksImport:"デッキがありません。\nJSONファイルをインポートして追加してください。",
@@ -223,6 +227,10 @@ const T_EN={
   syncSec:"── ☁️ Cloud Sync (GAS)",
   syncUrlPlaceholder:"Paste GAS web app URL",
   syncSaveBtn:"Save",
+  syncLoadBtn:"⬇ Load from Cloud",
+  syncLoadOk:"Cloud data applied",
+  syncLoadNone:"No data in cloud",
+  syncLoadErr:"Failed to load",
   syncStatusIdle:"Not configured",syncStatusOk:"Synced",syncStatusErr:"Error",syncStatusing:"Syncing…",
   deckMgrTitle:"📚 Deck Manager",
   noDecksImport:"No decks.\nImport a JSON file to add one.",
@@ -2345,8 +2353,18 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
             </button>
           </div>
           <div style={{fontSize:10,color:"#555",lineHeight:1.6}}>
-            GAS ウェブアプリのURLを設定すると、起動時・セッション終了時・タブ切り替え時に自動同期します。
+            GAS ウェブアプリのURLを設定すると、セッション終了時・タブ切り替え時に自動でクラウドへ保存します。
           </div>
+          {syncUrlInput.trim()&&(
+            <Btn onClick={async()=>{
+              flash(T.syncStatusing);
+              const remote=await syncLoad(syncUrlInput.trim());
+              if(!remote){flash(T.syncLoadNone,false);return;}
+              if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
+              if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
+              flash(T.syncLoadOk);
+            }} style={{marginTop:4}}>{T.syncLoadBtn}</Btn>
+          )}
         </div>
         <details style={{fontSize:11,color:"#555",cursor:"pointer"}}>
           <summary style={{color:"#666",marginBottom:6}}>問題JSONの書き方</summary>
@@ -3006,16 +3024,6 @@ function QuizApp(){
   useEffect(()=>{srsRef.current=srs;},[srs]);
   useEffect(()=>{gStRef.current=gSt;},[gSt]);
   useEffect(()=>{syncUrlRef.current=syncUrl;},[syncUrl]);
-
-  // 起動時：クラウドにデータがあれば常に適用
-  useEffect(()=>{
-    if(!syncUrl)return;
-    syncLoad(syncUrl).then(remote=>{
-      if(!remote)return;
-      if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
-      if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
-    });
-  },[]);// eslint-disable-line
 
   // visibilitychange：タブ切り替え・ホームボタン
   useEffect(()=>{
