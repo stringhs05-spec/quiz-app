@@ -123,6 +123,9 @@ const T_JA={
   syncUrlPlaceholder:"GAS ウェブアプリのURLを貼り付け",
   syncSaveBtn:"保存",
   syncLoadBtn:"⬇ クラウドから読み込む",
+  syncUploadBtn:"⬆ クラウドへ保存",
+  syncUploadOk:"クラウドへ保存しました",
+  syncUploadErr:"保存に失敗しました",
   syncLoadOk:"クラウドのデータを適用しました",
   syncLoadNone:"クラウドにデータがありません",
   syncLoadErr:"読み込みに失敗しました",
@@ -228,6 +231,9 @@ const T_EN={
   syncUrlPlaceholder:"Paste GAS web app URL",
   syncSaveBtn:"Save",
   syncLoadBtn:"⬇ Load from Cloud",
+  syncUploadBtn:"⬆ Save to Cloud",
+  syncUploadOk:"Saved to cloud",
+  syncUploadErr:"Failed to save",
   syncLoadOk:"Cloud data applied",
   syncLoadNone:"No data in cloud",
   syncLoadErr:"Failed to load",
@@ -2101,6 +2107,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
   const[pendingBackup,setPendingBackup]=useState(null);
   const[syncUrlInput,setSyncUrlInput]=useState(syncUrl||"");
   const[pendingSync,setPendingSync]=useState(null);
+  const[pendingSyncUpload,setPendingSyncUpload]=useState(null);
   const qRef=useRef(),sRef=useRef(),bRef=useRef();
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
 
@@ -2358,7 +2365,47 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
           </div>
           {syncUrlInput.trim()&&(
             <>
-            {pendingSync&&(
+            {pendingSyncUpload&&(
+              <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginTop:6}}>
+                <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドへ保存して上書きします</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
+                  {[
+                    {label:"💻 ローカル（送信）",
+                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
+                     plays:gSt?.plays??"-",
+                     srsCount:Object.keys(srs||{}).length,
+                     color:"#4ade80"},
+                    {label:"☁️ クラウド（上書き先）",
+                     date:pendingSyncUpload.remote?new Date(pendingSyncUpload.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"データなし",
+                     plays:pendingSyncUpload.remote?.stats?.plays??"-",
+                     srsCount:Object.keys(pendingSyncUpload.remote?.srs||{}).length,
+                     color:"#888"},
+                  ].map(({label,date,plays,srsCount,color})=>(
+                    <div key={label} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"8px 10px"}}>
+                      <div style={{fontSize:11,color,fontWeight:700,marginBottom:4}}>{label}</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>{date}</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>{plays} セッション</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>SRS {srsCount} 件</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={async()=>{
+                    const ok=await syncSave(syncUrlInput.trim(),srs,gSt,{force:true});
+                    setPendingSyncUpload(null);
+                    flash(ok?T.syncUploadOk:T.syncUploadErr,ok);
+                  }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
+                    padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                    ✓ 保存する
+                  </button>
+                  <button onClick={()=>setPendingSyncUpload(null)}
+                    style={{background:"none",border:"1px solid #333",borderRadius:8,
+                      padding:"8px 12px",fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
               <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginTop:6}}>
                 <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドのデータを確認</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
@@ -2401,13 +2448,20 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                 </div>
               </div>
             )}
-            {!pendingSync&&(
+            {!pendingSync&&!pendingSyncUpload&&(
+              <>
+              <Btn onClick={async()=>{
+                flash(T.syncStatusing);
+                const remote=await syncLoad(syncUrlInput.trim());
+                setPendingSyncUpload({remote}); // remoteはnullの場合もある
+              }} style={{marginTop:4}}>{T.syncUploadBtn}</Btn>
               <Btn onClick={async()=>{
                 flash(T.syncStatusing);
                 const remote=await syncLoad(syncUrlInput.trim());
                 if(!remote){flash(T.syncLoadNone,false);return;}
                 setPendingSync({remote});
               }} style={{marginTop:4}}>{T.syncLoadBtn}</Btn>
+              </>
             )}
             </>
           )}
@@ -3064,36 +3118,7 @@ function QuizApp(){
   const[showQManage,setShowQManage]=useState(false);
   const[savedGame,setSavedGame]=useState(()=>loadGame());
   const[syncUrl,setSyncUrl]=useState(()=>localStorage.getItem(SYNC_URL_KEY)||"");
-  const srsRef=useRef(srs);
-  const gStRef=useRef(gSt);
-  const syncUrlRef=useRef(syncUrl);
-  useEffect(()=>{srsRef.current=srs;},[srs]);
-  useEffect(()=>{gStRef.current=gSt;},[gSt]);
-  useEffect(()=>{syncUrlRef.current=syncUrl;},[syncUrl]);
 
-  // SRS変更を検知して5秒後に自動クラウド保存（デバウンス）
-  useEffect(()=>{
-    if(!syncUrl)return;
-    const tid=setTimeout(()=>{
-      syncSave(syncUrlRef.current,srs,gStRef.current);
-    },5000);
-    return()=>clearTimeout(tid);
-  },[srs]);// eslint-disable-line
-  useEffect(()=>{
-    const handler=()=>{
-      if(document.hidden)
-        syncSave(syncUrlRef.current,srsRef.current,gStRef.current);
-    };
-    document.addEventListener("visibilitychange",handler);
-    return()=>document.removeEventListener("visibilitychange",handler);
-  },[]);
-
-  // beforeunload：タブ・ウィンドウを閉じる
-  useEffect(()=>{
-    const handler=()=>syncSaveBeacon(syncUrlRef.current,srsRef.current,gStRef.current);
-    window.addEventListener("beforeunload",handler);
-    return()=>window.removeEventListener("beforeunload",handler);
-  },[]);
   // アニメーション用ステート
   const[correctAnim,setCorrectAnim]=useState(false);
   const[wrongAnim,setWrongAnim]=useState(false);
@@ -3366,7 +3391,6 @@ function QuizApp(){
       // 正解済みはfeedback時に既に保存済みなのでスキップ
     });
     setSRS(newSRS);saveSRS(newSRS);
-    setTimeout(()=>syncSave(syncUrlRef.current,srsRef.current,gStRef.current,{force:true}),500);
     if(newRank.name!==oldRank.name){
       setRankUp({from:oldRank,to:newRank});
       setTimeout(SFX.rankUp,900);
