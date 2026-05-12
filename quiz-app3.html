@@ -61,6 +61,9 @@ const T_JA={
   appLogo:"経済史",appTitle:"道場クイズ",
   plays:n=>`${n}回プレイ`,bestScore:"最高得点",
   todayDeck:"今日のデッキ",
+  reviewAllDue:"一発復習",reviewAllDueSub:"全デッキの期限カードを復習",
+  tryNewCards:"新問挑戦",tryNewCardsSub:"全デッキの未見カードに挑戦",
+  reviewNone:"復習カードなし",newCardsNone:"新問題なし",
   todayDue:n=>`${n}問が今日の復習対象 · 間隔反復`,
   todayAdd:"デッキを追加してください",
   todayDone:"今日の復習は完了しています 🎉",
@@ -169,6 +172,9 @@ const T_EN={
   appLogo:"Econ Hist",appTitle:"Dojo Quiz",
   plays:n=>`${n} plays`,bestScore:"Best score",
   todayDeck:"Today's Deck",
+  reviewAllDue:"Review All Due",reviewAllDueSub:"Review due cards across all decks",
+  tryNewCards:"Try New Cards",tryNewCardsSub:"Try unseen cards across all decks",
+  reviewNone:"No cards due",newCardsNone:"No new cards",
   todayDue:n=>`${n} cards due · spaced repetition`,
   todayAdd:"Add a deck to get started",
   todayDone:"All caught up for today 🎉",
@@ -997,6 +1003,28 @@ function updateSRSPause(srs,qId){
   }};
 }
 
+// 一発復習：全デッキのdueカードのみ（最大15枚）
+function buildReviewDeck(decks,srs,limit=15){
+  const seen=new Set();const review=[];
+  decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
+    if(seen.has(q.id))return;seen.add(q.id);
+    const sr=srs[q.id];
+    if(sr&&isDue(sr))review.push(q);
+  }));
+  const withLapses=shuffle(review.filter(q=>(srs[q.id]?.lapses||0)>0));
+  const noLapses=shuffle(review.filter(q=>(srs[q.id]?.lapses||0)===0));
+  return[...withLapses,...noLapses].slice(0,limit);
+}
+// 新問挑戦：全デッキの未見カードのみ（最大15枚）
+function buildNewDeck(decks,srs,limit=15){
+  const seen=new Set();const newCards=[];
+  decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
+    if(seen.has(q.id))return;seen.add(q.id);
+    if(!srs[q.id])newCards.push(q);
+  }));
+  return shuffle(newCards).slice(0,limit);
+}
+
 // 今日のデッキ：時間ベースdueで復習/新カードを分ける
 function shuffle(arr){return [...arr].sort(()=>Math.random()-0.5);}
 function buildTodaysDeck(decks,srs,limit=30){
@@ -1744,7 +1772,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   return(
     <div style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
-      color:"#ece8d8",marginBottom:12,wordBreak:"break-all",whiteSpace:"pre-line"}}>
+      color:"#ece8d8",marginBottom:12,wordBreak:"break-all"}}>
       {segments.map(({text,showBlank,blankIdx},segIdx)=>{
         const isLastSeg=segIdx===segments.length-1;
         const blank=q.blanks[blankIdx];
@@ -2844,7 +2872,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
-function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang}){
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang}){
   const T=useT();
   const[collapsedFolders,setCollapsedFolders]=useState(()=>{
     try{return new Set(JSON.parse(localStorage.getItem('econ_collapsed')||'[]'));}
@@ -2871,6 +2899,8 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
   const rank=gSt?getRank(gSt.totalXP):null;
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
+  const reviewCount=buildReviewDeck(decks,freshSRSForLobby).length;
+  const newCount=buildNewDeck(decks,freshSRSForLobby).length;
   const[deckDialog,setDeckDialog]=useState(null); // 選択中デッキ
   return(
     <div style={{minHeight:"100vh",background:"#0d0d18",
@@ -2911,29 +2941,32 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onManageDecks,onSettings,sa
           </div>
         )}
 
-        {/* 今日のデッキ */}
-        <button onClick={onPlayToday} disabled={todayCount===0}
-          style={{background:todayCount>0?"#1a2a1a":"#111120",
-            border:`2px solid ${todayCount>0?"#22c55e":"#2a2a44"}`,
-            borderRadius:16,padding:"18px 20px",cursor:todayCount>0?"pointer":"default",
-            fontFamily:"inherit",textAlign:"left",transition:"all 0.2s",width:"100%"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <span style={{fontSize:28}}>📅</span>
-            <div style={{flex:1}}>
-              <div style={{fontSize:DK?18:16,fontWeight:800,
-                color:todayCount>0?"#4ade80":"#555"}}>{T.todayDeck}</div>
-              <div style={{fontSize:12,color:todayCount>0?"#888":"#444",marginTop:2}}>
-                {todayCount>0
-                  ?T.todayDue(todayCount)
-                  :decks.length===0?T.todayAdd:T.todayDone}
+        {/* 一発復習 / 新問挑戦 */}
+        <div style={{display:"flex",gap:10}}>
+          {[
+            {label:T.reviewAllDue,sub:reviewCount>0?T.todayDue(reviewCount):T.reviewNone,
+             count:reviewCount,icon:"🔁",color:"#22c55e",onClick:onPlayReview},
+            {label:T.tryNewCards,sub:newCount>0?T.todayDue(newCount):T.newCardsNone,
+             count:newCount,icon:"✨",color:"#c9a84c",onClick:onPlayNew},
+          ].map(({label,sub,count,icon,color,onClick})=>(
+            <button key={label} onClick={onClick} disabled={count===0}
+              style={{flex:1,background:count>0?`rgba(${color==="#22c55e"?"34,197,94":"201,168,76"},0.08)`:"#111120",
+                border:`2px solid ${count>0?color:"#2a2a44"}`,
+                borderRadius:16,padding:"14px 12px",cursor:count>0?"pointer":"default",
+                fontFamily:"inherit",textAlign:"left",transition:"all 0.2s"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                <span style={{fontSize:22}}>{icon}</span>
+                {count>0&&<div style={{background:color,color:"#0d0d18",
+                  borderRadius:20,padding:"2px 9px",fontSize:13,fontWeight:800,marginLeft:"auto"}}>
+                  {count}
+                </div>}
               </div>
-            </div>
-            {todayCount>0&&<div style={{background:"#22c55e",color:"#0d0d18",
-              borderRadius:20,padding:"4px 12px",fontSize:14,fontWeight:800}}>
-              {todayCount}
-            </div>}
-          </div>
-        </button>
+              <div style={{fontSize:DK?15:13,fontWeight:800,
+                color:count>0?color:"#555"}}>{label}</div>
+              <div style={{fontSize:11,color:count>0?"#888":"#444",marginTop:2}}>{sub}</div>
+            </button>
+          ))}
+        </div>
 
         {/* デッキ一覧 */}
         <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>{T.myDecks}</div>
@@ -3327,6 +3360,29 @@ function QuizApp(){
     SFX.start();
     dispatch({type:"START",QS:dk.questions,newCardIds:newIds});
   };
+  // 一発復習
+  const playReview=()=>{
+    const freshSRS=loadSRS();
+    const cards=buildReviewDeck(decks,freshSRS);
+    if(cards.length===0)return;
+    setSRS(freshSRS);setQS(cards);setIsToday(true);
+    setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    dispatch({type:"START",QS:cards,pendingStart:cards.length,newCardIds:[]});
+  };
+  // 新問挑戦
+  const playNew=()=>{
+    const freshSRS=loadSRS();
+    const cards=buildNewDeck(decks,freshSRS);
+    if(cards.length===0)return;
+    setSRS(freshSRS);setQS(cards);setIsToday(true);
+    setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    dispatch({type:"START",QS:cards,pendingStart:0,newCardIds:cards.map(q=>q.id)});
+  };
+
   // 今日のデッキをプレイ
   const playToday=()=>{
     const freshSRS=loadSRS();
@@ -3606,7 +3662,7 @@ function QuizApp(){
         <Lobby
           decks={decks} srs={srs} gSt={gSt}
           onPlayDeck={playDeck}
-          onPlayToday={playToday}
+          onPlayToday={playToday} onPlayReview={playReview} onPlayNew={playNew}
           onManageDecks={()=>setShowDeckMgr(true)}
           onSettings={(t)=>{
             if(t==="stats") setShowStats(true);
