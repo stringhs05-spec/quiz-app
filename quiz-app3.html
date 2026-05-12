@@ -1744,7 +1744,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   return(
     <div style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
-      color:"#ece8d8",marginBottom:12,wordBreak:"break-all"}}>
+      color:"#ece8d8",marginBottom:12,wordBreak:"break-all",whiteSpace:"pre-line"}}>
       {segments.map(({text,showBlank,blankIdx},segIdx)=>{
         const isLastSeg=segIdx===segments.length-1;
         const blank=q.blanks[blankIdx];
