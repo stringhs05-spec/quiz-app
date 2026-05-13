@@ -737,6 +737,35 @@ async function saveQuestionHistory(qId,result,wrongCount){
   }catch(e){console.warn("saveQuestionHistory failed",e);}
 }
 
+// 全問題履歴を取得
+async function loadAllHistory(){
+  try{
+    const db=await openIDB();
+    const tx=db.transaction(IDB_HIST,"readonly");
+    const all=await new Promise((res,rej)=>{
+      const r=tx.objectStore(IDB_HIST).getAll();
+      r.onsuccess=()=>res(r.result);r.onerror=rej;
+    });
+    db.close();
+    return all;
+  }catch(e){return[];}
+}
+// 全問題履歴を一括保存（インポート用）
+async function saveAllHistory(records){
+  try{
+    const db=await openIDB();
+    const tx=db.transaction(IDB_HIST,"readwrite");
+    const store=tx.objectStore(IDB_HIST);
+    store.clear();
+    records.forEach(r=>{
+      const {id,...rest}=r; // autoIncrementなのでidは除外
+      store.add(rest);
+    });
+    await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
+    db.close();
+  }catch(e){console.warn("saveAllHistory failed",e);}
+}
+
 // 問題履歴を取得（新しい順、最大100件）
 async function loadQuestionHistory(qId){
   try{
@@ -2267,8 +2296,9 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
   };
   const exportProgress=async()=>{
     if(!gSt){flash(T.noStats,false);return;}
-    await downloadJSON({_type:"econ_progress",version:1,
-      exportedAt:new Date().toISOString(),srs,stats:gSt},
+    const history=await loadAllHistory();
+    await downloadJSON({_type:"econ_progress",version:2,
+      exportedAt:new Date().toISOString(),srs,stats:gSt,history},
       `progress_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
     flash(T.progressExported);
   };
@@ -2282,6 +2312,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
       if(data.srs){setSRS(data.srs);saveSRS(data.srs);}
       const st={...DEF_ST,...(data.stats||data)};
       setGSt(st);saveSt(st);
+      if(data.history?.length){await saveAllHistory(data.history);}
       flash(T.progressImported);
     }catch(err){flash("エラー："+err.message,false);}
     e.target.value="";
@@ -2484,6 +2515,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                     const remote=pendingSync.remote;
                     if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
                     if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
+                    if(remote.history?.length){saveAllHistory(remote.history);}
                     setPendingSync(null);flash(T.syncLoadOk);
                   }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
@@ -3928,7 +3960,7 @@ function QuizApp(){
               <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>{T.previewLabel}</span>
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanationImage&&q.explanationImagePosition==="top"&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&q.explanationImagePosition==="top"&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-4}}>{q.explanationImageCaption}</p>}{q.explanation}{q.explanationImage&&q.explanationImagePosition!=="top"&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&q.explanationImagePosition!=="top"&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3956,7 +3988,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanationImage&&q.explanationImagePosition==="top"&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&q.explanationImagePosition==="top"&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-4}}>{q.explanationImageCaption}</p>}{q.explanation}{q.explanationImage&&q.explanationImagePosition!=="top"&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&q.explanationImagePosition!=="top"&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3981,7 +4013,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {q.explanation&&<div style={S.explanationBox}>{q.explanationImage&&q.explanationImagePosition==="top"&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&q.explanationImagePosition==="top"&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-4}}>{q.explanationImageCaption}</p>}{q.explanation}{q.explanationImage&&q.explanationImagePosition!=="top"&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&q.explanationImagePosition!=="top"&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
