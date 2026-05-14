@@ -3452,7 +3452,7 @@ function QuizApp(){
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:cards,newCardIds:cards.map(q=>q.id)});
+    dispatch({type:"START",QS:cards,newCardIds:[]});
   };
 
   // 今日のデッキをプレイ
