@@ -2945,21 +2945,22 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 ══════════════════════════════════════════════════════════════ */
 function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang}){
   const T=useT();
-  const[collapsedFolders,setCollapsedFolders]=useState(()=>{
-    try{return new Set(JSON.parse(localStorage.getItem('econ_collapsed')||'[]'));}
+  const[openFolders,setOpenFolders]=useState(()=>{
+    try{return new Set(JSON.parse(localStorage.getItem('econ_open_folders')||'[]'));}
     catch{return new Set();}
   });
   const toggleFolder=name=>{
-    setCollapsedFolders(prev=>{
+    setOpenFolders(prev=>{
       const s=new Set(prev);
       s.has(name)?s.delete(name):s.add(name);
-      localStorage.setItem('econ_collapsed',JSON.stringify([...s]));
+      localStorage.setItem('econ_open_folders',JSON.stringify([...s]));
       return s;
     });
   };
   const folderGroups=useMemo(()=>{
     const g={};
     decks.forEach(dk=>{const f=dk.folder||'';if(!g[f])g[f]=[];g[f].push(dk);});
+    Object.values(g).forEach(arr=>arr.sort((a,b)=>a.name.localeCompare(b.name,'ja')));
     return g;
   },[decks]);
   const folderNames=Object.keys(folderGroups).sort((a,b)=>{
@@ -3092,7 +3093,7 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onMa
         )}
         {folderNames.map(folderName=>{
           const folderDecks=folderGroups[folderName];
-          const isCollapsed=collapsedFolders.has(folderName);
+          const isCollapsed=folderName===''?false:!openFolders.has(folderName);
           const hasFolder=folderName!=='';
           return(
             <div key={folderName||'__none__'}>
