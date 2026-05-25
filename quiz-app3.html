@@ -73,6 +73,7 @@ const T_JA={
   savedBanner:"⏸ 続きのゲームがあります",savedResume:"▶ 続きから再開",
   navDecks:"📚 デッキ管理",navStats:"📊 問題別成績",navData:"📦 管理",
   normalPlay:"通常プレイ",normalPlaySub:"出題順 · 自動入力なし",
+  randomPlay:"ランダム順",randomPlaySub:"問題をシャッフル · 自動入力なし",
   previewMode:"初回確認モード",previewModeSub:"正解を自動表示して確認",
   cancel:"キャンセル",
   statsTitle:"📊 問題別成績",
@@ -184,6 +185,7 @@ const T_EN={
   savedBanner:"⏸ Saved game found",savedResume:"▶ Resume",
   navDecks:"📚 Decks",navStats:"📊 Stats",navData:"📦 Data",
   normalPlay:"Standard Play",normalPlaySub:"In order · no auto-type",
+  randomPlay:"Random Order",randomPlaySub:"Shuffled · no auto-type",
   previewMode:"Preview Mode",previewModeSub:"Auto-show answers for review",
   cancel:"Cancel",
   statsTitle:"📊 Question Stats",
@@ -605,7 +607,7 @@ const DEFAULT_QS = [
   }
 ];
 
-const MC_TIMER=20, FILL_TIMER=40;
+const MC_TIMER=120, FILL_TIMER=120;
 const qTimer=q=>q?.type==="fill"?FILL_TIMER:MC_TIMER;
 
 /* ══════════════════════════════════════════════════════════════
@@ -2208,6 +2210,17 @@ function SrsCmpTable({left,right}){
           </div>
         ))}
       </div>
+      {/* Play数比較行 */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:4,
+        alignItems:"center",padding:"4px 0 6px",borderBottom:"2px solid #2a2a44",marginBottom:4}}>
+        <div style={{fontSize:10,color:"#777"}}>🎮 プレイ回数</div>
+        <div style={{fontSize:12,fontWeight:800,color:"#60a5fa",textAlign:"right",minWidth:36}}>
+          {left.plays??"-"}
+        </div>
+        <div style={{fontSize:12,color:"#555",textAlign:"right",minWidth:36}}>
+          {right.plays??"-"}
+        </div>
+      </div>
       {SRS_CAT_ROWS.map(({key,icon,label})=>(
         <div key={key} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:4,
           alignItems:"center",padding:"3px 0",borderBottom:"1px solid #1a1a2e"}}>
@@ -2501,10 +2514,10 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                 <SrsCmpTable
                   left={{label:"💻 ローカル（送信）",color:"#4ade80",
                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
-                    cats:srsCategories(srs)}}
+                    cats:srsCategories(srs),plays:gSt?.plays}}
                   right={{label:"☁️ クラウド（上書き先）",color:"#888",
                     date:pendingSyncUpload.remote?new Date(pendingSyncUpload.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"データなし",
-                    cats:srsCategories(pendingSyncUpload.remote?.srs)}}/>
+                    cats:srsCategories(pendingSyncUpload.remote?.srs),plays:pendingSyncUpload.remote?.stats?.plays}}/>
                 <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button onClick={async()=>{
                     const ok=await syncSave(syncUrlInput.trim(),srs,gSt,{force:true});
@@ -2526,10 +2539,10 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                 <SrsCmpTable
                   left={{label:"☁️ クラウド",color:"#c9a84c",
                     date:new Date(pendingSync.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}),
-                    cats:srsCategories(pendingSync.remote.srs)}}
+                    cats:srsCategories(pendingSync.remote.srs),plays:pendingSync.remote.stats?.plays}}
                   right={{label:"💻 ローカル",color:"#888",
                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
-                    cats:srsCategories(srs)}}/>
+                    cats:srsCategories(srs),plays:gSt?.plays}}/>
                 <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button onClick={()=>{
                     const remote=pendingSync.remote;
@@ -3073,6 +3086,16 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onMa
                   <div style={{fontSize:11,fontWeight:400,opacity:0.7,marginTop:2}}>{T.normalPlaySub}</div>
                 </div>
               </button>
+              <button onClick={()=>{setDeckDialog(null);onPlayDeck(deckDialog,false,true);}}
+                style={{background:"#1e1e36",border:"1px solid #3a6a3a",borderRadius:12,padding:"14px",
+                  fontSize:DK?16:14,fontWeight:800,color:"#4ade80",cursor:"pointer",
+                  fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>🔀</span>
+                <div>
+                  <div>{T.randomPlay}</div>
+                  <div style={{fontSize:11,fontWeight:400,color:"#888",marginTop:2}}>{T.randomPlaySub}</div>
+                </div>
+              </button>
               <button onClick={()=>{setDeckDialog(null);onPlayDeck(deckDialog,true);}}
                 style={{background:"#1e1e36",border:"1px solid #4a4a7a",borderRadius:12,padding:"14px",
                   fontSize:DK?16:14,fontWeight:800,color:"#ece8d8",cursor:"pointer",
@@ -3419,18 +3442,19 @@ function QuizApp(){
     dispatch({type:"BACK",QS});
   };
   // デッキを選んでプレイ
-  const playDeck=(dk,introMode=false)=>{
+  const playDeck=(dk,introMode=false,randomMode=false)=>{
     const freshSRS=loadSRS();
     // introMode=true のときはデッキ全問を自動入力対象にする（SRSデータの有無に関わらず）
     // introMode=false のときは自動入力なし
     const newIds=introMode ? dk.questions.map(q=>q.id) : [];
-    setQS(dk.questions);
+    const qs=randomMode ? shuffle([...dk.questions]) : dk.questions;
+    setQS(qs);
     setIsToday(false);
     setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:dk.questions,newCardIds:newIds});
+    dispatch({type:"START",QS:qs,newCardIds:newIds});
   };
   // 一発復習
   const playReview=()=>{
