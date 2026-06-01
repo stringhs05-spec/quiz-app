@@ -57,6 +57,9 @@ const DK = window.innerWidth >= 768; // デスクトップ判定
 ══════════════════════════════════════════════════════════════ */
 const LangCtx=React.createContext('ja');
 function useT(){const lang=React.useContext(LangCtx);return lang==='en'?T_EN:T_JA;}
+// 自然順ソート（数値部分を数として比較：デッキ2 < デッキ10 < デッキ29）
+const natCollator=new Intl.Collator('ja',{numeric:true,sensitivity:'base'});
+const natCompare=(a,b)=>natCollator.compare(a,b);
 const T_JA={
   appLogo:"経済史",appTitle:"道場クイズ",
   plays:n=>`${n}回プレイ`,bestScore:"最高得点",
@@ -282,330 +285,7 @@ const T_EN={
 };
 
 
-const DEFAULT_QS = [
-  {
-    "id": "s1q01a043",
-    "type": "fill",
-    "pts": 1,
-    "q": "江戸幕府は ___ 年間続いた。その経済的基盤は、田畑の収穫高を米の量で表す ___ 制であった。",
-    "blanks": [
-      {
-        "ans": [
-          "265"
-        ]
-      },
-      {
-        "ans": [
-          "石高",
-          "こくだか"
-        ]
-      }
-    ],
-    "hint": "江戸時代の長さ＋幕藩体制を支えた経済制度の名前",
-    "image": "https://lh3.googleusercontent.com/pw/AP1GczMaGm1D9Z3i07AyUR0lf87vf7stabVqCGanEL1moTUCjGLrOOUYSwlv4EJ_CyWYM9gycsumn3sfO6wmwFgNyaPeEkoY-cMMa-P2sdHelQM2FY0su1IB=w800",
-    "imageCaption": "テスト画像",
-    "explanation": "江戸幕府（1603〜1868）は265年間続いた。武田（2019）は幕藩制社会を「2世紀半を超える長期間」と表現し、この間に都市の市場経済の発展や農村での商品経済の深化によって「近代の可能性を懐胎する社会」になったと述べている（武田 pp.23-24）。石高制は、太閤検地を通じて成立した制度で、田畑も屋敷地も一様に米の収穫高で測り、この収穫高（石高）を基準に年貢を徴収した。大名は石高に応じた軍役を幕府に負い、石高制は単なる税制ではなく幕藩体制全体を支える政治的・経済的な基盤だった（武田 p.24）。／【世界史との比較】17世紀に世界は「全般的危機」を迎え、地球規模の寒冷期が飢饉や疫病の蔓延をもたらし、各地で戦乱や反乱が同時多発した。中国では明朝が滅亡し清朝が開かれたが（中西（2023） p.88）、日本は例外的に人口増加を実現した。260年の安定は世界史的にはむしろ異例だった。"
-  },
-  {
-    "id": "s1q026038",
-    "type": "fill",
-    "pts": 1,
-    "q": "18世紀初頭の江戸は人口 ___ 万を超える世界最大級の都市だった。同時期のロンドンは約60万、パリは約 ___ 万で、江戸はこれらを大きく上回っていた。",
-    "blanks": [
-      {
-        "ans": [
-          "100"
-        ]
-      },
-      {
-        "ans": [
-          "50"
-        ]
-      }
-    ],
-    "hint": "江戸・ロンドン・パリの3都市を比較する問題——江戸の巨大さを実感する",
-    "explanation": "1721年の幕府調査から推計した全国人口は約3,128万人。江戸は町方人口だけでなく武士とその家族を含めると100万を超えた（中西（2023） pp.126-127）。参勤交代制度が武士人口を膨らませていたことも、江戸の巨大さの背景にある。／【世界史との比較】中西（2023）はポメランツの「大分岐」論を紹介している。18世紀中葉まで北西ヨーロッパと中国の経済発展の度合いにほとんど差がなかった。決定的な差が開くのは18世紀後半以降、北西ヨーロッパのみが石炭とアメリカ大陸の資源を活用してからだという（中西（2023） pp.109-110）。18世紀初頭の時点では、江戸がロンドンやパリより大きくても不思議ではなかった。"
-  },
-  {
-    "id": "s1q0339c0",
-    "type": "fill",
-    "pts": 1,
-    "q": "1859年の開港直後、日本と海外では金と銀の交換比率が大きく異なっていた。日本国内では金1に対し銀約5だったが、国際比価は金1に対し銀約 ___ で、この差を利用した金の流出が起きた。幕府は金の含有量を減らした ___ を鋳造して対処した。",
-    "blanks": [
-      {
-        "ans": [
-          "15"
-        ]
-      },
-      {
-        "ans": [
-          "万延小判",
-          "まんえんこばん"
-        ]
-      }
-    ],
-    "hint": "金銀比価の数字の差（5 vs ???）と、幕府が鋳造した新しい小判の名前",
-    "explanation": "三和（2021）によれば、メキシコ・ドルを1分銀に交換し小判に替えて輸出するだけで元手が約2.6倍になる商売が成立し、大量の金が流出した（三和（2021） pp.29-30）。幕府は金の含有量を約3分の1に切り下げた万延小判を鋳造して対処したが、「大幅な貨幣の実質価値の削減は、やがて物価騰貴をひきおこし、封建制社会の解体を促進させる結果となった」（三和（2021） p.30）。開港がいきなり通貨危機を引き起こしたことになる。／【世界史との比較】この金銀比価の問題は19世紀半ばに進行していた国際金本位制への移行の一環だった。中国でもアヘン戦争後に銀の流出が深刻な問題となっており、メキシコ・ドル（洋銀）がアジア貿易の基準通貨として機能していた（中西（2023） pp.144-146）。"
-  },
-  {
-    "id": "s1q04f511",
-    "type": "fill",
-    "pts": 1,
-    "q": "明治維新（1868年）から敗戦（1945年）までのわずか77年間に、日本は5つの対外戦争を経験した。最初の対外戦争は1894年の ___ 戦争であり、最後は1941年に始まった ___ 戦争であった。",
-    "blanks": [
-      {
-        "ans": [
-          "日清",
-          "にっしん"
-        ]
-      },
-      {
-        "ans": [
-          "太平洋",
-          "たいへいよう"
-        ]
-      }
-    ],
-    "hint": "77年間に5つの戦争——最初（1894年）と最後（1941年）の名前",
-    "explanation": "5つの戦争は日清（1894）→日露（1904）→第一次大戦（1914）→日中（1937）→太平洋（1941）。平均すると約15年に1回の頻度である。戦争のたびに財政規模が飛躍的に拡大し、転位効果が発生した。日清戦後には国民総支出に占める財政のウエイトが1890年の11.3%から1900年には19.3%に増加した（武田（2019） p.155）。／【世界史との比較】同じ77年間にヨーロッパでは普仏戦争（1870）・第一次大戦（1914）・第二次大戦（1939）の3つだった。金井他（2010）によれば、日清戦争の勝利で日本が賠償金をもとに金本位制への移行と工業化の促進を果たしたことを指摘しており、戦争が経済発展の資金源となった構造が見えてくる（金井他（2010） p.136）。"
-  },
-  {
-    "id": "s1q058f68",
-    "type": "fill",
-    "pts": 1,
-    "q": "第一次世界大戦（1914〜18年）中、ヨーロッパの工場が戦争に動員された結果、日本はアジア・アフリカ向けの輸出を急拡大させた。この好景気で一気に財を成した人々は ___ と呼ばれ、日本は対外 ___ 国から債権国に転換した。",
-    "blanks": [
-      {
-        "ans": [
-          "成金",
-          "なりきん"
-        ]
-      },
-      {
-        "ans": [
-          "債務",
-          "さいむ"
-        ]
-      }
-    ],
-    "hint": "将棋用語に由来する呼び名＋「借りる側→貸す側」への転換",
-    "explanation": "1914年7月時点で日本は約15億1,600万円の債務超過国だったが、大戦中の輸出急増により1918年末には2億8,700万円の債権超過に転換した（三和（2021） p.98）。正貨保有高も1913年末の3億7,600万円から1920年末の21億7,800万円に急増した。／【世界史との比較】中西（2023）は輸出拡大の背景を3経路で整理している。①ヨーロッパへの軍需品・食料品輸出、②アジアへの工業製品輸出（欧州製品の代替）、③アメリカへの生糸輸出（中西（2023） pp.222-223）。第一次大戦は日本が世界経済の構造変化を利用して国際的地位を逆転させた初めての経験だった。"
-  },
-  {
-    "id": "s1q06b034",
-    "type": "fill",
-    "pts": 1,
-    "q": "1945年の敗戦後、日本経済は壊滅状態だったが、1950年に勃発した ___ 戦争で在日アメリカ軍から大量の物資・サービスの注文が入った。この軍需による景気を ___ ブームと呼ぶ。",
-    "blanks": [
-      {
-        "ans": [
-          "朝鮮",
-          "ちょうせん"
-        ]
-      },
-      {
-        "ans": [
-          "特需",
-          "とくじゅ"
-        ]
-      }
-    ],
-    "hint": "1950年に始まった隣国の戦争の名前＋その軍需景気の呼び名",
-    "explanation": "特需第1年目の契約高は円換算で約1,184億円、GNP比約3%。金額以上に重要だったのは、外貨不足が深刻だった時期にドル収入をもたらしたことである（三和（2021） p.189）。武田（2019）も「単に戦場に近かったことが、このような機会を日本にもたらした」と記す（武田（2019） p.324）。／【世界史との比較】中西（2023）によれば、朝鮮戦争は冷戦の文脈でアメリカの対日政策を決定的に転換させ、占領政策の主目的が「非軍事化」から「経済復興」へと変わった（中西（2023） pp.277-278）。西ドイツも同時期に「奇跡の復興」を遂げており、冷戦構造が旧敵国の経済復興を促進するという逆説的な構図が東西両陣営で同時に見られた。"
-  },
-  {
-    "id": "s1q07a553",
-    "type": "fill",
-    "pts": 1,
-    "q": "高度経済成長期（1955〜73年）にGDP成長率は年平均約 ___ %に達し、1968年には日本は世界第 ___ 位の経済大国となった。",
-    "blanks": [
-      {
-        "ans": [
-          "10"
-        ]
-      },
-      {
-        "ans": [
-          "2"
-        ]
-      }
-    ],
-    "hint": "成長率の数字と、西ドイツを抜いた順位",
-    "explanation": "日本の1950-73年のGDP成長率は9.29%で、西ヨーロッパ平均4.81%、アメリカ3.93%を大きく上回った（武田（2019） p.12）。高成長の最大の推進力は民間設備投資で、軍事支出を極小に抑え、高い貯蓄率（1970年時点で家計可処分所得の18.2%）を民需中心の固定資本形成に集中したことが要因だった（三和（2021） pp.196-197）。／【世界史との比較】1950〜70年代は先進国全体が高度成長を経験した「黄金の30年」だった。技術革新のうねりを基盤に、アメリカ主導のIMF＝GATT体制のもとで世界市場が拡大し、石油などの資源価格も安定していた（三和（2021） p.195）。日本だけが特別だったのではなく、世界的な高成長期のなかで日本が突出した成長率を実現した。"
-  },
-  {
-    "id": "s1q082b26",
-    "type": "fill",
-    "pts": 1,
-    "q": "バブル経済のピークだった ___ 年12月29日、日経平均株価は史上最高値を記録した。この記録が更新されるまでに ___ 年を要し、その間の長期停滞は「失われた30年」と呼ばれた。",
-    "blanks": [
-      {
-        "ans": [
-          "1989"
-        ]
-      },
-      {
-        "ans": [
-          "34"
-        ]
-      }
-    ],
-    "hint": "バブルのピーク年（平成元年）と、株価が回復するまでにかかった年数",
-    "explanation": "プラザ合意（1985年）後の円高不況への対応として日銀が金利を引き下げた結果、過剰な資金が不動産・株式市場に流入しバブルが発生した。1989年12月29日の大納会で日経平均は38,915円を記録。翌1990年から急落し、2003年には7,600円台まで下落。1997年には山一証券・北海道拓殖銀行が破綻する金融危機も発生した。この記録が更新されたのは2024年で、実に34年を要した。／【世界史との比較】資産バブルの発生と崩壊は日本固有の現象ではなく、1990年代のアジア通貨危機（1997年）、2000年代のリーマン・ショック（2008年）と世界的に繰り返されている。ただし34年間も株価がピークを回復できなかった例は先進国で日本だけであり、バブル崩壊後の不良債権処理の遅れ、デフレの長期化、少子高齢化が重なった日本固有の構造問題が背景にある。"
-  },
-  {
-    "id": "s1q09dc30",
-    "type": "fill",
-    "pts": 1,
-    "q": "幕末の ___ の改革（1841年〜）では株仲間が解散させられ、物価引き下げが図られたが失敗に終わった。明治と昭和にはさまれたわずか15年間の元号は ___ で、この時代に第一次世界大戦による大戦景気が起きた。",
-    "blanks": [
-      {
-        "ans": [
-          "天保",
-          "てんぽう"
-        ]
-      },
-      {
-        "ans": [
-          "大正",
-          "たいしょう"
-        ]
-      }
-    ],
-    "hint": "江戸時代の有名な改革の名前＋明治と昭和の間の短い元号",
-    "explanation": "天保の改革で株仲間を廃止したが、「突然の廃止で流通機構が混乱し物資の集散が滞り、物価引き下げに至らなかった」（中西（2023） p.195）。大正時代（1912〜26年）はわずか15年間だが、日本が債務国から債権国に転換するという経済史上の大転換が起きた時代だった。／【世界史との比較】天保の改革と同時期、中国ではアヘン戦争（1840〜42年）が起き、東アジア全体が管理貿易体制から自由貿易体制への移行を迫られた（中西（2023） pp.144-145）。天保の改革の失敗は幕府の統治能力の限界を示し、20年後の開港・明治維新へとつながっていく。"
-  },
-  {
-    "id": "s1q10e5a6",
-    "type": "fill",
-    "pts": 1,
-    "q": "日本の政府債務は ___ 兆円を超え、GDP比では ___ %を超えている。これは先進国のなかで最悪の水準である。",
-    "blanks": [
-      {
-        "ans": [
-          "1000",
-          "1,000"
-        ]
-      },
-      {
-        "ans": [
-          "200"
-        ]
-      }
-    ],
-    "hint": "日本の財政状況を示す2つの大きな数字",
-    "explanation": "日本のGDPは約550兆円で、その2倍近い借金を抱えている。国債の大部分を国内の金融機関（最終的には日本銀行）が保有していることが、ギリシャ型の財政危機を回避できている要因とされる（武田（2019） p.436）。／【世界史との比較】ギリシャが財政危機に陥った2010年のGDP比は約150%、アメリカ約120%、イギリス約100%。日本の200%超は先進国で突出している。日本の政府債務の異常な膨張は、バブル崩壊後の景気対策の繰り返しと少子高齢化による社会保障費の増大が重なった結果である（三和（2021） pp.279-280）。"
-  },
-  {
-    "id": "s1q11849e",
-    "type": "fill",
-    "pts": 2,
-    "q": "江戸時代の大坂にあった ___ 米市場では、世界初とされる ___ 取引が行われていた。",
-    "blanks": [
-      {
-        "ans": [
-          "堂島",
-          "どうじま"
-        ]
-      },
-      {
-        "ans": [
-          "先物",
-          "さきもの"
-        ]
-      }
-    ],
-    "hint": "大坂の米市場の地名＋シカゴCBOTより100年以上早い取引の名前",
-    "explanation": "将軍吉宗は1730年に大坂堂島の米市場を公認し「米の先物取引である帳合米取引を許可した」（中西（2023） p.119）。現物を受け渡さずに将来の価格で売買するこの取引は、現代のデリバティブの原型にあたる。背景には「米価安の諸色高」（米が安いのに他の物価が高い）という問題があり、米価を安定させる手段として先物市場が制度化された。／【世界史との比較】シカゴ商品取引所（CBOT）が先物取引を制度化したのは1848年で、堂島より100年以上後。ただし堂島の先物取引は米という特定商品に限定されており、ヨーロッパで発展した株式市場や債券市場とは性格が異なる（金井他（2010） pp.116-117）。"
-  },
-  {
-    "id": "s1q12101a",
-    "type": "fill",
-    "pts": 2,
-    "q": "1873年の地租改正で、課税基準は米の収穫高から ___ に変わり、納税は米ではなく ___ で行うこととされた。",
-    "blanks": [
-      {
-        "ans": [
-          "地価",
-          "ちか"
-        ]
-      },
-      {
-        "ans": [
-          "現金",
-          "げんきん"
-        ]
-      }
-    ],
-    "hint": "課税の基準は何に変わったか＋納め方は米から何に変わったか",
-    "explanation": "明治政府は課税基準を「地価を基準に現金で」に変えた。税率は当初地価の3%で、農民の抵抗を受けて後に2.5%に引き下げられた（中西（2023） p.156）。近代国家が軍隊・鉄道・学校を整備するには安定した現金収入が必要で、米だと年ごとに価値が変動するため予算が立たなかった。結果として「商工業者に軽く農家に重い租税負担」が生じた（中西（2023） p.158）。／【世界史との比較】明治政府は不平等条約のもとで関税自主権を喪失しており、関税収入に頼れない以上、安定した内国税としての地租は近代化の費用を捻出するために不可欠だった（三和（2021） p.28）。農業国から近代国家へ移行する過程での、日本独自の財政基盤の構築だった。"
-  },
-  {
-    "id": "s1q13f8fd",
-    "type": "fill",
-    "pts": 2,
-    "q": "1938年に制定された ___ 法により、政府は議会の承認なしに人・モノ・カネを戦争目的に動員できるようになった。この法律が制定された翌年に始まった世界的な戦争は ___ である。",
-    "blanks": [
-      {
-        "ans": [
-          "国家総動員",
-          "こっかそうどういん"
-        ]
-      },
-      {
-        "ans": [
-          "第二次世界大戦",
-          "だいにじせかいたいせん"
-        ]
-      }
-    ],
-    "hint": "1938年の法律の名前＋1939年に始まった戦争の名前",
-    "explanation": "注目すべきは時系列で、日中戦争の開戦（1937年）の翌年にこの法律が制定され、第二次世界大戦の勃発（1939年）よりも前である。つまり日本はヨーロッパで戦争が始まる前にすでに戦時体制に入っていた。三和（2021）の表9-11でも、国家総動員法は準戦時・戦時期の政策一覧の筆頭に位置づけられている。／【世界史との比較】ナチス・ドイツの戦時経済体制やソ連の五カ年計画とも共通する統制経済の流れのなかに位置づけられる。中西（2023）は、1930年代にソ連の経済成長が過大評価されたことが「戦時期日本の統制経済にその影響が見られ」ると指摘している（中西（2023） p.262）。計画経済への信頼は、戦後の傾斜生産方式や産業政策にも形を変えて引き継がれた。"
-  },
-  {
-    "id": "s1q144a16",
-    "type": "fill",
-    "pts": 2,
-    "q": "1951年に結ばれた ___ 講和条約で日本は主権を回復した。敗戦から主権回復まで ___ 年かかったことになる。",
-    "blanks": [
-      {
-        "ans": [
-          "サンフランシスコ",
-          "さんふらんしすこ"
-        ]
-      },
-      {
-        "ans": [
-          "6"
-        ]
-      }
-    ],
-    "hint": "アメリカの都市名＋1945年から1951年を引き算",
-    "explanation": "1951年9月調印、1952年4月28日発効で日本は独立を回復した（三和（2021） p.190）。吉田茂はアメリカの再軍備要求に抵抗し、「防衛はアメリカに委ねて安上がりにすませ、余力を経済復興に振り向ける」ことを狙った（武田（2019） p.325）。この6年間のGHQ占領下で財閥解体・農地改革・新憲法の制定など、日本の経済・社会構造を根本から変える改革が行われた。／【世界史との比較】西ドイツも1949年に建国、1955年にNATO加盟と、日本と似たスケジュールで主権を回復した。ただし西ドイツがNATOのもとで再軍備を進めたのに対し、日本は軽武装・経済重視の「吉田ドクトリン」を選択した。この違いが、高度成長期に軍事費の代わりに設備投資に資源を集中できた日本の成長パターンの前提条件となった（中西（2023） pp.262-263）。"
-  },
-  {
-    "id": "s1q1582ed",
-    "type": "fill",
-    "pts": 2,
-    "q": "不平等条約で外国人に認められた ___ 裁判権を撤廃するためには、近代的な法律の整備が不可欠であり、1899年の撤廃までに民法・ ___ の制定が急がれた。",
-    "blanks": [
-      {
-        "ans": [
-          "領事",
-          "りょうじ"
-        ]
-      },
-      {
-        "ans": [
-          "商法",
-          "しょうほう"
-        ]
-      }
-    ],
-    "hint": "外国人を裁く権利の名前＋民法とともに制定が急がれた法律",
-    "explanation": "領事裁判権とは外国人の犯罪を日本の裁判所ではなく外国の領事が裁く制度で、司法主権の重大な侵害だった。1894年に日英通商航海条約が締結され、1899年の発効で治外法権が撤廃された。「条約発効までに日本は国内法（民法・商法）を整備した」（中西（2023） pp.216-217）。なお関税自主権の完全な回復は1911年で、1858年の安政条約から53年を要した。／【世界史との比較】中国も南京条約（1842年）以降、同様の領事裁判権と協定関税制に苦しんだ。日本は1899年に領事裁判権の撤廃、1911年に関税自主権の回復に成功したが、中国は不平等条約の完全な撤廃は1943年まで待たなければならなかった。法制度の整備を条約改正の前提条件と位置づけた明治政府の戦略が、この差を生んだ一因だった。"
-  }
-];
+const DEFAULT_QS = [{"id":"s1q01a043","type":"fill","pts":1,"q":"江戸幕府は ___ 年間続いた。その経済的基盤は、田畑の収穫高を米の量で表す ___ 制であった。","blanks":[{"ans":["265"]},{"ans":["石高","こくだか"]}],"hint":"江戸時代の長さ＋幕藩体制を支えた経済制度の名前","explanation":"江戸幕府（1603〜1868）は265年間続いた。武田（2019）は幕藩制社会を「2世紀半を超える長期間」と表現し、この間に都市の市場経済の発展や農村での商品経済の深化によって「近代の可能性を懐胎する社会」になったと述べている（武田（2019） pp.23-24）。石高制は、太閤検地を通じて成立した制度で、田畑も屋敷地も一様に米の収穫高で測り、この収穫高（石高）を基準に年貢を徴収した。小農民は年貢納入の責任を負う代わりに一定の耕作地を保障され、大名は石高に応じた軍役を幕府に負った（武田（2019） p.24）。石高制は単なる税制ではなく、幕藩体制全体を支える政治的・経済的な基盤だった。\n\n【世界史との比較】17世紀に世界は「全般的危機」を迎え、地球規模の寒冷期が飢饉や疫病の蔓延をもたらし、各地で戦乱や反乱が同時多発した。ユーラシア大陸の東西で、気候変動の影響により共時的に危機が生じた。中国では明朝が滅亡し、北方民族により清朝が開かれた（中西（2023） p.88）。ところが日本は例外的で、徳川幕府の成立によって戦国時代が終わり、開墾の進展で食料増産に成功したため、世界全体で人口が減少・停滞するなかで大幅な人口増加を実現した。金井他（2010）も、日本が鎖国体制下でも長崎・対馬・薩摩・松前の「四つの口」でアジア交易圏に接続していたことを指摘している（金井他（2010） p.116）。260年の安定は、世界史的にはむしろ異例だった。"},{"id":"s1q026038","type":"fill","pts":1,"q":"18世紀初頭の江戸は人口 ___ 万を超える世界最大級の都市だった。同時期のロンドンは約60万、パリは約 ___ 万で、江戸はこれらを大きく上回っていた。","blanks":[{"ans":["100"]},{"ans":["50"]}],"hint":"江戸・ロンドン・パリの3都市を比較する問題——江戸の巨大さを実感する","explanation":"中西（2023）によれば、1721年の幕府調査から推計した全国人口は約3,128万人。三都（江戸・大坂・京都）のうち江戸は町方人口だけでなく武士とその家族を含めると100万を超えた（中西（2023） pp.126-127の表4-1）。ただし18世紀後半には天明の飢饉などの影響で都市人口は減少に転じている。19世紀に入ると江戸は増加に転じたが、大坂は減少が止まらず、都市規模で大坂が江戸に大きく水をあけられた（中西（2023） p.127）。参勤交代制度が武士人口を膨らませていたことも、江戸の巨大さの背景にある。\n\n【世界史との比較】中西（2023）はポメランツの「大分岐」論を紹介している。北西ヨーロッパと中国では、18世紀中葉に至るまで同時並行的に商業的農業とプロト工業化に基づいた市場経済が見られ、経済発展の度合いにほとんど差がなかった。決定的な差が開くのは18世紀後半以降、北西ヨーロッパのみが石炭とアメリカ大陸の資源を活用して持続的な経済成長が可能になってからだという（中西（2023） pp.109-110）。斎藤（2008）は、資本集約的なイギリスと労働集約的な日本の経済発展経路の違いを指摘しており、杉原（2020）はこれを東アジアの一般的特徴とする。つまり18世紀初頭の時点では、江戸がロンドンやパリより大きくても不思議ではなかった。"},{"id":"s1q0339c0","type":"fill","pts":1,"q":"1859年の開港直後、日本と海外では金と銀の交換比率が大きく異なっていた。日本国内では金1に対し銀約5だったが、国際比価は金1に対し銀約 ___ で、この差を利用した金の流出が起きた。幕府は金の含有量を減らした ___ を鋳造して対処した。","blanks":[{"ans":["15"]},{"ans":["万延小判","まんえんこばん"]}],"hint":"金銀比価の数字の差（5 vs ???）と、幕府が鋳造した新しい小判の名前","explanation":"三和（2021）によれば、修好通商条約の「貨幣同種同量通用」の条項により、メキシコ・ドル1枚と天保一分銀3枚が等価とされた。メキシコ・ドルを一分銀に交換し、一分銀を小判に替え、小判を輸出してドルに替えると、元手が約2.6倍になる商売が成立した（三和（2021） pp.29-30）。中西（2023）は流出金額を10万両台と推定している（中西（2023） p.149）。幕府は金の含有量を約3分の1に切り下げた万延小判を鋳造して対処したが、「大幅な貨幣の実質価値の削減は、やがて物価騰貴をひきおこし、封建制社会の解体を促進させる結果となった」（三和（2021） p.30）。開港がいきなり通貨危機を引き起こしたことになる。\n\n【世界史との比較】この金銀比価の問題は日本だけの現象ではなく、19世紀半ばに進行していた国際金本位制への移行の一環だった。武田（2019）によれば、1850年代からアジア向けの銀輸出が急増し、アヘン戦争以来拡大の一途をたどっていたアジア貿易に対する支払いがこの銀貨の流出に関係していた（武田（2019） p.44）。中国でもアヘン戦争後に銀の流出が深刻な問題となっており、メキシコ・ドル（洋銀）がアジア貿易の基準通貨として機能していた（中西（2023） pp.144-146）。日本の開港は、こうした世界的な通貨秩序の再編のなかで起きた出来事だった。"},{"id":"s1q04f511","type":"fill","pts":1,"q":"明治維新（1868年）から敗戦（1945年）までのわずか77年間に、日本は5つの対外戦争を経験した。最初の対外戦争は1894年の ___ 戦争であり、最後は1941年に始まった ___ 戦争であった。","blanks":[{"ans":["日清","にっしん"]},{"ans":["太平洋","たいへいよう"]}],"hint":"77年間に5つの戦争——最初（1894年）と最後（1941年）の名前","explanation":"5つの戦争は、日清（1894）→日露（1904）→第一次大戦（1914、参戦は8月）→日中（1937）→太平洋（1941）。平均すると約15年に1回の頻度である。武田（2019）は日露戦後について「軍備拡張に必要な経費が財政を厳しく圧迫した」と述べ、国民の租税負担額が1897年の3,240円から1912年には9,127円になったと記している（武田（2019） p.189）。戦争のたびに財政規模が飛躍的に拡大し、転位効果が発生した。日清戦後には国民総支出に占める財政のウエイトが1890年の11.3%から1900年には19.3%に増加した（武田（2019） p.155）。\n\n【世界史との比較】同じ77年間にヨーロッパでは普仏戦争（1870）、第一次世界大戦（1914）、第二次世界大戦（1939）の3つの大戦があった。日本の5つという頻度はヨーロッパの主要国と比較しても多い。金井他（2010）によれば、19世紀後半は帝国主義諸国が「後進地域への勢力拡大を競いあう」時代であり（三和（2021） p.28）、日本はこの世界的な軍事競争に後発国として参入した。金井他（2010）はまた、日清戦争の勝利で日本が賠償金をもとに金本位制への移行と工業化の促進を果たしたことを指摘しており、戦争が経済発展の資金源となった構造が見えてくる（金井他（2010） p.136）。"},{"id":"s1q058f68","type":"fill","pts":1,"q":"第一次世界大戦（1914〜18年）中、ヨーロッパの工場が戦争に動員された結果、日本はアジア・アフリカ向けの輸出を急拡大させた。この好景気で一気に財を成した人々は ___ と呼ばれ、日本は対外 ___ 国から債権国に転換した。","blanks":[{"ans":["成金","なりきん"]},{"ans":["債務","さいむ"]}],"hint":"将棋用語に由来する呼び名＋「借りる側→貸す側」への転換","explanation":"三和（2021）によれば、1914年7月時点で日本は約15億1,600万円の債務超過国であった（三和（2021） p.94の表8-2）。年間輸出額の2倍以上の債務を抱え、国際収支の危機に直面していた。大戦中の輸出急増により、1918年末には2億8,700万円の債権超過になり「日本は債務国から債権国に転化した」（三和（2021） p.98）。武田（2019）も「急速な輸出増加によって貿易収支は黒字に転じ…日本は対外債務国から債権国へと転換した」と記す（武田（2019） p.190）。正貨保有高も1913年末の3億7,600万円から1920年末の21億7,800万円に急増した。\n\n【世界史との比較】中西（2023）は輸出拡大の背景を3つの経路で整理している。①戦場であるヨーロッパ地域への軍需品・食料品の輸出、②参戦諸国からの輸入が激減したアジア地域への工業製品輸出（欧州製品の代替）、③同じく好景気であったアメリカへの生糸輸出（中西（2023） pp.222-223）。総力戦の過程で民間船舶も動員されたため世界的に船舶不足が生じ、海運賃が高騰した。海運業の活況は造船・鉄鋼の連鎖的発展を促し、日本の重化学工業が本格的に成長する契機となった。第一次大戦は、日本にとって世界経済の構造変化を利用して国際的地位を逆転させた初めての経験だった。"},{"id":"s1q06b034","type":"fill","pts":1,"q":"1945年の敗戦後、日本経済は壊滅状態だったが、1950年に勃発した ___ 戦争で在日アメリカ軍から大量の物資・サービスの注文が入った。この軍需による景気を ___ ブームと呼ぶ。","blanks":[{"ans":["朝鮮","ちょうせん"]},{"ans":["特需","とくじゅ"]}],"hint":"1950年に始まった隣国の戦争の名前＋その軍需景気の呼び名","explanation":"三和（2021）によれば、特需第1年目（1950年6月〜1951年6月）の契約高は円換算で約1,184億円、GNP比約3%。金額自体は大きくないが、「ドッジ不況にあえぐ日本経済にとっては旱天の慈雨とも言うべき追加需要の発生であった」。特に「特需が主としてドルで支払われたことの意味が大きかった」。1949年の輸出額は5億970万ドル、輸入額は9億485万ドルで、3億9,515万ドルの輸入超過であり、外貨不足が必要物資の輸入を制約していた時期だけに、ドル収入をもたらす特需の経済効果は大きかった（三和（2021） p.189）。武田（2019）も「単に戦場に近かったことが、このような機会を日本にもたらした」と記す（武田（2019） p.324）。\n\n【世界史との比較】中西（2023）によれば、朝鮮戦争は冷戦の文脈でアメリカの対日政策を決定的に転換させた。占領政策の主目的が「非軍事化」から「経済復興」さらに「軽度な軍事化」へと変わった（中西（2023） pp.277-278）。三和（2021）もアメリカが西側諸国に軍備拡張を要請し、世界的な軍拡気運のなかで世界景気が好況に転じたことを記している（三和（2021） p.189）。西ドイツも同時期に「奇跡の復興」を遂げており、冷戦構造が旧敵国の経済復興を促進するという逆説的な構図が東西両陣営で同時に見られた。日本の復興は、東西冷戦という世界構造の産物でもあった。"},{"id":"s1q07a553","type":"fill","pts":1,"q":"高度経済成長期（1955〜73年）にGDP成長率は年平均約 ___ %に達し、1968年には日本は世界第 ___ 位の経済大国となった。","blanks":[{"ans":["10"]},{"ans":["2"]}],"hint":"成長率の数字と、西ドイツを抜いた順位","explanation":"武田（2019）の序章にあるマディソンの国際比較データによれば、日本の1950-73年のGDP成長率は9.29%で、同期間の西ヨーロッパ平均4.81%、アメリカ3.93%を大きく上回る（武田（2019） p.12の表）。三和（2021）によれば、1955〜70年の名目GNP年平均成長率は日本15.1%で、西ドイツ10.3%、イギリス8.1%、フランス7.2%（三和（2021） p.194）。1969年以降アメリカに次いで資本主義諸国中第2位の地位を占めた。高成長の最大の推進力は民間設備投資で、1955〜70年に平均19%超の増加率を記録。軍事支出を極小に抑え、高い貯蓄率（1970年時点で家計可処分所得の18.2%）を民需中心の固定資本形成に集中したことが要因だった（三和（2021） pp.196-197）。\n\n【世界史との比較】1950〜70年代は先進国全体が高度成長を経験した「黄金の30年」だった。三和（2021）によれば、技術革新のうねりの高まりを基盤に、アメリカ主導のIMF＝GATT体制のもとで世界市場が拡大し、石油などの資源価格も安定していたことが、世界的高成長の一般的要因だった（三和（2021） p.195）。日本だけが特別だったのではなく、世界的な高成長期のなかで日本が突出した成長率を実現した。三和（2021）の表15-4による国際比較では、日本の国内総固定資本形成（設備投資＋住宅＋政府資本形成）の比重が他国と比べて極めて急速に増大したことが目立つ（三和（2021） p.197）。"},{"id":"s1q082b26","type":"fill","pts":1,"q":"バブル経済のピークだった ___ 年12月29日、日経平均株価は史上最高値を記録した。この記録が更新されるまでに ___ 年を要し、その間の長期停滞は「失われた30年」と呼ばれた。","blanks":[{"ans":["1989"]},{"ans":["34"]}],"hint":"バブルのピーク年（平成元年）と、株価が回復するまでにかかった年数","explanation":"プラザ合意（1985年）後の円高不況への対応として日銀が金利を引き下げた結果、過剰な資金が不動産・株式市場に流入しバブルが発生した。1989年12月29日の大納会（年末最終取引日）で日経平均は38,915円を記録。翌1990年から株価は急落し、2003年には7,600円台まで下落した。ピークの約5分の1である。1997年には山一証券や北海道拓殖銀行が破綻する金融危機も発生した。この38,915円という記録が更新されたのは2024年で、実に34年を要した。\n\n【世界史との比較】プラザ合意は、アメリカの貿易赤字とドル高を是正するためのG5協調介入で、円は1ドル＝約240円から約120円へ約2倍に増価した。資産バブルの発生と崩壊は日本固有の現象ではなく、1990年代にはアジア通貨危機（1997年）、2000年代にはアメリカの住宅バブル崩壊（2008年リーマン・ショック）と、世界的に繰り返されている。ただし34年間も株価がピークを回復できなかった例は先進国で日本だけであり、バブル崩壊後の不良債権処理の遅れ、デフレの長期化、少子高齢化の進行が重なった日本固有の構造問題が背景にある。"},{"id":"s1q09dc30","type":"fill","pts":1,"q":"幕末の ___ の改革（1841年〜）では株仲間が解散させられ、物価引き下げが図られたが失敗に終わった。明治と昭和にはさまれたわずか15年間の元号は ___ で、この時代に第一次世界大戦による大戦景気が起きた。","blanks":[{"ans":["天保","てんぽう"]},{"ans":["大正","たいしょう"]}],"hint":"江戸時代の有名な改革の名前＋明治と昭和の間の短い元号","explanation":"中西（2023）によれば、天保の改革は都市・流通対策と地方・村落対策からなり、都市・流通対策では株仲間解散による物価引き下げ策が取られた。しかし「株仲間を廃止すれば諸国から物資が自由に出入りして物価が下降するとの見通しは甘く、突然の株仲間解散で流通機構が混乱したために物資の集散が滞り、物価引き下げに至らなかった」（中西（2023） p.195）。大正時代（1912〜26年）はわずか15年間だが、第一次大戦景気と大正デモクラシーの時代であり、日本が債務国から債権国に転換するという経済史上の大転換が起きた時代でもあった。\n\n【世界史との比較】天保の改革と同時期、中国ではアヘン戦争（1840〜42年）が起きている。中西（2023）によれば、イギリスは18世紀後半に産業革命を達成し、機械制工場で大量生産された製品を世界に販売すべく自由貿易を広めていった。清朝は南京条約（1842年）で開港場を増やし、欧米諸国と自由貿易を行うに至った（中西（2023） pp.144-145）。東アジア全体が管理貿易体制から自由貿易体制への移行を迫られる変動期に入っていた。天保の改革の失敗は幕府の統治能力の限界を示し、20年後の開港・明治維新へとつながっていく。"},{"id":"s1q10e5a6","type":"fill","pts":1,"q":"日本の政府債務は ___ 兆円を超え、GDP比では ___ %を超えている。これは先進国のなかで最悪の水準である。","blanks":[{"ans":["1000","1,000"]},{"ans":["200"]}],"hint":"日本の財政状況を示す2つの大きな数字","explanation":"武田（2019）の復習課題⑯では「GDPに対する政府部門の長期債務比率が高くなった1980年代以降の日本は、財政の国民経済に占めるウエイトが諸外国に比べて高すぎるため、規制緩和と行財政改革による小さな政府の実現が必要となっている」かどうかが論点として挙げられている（武田（2019） p.436）。日本のGDPは約550兆円で、その2倍近い借金を抱えている。国債の大部分を国内の金融機関（最終的には日本銀行）が保有していることが、ギリシャ型の財政危機を回避できている要因とされる。\n\n【世界史との比較】ギリシャが財政危機に陥った2010年のGDP比は約150%、アメリカは約120%、イギリスは約100%。日本の200%超は先進国で突出している。金井他（2010）によれば、ブレトン・ウッズ体制の崩壊後、変動相場制のもとで各国の財政・金融政策の自由度は高まったが、同時に財政赤字の累積も容易になった。日本の政府債務の異常な膨張は、バブル崩壊後の景気対策の繰り返しと少子高齢化による社会保障費の増大が重なった結果である。三和（2021）は少子高齢化を現代日本経済の中心的課題として扱っている（三和（2021） pp.279-280）。"},{"id":"s1q11849e","type":"fill","pts":2,"q":"江戸時代の大坂にあった ___ 米市場では、世界初とされる ___ 取引が行われていた。","blanks":[{"ans":["堂島","どうじま"]},{"ans":["先物","さきもの"]}],"hint":"大坂の米市場の地名＋シカゴCBOTより100年以上早い取引の名前","explanation":"中西（2023）によれば、将軍吉宗は1730年に大坂堂島の米市場を公認し「米の先物取引である帳合米取引を許可した」（中西（2023） p.119）。これは米の現物を受け渡さずに将来の価格で売買する取引で、現代のデリバティブ（金融派生商品）の原型にあたる。背景には「米価安の諸色高」（米が安いのに他の物価が高い）という問題があり、米価を安定させる手段として先物市場が制度化された。吉宗は米の買い上げを行って米価引き上げを図り、流通と物価を統制する仕組みとして取扱い商品別に商人に株仲間を作らせた。\n\n【世界史との比較】シカゴ商品取引所（CBOT）が先物取引を制度化したのは1848年で、堂島より100年以上後。金井他（2010）によれば、中国でも清代に広州を中心とする広域商品流通圏が成立し活発な商取引が行われたが、先物取引を組織的に制度化したのは日本が世界に先行していた（金井他（2010） pp.116-117）。ただし堂島の先物取引は米という特定商品に限定されており、ヨーロッパで発展した株式市場や債券市場とは性格が異なる点には注意が必要。"},{"id":"s1q12101a","type":"fill","pts":2,"q":"1873年の地租改正で、課税基準は米の収穫高から ___ に変わり、納税は米ではなく ___ で行うこととされた。","blanks":[{"ans":["地価","ちか"]},{"ans":["現金","げんきん"]}],"hint":"課税の基準は何に変わったか＋納め方は米から何に変わったか","explanation":"中西（2023）は秩禄処分・地租改正を「財政の根幹に関わる変革」と位置づけている（中西（2023） p.156）。江戸時代は米の収穫高に応じて米で年貢を納めていたが、明治政府はこれを「地価を基準に現金で」に変えた。税率は当初地価の3%で、各地の農民の抵抗を受けて後に2.5%に引き下げられた。近代国家が軍隊・鉄道・学校を整備するには安定した現金収入が必要で、米だと年ごとに価値が変動するため予算が立たなかった。地租改正の結果、政府は豊凶に関わりなく巨額の定額収入を確保でき、一方で商工関係の租税が殖産興業の観点から軽微に止められ、「商工業者に軽く農家に重い租税負担になった」（中西（2023） p.158）。\n\n【世界史との比較】三和（2021）によれば、明治政府は不平等条約のもとで関税自主権を喪失しており、1866年の改税約書で関税率が原則5分（5%）に引き下げられていた（三和（2021） p.28）。関税収入に頼れない以上、安定した内国税としての地租は近代化の費用を捻出するために不可欠だった。同時期のイギリスでは所得税が主要財源に成長しつつあったが、日本ではまだ所得税を課せるほどの賃金労働者層が成立していなかった。農業国から近代国家へ移行する過程での、日本独自の財政基盤の構築だった。"},{"id":"s1q13f8fd","type":"fill","pts":2,"q":"1938年に制定された ___ 法により、政府は議会の承認なしに人・モノ・カネを戦争目的に動員できるようになった。この法律が制定された翌年に始まった世界的な戦争は ___ である。","blanks":[{"ans":["国家総動員","こっかそうどういん"]},{"ans":["第二次世界大戦","だいにじせかいたいせん"]}],"hint":"1938年の法律の名前＋1939年に始まった戦争の名前","explanation":"中西（2023）第7章は1930年代から60年代を「統制経済をはさんだ経済成長」と位置づけている。国家総動員法は、議会の承認なしに勅令だけで人・モノ・カネを戦争目的に動員できる枠組みを作った。注目すべきは時系列で、日中戦争の開戦（1937年）の翌年にこの法律が制定され、第二次世界大戦の勃発（1939年）よりも前である。つまり日本はヨーロッパで戦争が始まる前にすでに戦時体制に入っていた。三和（2021）の表9-11でも、国家総動員法は準戦時・戦時期の政策一覧の筆頭に位置づけられている。\n\n【世界史との比較】ナチス・ドイツの戦時経済体制やソ連の五カ年計画とも共通する統制経済の流れのなかに、日本の国家総動員法は位置づけられる。武田（2019）は、第一次大戦の教訓が先進各国に総力戦に対応できる自給的経済構造の必要性を認識させたと述べている（武田（2019） p.204）。中西（2023）は、1930年代にソ連の経済成長が過大評価されたことが「戦時期日本の統制経済にその影響が見られ」る要因となったと指摘している（中西（2023） p.262）。計画経済への信頼は、戦後の傾斜生産方式や産業政策にも形を変えて引き継がれた。"},{"id":"s1q144a16","type":"fill","pts":2,"q":"1951年に結ばれた ___ 講和条約で日本は主権を回復した。敗戦から主権回復まで ___ 年かかったことになる。","blanks":[{"ans":["サンフランシスコ","さんふらんしすこ"]},{"ans":["6"]}],"hint":"アメリカの都市名＋1945年から1951年を引き算","explanation":"三和（2021）では「1951年9月にサンフランシスコ講和条約が調印され、1952年4月28日の条約発効とともに、日本は独立を回復した」（三和（2021） p.190）。武田（2019）は、講和に至る過程で吉田茂がアメリカの再軍備要求に強く抵抗し、「再軍備を行えば経済の自立が不可能になる」として「防衛はアメリカに委ねて安上がりにすませ、余力を経済復興に振り向ける」ことを狙ったと記す（武田（2019） p.325）。この6年間のGHQ占領下で財閥解体、農地改革、労働改革、新憲法の制定など、日本の経済・社会構造を根本から変える改革が行われた。\n\n【世界史との比較】金井他（2010）・中西（2023）によれば、講和条約はブレトン・ウッズ体制と冷戦構造のもとで成立した。1944年のブレトン・ウッズ協定でIMFと金ドル本位制が確立し、アメリカ主導の国際経済秩序が形成された（中西（2023） pp.262-263）。西ドイツも1949年に建国、1955年にNATO加盟と、日本と似たスケジュールで主権を回復した。ただし西ドイツがNATOのもとで再軍備を進めたのに対し、日本は軽武装・経済重視の「吉田ドクトリン」を選択した。この選択の違いが、高度成長期に軍事費の代わりに設備投資に資源を集中できた日本の成長パターンの前提条件の一つとなった。"},{"id":"s1q1582ed","type":"fill","pts":2,"q":"不平等条約で外国人に認められた ___ 裁判権を撤廃するためには、近代的な法律の整備が不可欠であり、1899年の撤廃までに民法・ ___ の制定が急がれた。","blanks":[{"ans":["領事","りょうじ"]},{"ans":["商法","しょうほう"]}],"hint":"外国人を裁く権利の名前＋民法とともに制定が急がれた法律","explanation":"領事裁判権とは、外国人の犯罪を日本の裁判所ではなく外国の領事が裁く制度で、司法主権の重大な侵害だった。中西（2023）によれば、1894年に第2次伊藤内閣（陸奥宗光外相）が日英通商航海条約の締結にこぎつけ、新条約は5年後の1899年に発効して治外法権が撤廃された。「条約発効までに日本は国内法（民法・商法）を整備した」（中西（2023） pp.216-217）。三和（2021）も「司法権の侵害と関税自主権の喪失は、単に政治的な国家主権の問題にとどまらず、経済的にも重大な影響を及ぼすものであった」と述べている（三和（2021） p.28）。なお関税自主権の完全な回復は1911年で、1858年の安政条約から53年を要した。\n\n【世界史との比較】不平等条約は日本だけの問題ではなく、中国も南京条約（1842年）以降、同様の領事裁判権と協定関税制に苦しんだ。ただし日本と中国の対応は大きく異なった。日本は明治維新後に近代的な法体系を急速に整備し、1899年に領事裁判権の撤廃、1911年に関税自主権の回復に成功した。一方、中国は清朝の崩壊（1912年）後も内戦と外国の干渉が続き、不平等条約の完全な撤廃は1943年まで待たなければならなかった。法制度の整備を条約改正の前提条件と位置づけ、計画的に取り組んだ明治政府の戦略が、この差を生んだ一因だった。"}];
 
 const MC_TIMER=120, FILL_TIMER=120;
 const qTimer=q=>q?.type==="fill"?FILL_TIMER:MC_TIMER;
@@ -623,28 +303,7 @@ const TIERS=[
   {xp:950, name:"老中",nameEN:"Elder",      icon:"📜",color:"#9060c0"},
   {xp:1400,name:"将軍",nameEN:"Shogun",     icon:"👑",color:"#f0c040"},
 ];
-const DEFAULT_QS_IMG_TEST=[
-  {
-    "id":"img_test_q01",
-    "type":"fill",
-    "pts":1,
-    "q":"この画像に写っている本は何冊ありますか？答えは ___ 冊。",
-    "blanks":[{"ans":["2","２","二"]}],
-    "hint":"画像をよく見てください",
-    "image":"https://lh3.googleusercontent.com/pw/AP1GczMaGm1D9Z3i07AyUR0lf87vf7stabVqCGanEL1moTUCjGLrOOUYSwlv4EJ_CyWYM9gycsumn3sfO6wmwFgNyaPeEkoY-cMMa-P2sdHelQM2FY0su1IB=w800",
-    "imageCaption":"テスト画像",
-    "explanation":"画像に写っている本は2冊です。これは画像表示機能のテストです。"
-  },
-  {
-    "id":"img_test_q02",
-    "type":"fill",
-    "pts":1,
-    "q":"画像なしの問題。江戸幕府が開かれた年は ___ 年。",
-    "blanks":[{"ans":["1603"]}],
-    "hint":"徳川家康が征夷大将軍に任命された年",
-    "explanation":"1603年、徳川家康が征夷大将軍に任命され、江戸幕府を開いた。"
-  }
-];
+
 
 const DEFAULT_QS_EN=[{"id":"s3q01a2f1","type":"fill","pts":1,"q":"The Chicago Board of Trade, founded in 1848, is widely cited as the birthplace of modern futures trading — where farmers could lock in grain prices before harvest. Financial historians have since identified an earlier precedent. In ___, Japan, rice merchants developed a market for forward contracts as early as the 1730s, trading rights to rice not yet harvested — making it arguably the world's first organised ___ exchange.","blanks":[{"ans":["Osaka","osaka"]},{"ans":["futures"]}],"hint":"A city in western Japan famous for commerce; the type of contract that locks in a future price.","explanation":"The Chicago Board of Trade, founded in 1848, is usually cited as the birthplace of modern futures trading. But the Dojima exchange predates it by about 120 years. Financial historians now increasingly recognise Dojima as the earliest known organised futures market in the world — one of the clearest examples of how 'the West came first' is not always true. (Okushi et al. 2025 pp.30–32)\n\nIn 1730, the Dojima Rice Exchange in Osaka was officially recognised by the shogunate as a public market. Merchants traded rice certificates — warehouse receipts promising future delivery — and also contracts for rice not yet harvested: a futures market in all but name. The shogunate backed the system because stable rice prices were essential to samurai, whose salaries were paid in rice. (Nakanishi 2023 pp.133–134)"},{"id":"s3q02b4c8","type":"fill","pts":1,"q":"The French Revolution abolished feudal grain dues in 1789, replacing harvest-dependent obligations with unified money taxes. Japan's Meiji government carried out a comparable transformation in 1873. The ___ Tax Reform ended the practice of paying obligations in rice — amounts that fluctuated with every harvest — and replaced them with a fixed levy of 3% of assessed land value, collected in ___. For the first time, Tokyo had a stable, monetised revenue stream to fund railways, factories, and armies.","blanks":[{"ans":["Land","land"]},{"ans":["cash"]}],"hint":"The thing being taxed; the form of payment that replaced rice.","explanation":"The French Revolution swept away feudal grain dues in 1789, replacing them with money taxes. Japan did the same thing 84 years later. The key difference: in Japan, the old ruling class was not abolished but compensated with government bonds — a bought-out transition rather than a revolutionary break. (Okushi et al. 2025 p.231; Kanai et al. 2010 p.120)\n\nThe Land Tax Reform of 1873 replaced Japan's feudal tax system. The old system required payment in rice, varied with each harvest, and differed from domain to domain. The new system assessed each plot of land at a fixed monetary value, with the owner paying 3% in cash annually. Land certificates were also issued, giving farmers legal title to their land for the first time. (Takeda 2019 pp.58–61; Miwa 2021 pp.38–42)"},{"id":"s3q03e7d3","type":"fill","pts":1,"q":"In the 1860s, a microscopic parasite devastated silkworm farms across France, Italy, and Spain — collapsing Europe's thread supply just as middle-class demand for luxury fabrics was surging. Louis Pasteur spent years finding a cure. Japan's sericulture industry was unaffected, and ___ became Japan's single most valuable export for six decades, at times accounting for over ___ percent of all export revenue and generating the foreign exchange that paid for imported machinery and expertise.","blanks":[{"ans":["silk"]},{"ans":["40","forty"]}],"hint":"Japan's top export fibre; the share of export revenue it represented.","explanation":"In the 1860s, pébrine devastated silkworm farms across France, Italy, and Spain. Louis Pasteur spent years finding the cause. With European supply collapsing and demand rising, Japanese silk filled the gap. A disease that destroyed European farms indirectly financed Japan's industrialisation — an irony rarely noted in textbooks. (Okushi et al. 2025 p.182; Miwa 2021 p.62)\n\nFrom the moment Japan opened its ports in 1859, raw silk became its most valuable export, regularly accounting for around 40% of total export revenue. Merchants in Yokohama shipped thread to mills in the US and Europe. The foreign currency earned from silk sales paid for imported machinery, railway materials, and the salaries of foreign engineers hired to build Japan's new industries. (Nakanishi 2023 pp.188–189; Takeda 2019 p.40)"},{"id":"s3q04f1a9","type":"fill","pts":1,"q":"In the 1880s, Lancashire's cotton mills dominated global yarn markets, and British merchants were confident Japan could not compete. They were wrong. The Osaka ___ Company, founded in 1882 with 10,500 spindles and steam power, ran day and night shifts and turned a profit in its first year. Within two decades, Japanese cotton ___ had displaced British imports across Asian markets and was being exported to China and India.","blanks":[{"ans":["Spinning","spinning"]},{"ans":["yarn"]}],"hint":"The industrial process of making thread; the product itself.","explanation":"In the 1880s, Lancashire's mills dominated global markets and British merchants were confident Japan posed no threat. They were wrong. Economic historians point to Japan's displacement of British cotton yarn in Asia as one of the earliest clear-cut examples of a late-developing country overtaking an established industrial power. (Francks 2015 p.84; Okushi et al. 2025 pp.221–222)\n\nThe Osaka Spinning Company, founded in 1882 with backing from Shibusawa Eiichi, ran 10,500 steam-powered spindles in two shifts and turned a profit in its very first year. That success triggered a wave of new companies across the country. By the early 1890s, Japan had gone from importing cotton yarn to exporting it. By the late 1890s, Japanese yarn was displacing British imports across Asian markets. (Miwa 2021 pp.61–62; Takeda 2019 pp.75–76)"},{"id":"s3q05c3b6","type":"fill","pts":1,"q":"After winning the Franco-Prussian War in 1871, Germany received a massive war payment from France — 5 billion francs — and used the windfall to join the international gold standard, instantly gaining credibility with European lenders. Japan executed the same two-step strategy after its 1895 war with China. The ___ China paid gave Japan enough sterling to back its currency, and in 1897 Japan formally adopted the ___ standard, opening the door to foreign bond markets just in time for the looming war with Russia.","blanks":[{"ans":["indemnity"]},{"ans":["gold"]}],"hint":"The payment a defeated country makes; the monetary system Japan joined.","explanation":"After the Franco-Prussian War, Germany received 5 billion francs from France and used that windfall to join the international gold standard — instantly gaining access to European capital markets. Japan followed exactly the same two-step playbook a quarter-century later. The parallel is almost too neat to be coincidental. (Okushi et al. 2025 p.186)\n\nThe 1895 Treaty of Shimonoseki required China to pay Japan an enormous indemnity — equivalent to about 311 million yen, much received in British pounds. Japan deposited this in London as currency reserve backing. In 1897 the Currency Act placed Japan on the gold standard, giving foreign investors confidence in Japanese government bonds and making it possible to borrow heavily on international markets — essential when the Russo-Japanese War began eight years later. (Miwa 2021 pp.74–76; Takeda 2019 pp.77–78)"},{"id":"s3q06d8e2","type":"fill","pts":1,"q":"In 1789, bread riots across France helped ignite the Revolution when wheat prices soared beyond what ordinary people could afford. Japan's equivalent erupted in the summer of 1918, when ___ prices more than doubled in a matter of months. Speculators had driven prices up anticipating massive army demand for Japan's military expedition into ___. The disturbances spread to over 300 cities, mobilised roughly two million people, and toppled the sitting Prime Minister.","blanks":[{"ans":["rice"]},{"ans":["Siberia"]}],"hint":"Japan's staple food; the region where the military expedition was headed.","explanation":"When bread prices soared in France in 1789, crowds marched to Versailles. The 1918 rice riots were Japan's equivalent. The key difference: France's crisis came from a bad harvest; Japan's came from speculation and military demand. The food was there — it was just being kept from the market. (Okushi et al. 2025 p.230; Miwa 2021 p.119)\n\nIn the summer of 1918, rice prices more than doubled in months. The trigger was the government's announcement of a Siberian expedition against the Bolshevik Revolution. Speculators, expecting massive army purchases, began hoarding rice. Protests spread from a Toyama fishing village to over 300 cities across Japan, involving perhaps two million people. Prime Minister Terauchi was forced to resign. (Nakanishi 2023 pp.233–235; Takeda 2019 pp.158–159)"},{"id":"s3q07a5f4","type":"fill","pts":1,"q":"Nazi Germany's Four-Year Plan of 1936 placed the entire economy under state control — directing investment, allocating materials, setting wages and prices — in pursuit of military self-sufficiency. Japan built a parallel apparatus. The National General ___ Law of 1938 gave the government sweeping power over labour, capital, and production. Economist Noguchi Yukio argued that this wartime framework — not the Allied occupation — created the template for Japan's postwar ___ state, including MITI, main banks, and lifetime employment.","blanks":[{"ans":["Mobilization","Mobilisation"]},{"ans":["developmental"]}],"hint":"What the law did to the economy; the type of state that emerged after the war.","explanation":"Nazi Germany's Four-Year Plan placed the entire economy under state direction — Japan's law did the same thing at nearly the same time. The crucial difference: in Germany, the wartime system collapsed with defeat and was rebuilt from scratch. In Japan, much of the wartime economic framework quietly continued into peacetime and shaped Japan's growth model for decades. (Okushi et al. 2025 p.313)\n\nThe National General Mobilization Law of 1938 gave the government sweeping powers without needing parliamentary approval. New institutions were built: long-term industrial banks, government-directed credit channels, and industry control associations. After the war, GHQ dismantled the military apparatus — but many economic institutions survived and became foundations of postwar industrial policy. Noguchi's '1940 system' thesis argues this continuity explains MITI, main banks, and lifetime employment. (Takeda 2019 pp.196–201; Miwa 2021 pp.150–155)"},{"id":"s3q08b9c1","type":"fill","pts":1,"q":"The Marshall Plan, which provided $13 billion to rebuild Western Europe between 1948 and 1952, is history's most celebrated economic recovery programme. Japan received no Marshall Plan. Its recovery was instead ignited by geography: when the ___ War broke out in June 1950, American forces needed a nearby manufacturing base, and Japanese factories suddenly had more orders than they could fill. This military ___ boom injected more dollars into Japan in three years than the entire Marshall Plan sent to Britain — launching a recovery that occupation-era reforms had prepared but not yet ignited.","blanks":[{"ans":["Korean"]},{"ans":["procurement"]}],"hint":"The war that began in June 1950; the term for military purchasing from civilian factories.","explanation":"The Marshall Plan gave Western Europe $13 billion to rebuild — history's most celebrated recovery programme. Japan received no Marshall Plan. Some historians put it bluntly: 'America did not give Japan its recovery. America purchased it.' Japan happened to be in the right place when a war started. (Okushi et al. 2025 p.323)\n\nWhen the Korean War broke out in June 1950, the US military urgently needed a nearby production base. American forces placed enormous orders with Japanese factories. By 1951, industrial output had recovered to prewar levels. Total US military procurement over three years exceeded $1 billion — more foreign currency per year than Britain received under the Marshall Plan. (Miwa 2021 pp.183–184; Takeda 2019 pp.335–336)"},{"id":"s3q09e4d7","type":"fill","pts":1,"q":"In postwar West Germany, large banks like Deutsche Bank held major stakes in industrial companies, sat on supervisory boards, and provided long-term financing — a 'house bank' system that tied finance and industry together. Japan evolved a similar structure after GHQ dissolved the old zaibatsu holding companies. Firms regrouped into loose ___ networks bound by cross-shareholding, with a designated '___ bank' at the centre serving as lender, monitor, and crisis backstop for all member companies.","blanks":[{"ans":["keiretsu"]},{"ans":["main"]}],"hint":"The Japanese term for these corporate networks; the adjective describing the central bank.","explanation":"Postwar West Germany developed a strikingly similar structure: large banks held equity in industrial companies, sat on supervisory boards, and provided long-term finance. Both Japan and Germany channelled capital through relationship banking rather than open markets. 'Managed capitalism' was a common postwar response to the failures of the 1930s, not a uniquely Japanese invention. (Okushi et al. 2025 pp.214–215)\n\nGHQ's postwar reforms dissolved zaibatsu holding companies and dispersed their shares. But former group companies did not stay scattered. Through the 1950s they regrouped around cross-shareholding and preferential lending, forming keiretsu networks. At the centre of each sat a main bank that provided not just loans but also monitoring, crisis management, and emergency rescue for member companies. (Takeda 2019 pp.356–358; Miwa 2021 pp.203–205)"},{"id":"s3q10f6a3","type":"fill","pts":1,"q":"France's postwar 'indicative planning' system — where the state set growth targets for key industries and directed bank credit toward them — was widely admired as a middle path between Soviet command planning and American laissez-faire. Japan's equivalent was even more hands-on. The Ministry of International Trade and ___, universally known by its acronym ___, wielded import licences, subsidised loans, and industry-wide negotiations to steer private investment into steel, petrochemicals, and consumer electronics.","blanks":[{"ans":["Industry","industry"]},{"ans":["MITI"]}],"hint":"The second word of the ministry's name; the famous four-letter acronym.","explanation":"France's postwar planification system used national plans to steer investment — widely admired as a middle road between Soviet planning and American free markets. MITI operated on similar logic but was more hands-on: it could restrict imports, direct credit, and negotiate capacity limits across entire industries. (Okushi et al. 2025 pp.329–330; Francks 2015 p.162)\n\nThe Ministry of International Trade and Industry, founded in 1949 and known as MITI, was the central coordinator of Japan's postwar industrial strategy. Steel, petrochemicals, shipbuilding, automobiles, and consumer electronics all benefited from MITI's targeted support at critical stages. Interestingly, later research suggested MITI's influence was weakest in Japan's most successful export sectors — raising the question of how much credit it actually deserves. (Miwa 2021 pp.185–187; Takeda 2019 pp.346–350)"},{"id":"s3q11c2b8","type":"fill","pts":2,"q":"When OPEC's 1973 oil embargo quadrupled crude prices, every oil-importing nation scrambled to adapt. Most Western European economies took years to bring energy consumption under control. Japan, which imported over 99% of its oil, had the most to lose — and adapted most dramatically. By ___, Japanese manufacturers had cut energy consumption per unit of industrial output by nearly 40% from its 1973 peak, a performance unmatched by any other major economy, transforming an acute vulnerability into a global competitive advantage in ___ -efficient products.","blanks":[{"ans":["1985"]},{"ans":["energy"]}],"hint":"The year by which the 40% reduction was achieved; the thing that was being used more efficiently.","explanation":"The first oil shock hit Western Europe just as hard, triggering recessions in Britain, France, and Italy. But when oil prices fell in the mid-1980s, the urgency of conservation faded in most Western countries. Japan maintained its focus, and the efficiency gains became a lasting competitive advantage. What began as Japan's greatest vulnerability became one of its greatest strengths. (Okushi et al. 2025 pp.337–338)\n\nThe 1973 OPEC oil embargo quadrupled crude prices almost overnight. Japan, importing over 99% of its oil, faced an existential manufacturing threat. The government enacted an Energy Conservation Law in 1979, and companies invested heavily in more efficient machinery, processes, and materials. By 1985, Japanese manufacturers were producing the same output using roughly 40% less energy per unit than in 1973 — unmatched by any other major economy. (Miwa 2021 pp.211–213; Takeda 2019 pp.402–405)"},{"id":"s3q12d1e5","type":"fill","pts":2,"q":"In September 1985, the finance ministers of the five largest economies met at New York's ___ Hotel and agreed to weaken the US dollar through coordinated market intervention. For Japan, the yen nearly doubled in value against the dollar within two years — from around 240 to under 130 — crushing export profits overnight. The government's response, flooding the economy with cheap credit to offset the shock, inadvertently inflated the land and stock-price ___ that would collapse spectacularly in 1990.","blanks":[{"ans":["Plaza","plaza"]},{"ans":["bubble"]}],"hint":"The hotel in New York where the G5 met; the word for an unsustainable asset price inflation.","explanation":"The Plaza Accord is celebrated as a landmark of international monetary cooperation. In practice, the unintended side effects were enormous. The cheap-money response in Japan, and a similar dynamic in Germany after reunification, both produced asset price booms that ended badly. 'Successful coordination' turned out to have a very high price tag. (Okushi et al. 2025 p.336)\n\nOn 22 September 1985, the G5 gathered at the Plaza Hotel in New York and agreed to push down the US dollar through coordinated intervention. For Japan, the yen roughly doubled against the dollar within two years. To prevent a deep recession, the Bank of Japan cut interest rates five times between 1986 and 1987, bringing the key rate to just 2.5%. Cheap money flooded into real estate and stocks, inflating the asset bubble that collapsed in 1990. (Miwa 2021 pp.218–220; Takeda 2019 pp.416–418)"},{"id":"s3q13a7f9","type":"fill","pts":2,"q":"Italy faces one of Europe's worst demographic crises: with a fertility rate of around 1.2 children per woman, its welfare state was never designed for such rapid ageing. Japan's situation is more extreme still. Japan's ___ rate has hovered near 1.2–1.3 for decades, and unlike Italy, Japan has historically accepted almost no immigration as a demographic buffer. The result: Japan's working-age population peaked in ___ and has been shrinking ever since — a structural drag on growth that no policy alone can fully reverse.","blanks":[{"ans":["fertility"]},{"ans":["1995"]}],"hint":"The demographic measure of average children per woman; the year Japan's working-age population peaked.","explanation":"Italy faces a similarly severe fertility crisis but benefits from EU labour mobility — workers from Eastern Europe and elsewhere. Japan has the same birth rate without that safety valve. Japan's demographic transition is happening faster and with fewer offsetting factors than in comparable European countries. In this sense, Japan is running the experiment that other ageing societies will face later. (Okushi et al. 2025 p.360)\n\nJapan's fertility rate first fell below 2.0 in 1974 and has stayed there ever since, hovering around 1.2–1.3 in recent decades. Japan's working-age population peaked at around 87 million in 1995 and has been shrinking ever since. Consequences are structural: a smaller workforce supports a larger retired population, pension and healthcare costs rise, and growth becomes harder to sustain. (Takeda 2019 pp.431–432; Nakanishi 2023 pp.398–399)"},{"id":"s3q14b3c4","type":"fill","pts":2,"q":"At the peak of the 1920s Florida land boom, swampland near Miami was selling for more than fertile Iowa farmland — prices completely disconnected from any realistic rental income. Japan's late-1980s asset bubble made Florida look modest. At its 1989 peak, the land beneath the ___ Palace grounds in central Tokyo was estimated to be worth more than the entire real-estate value of the state of ___ — based on assessed land prices in the surrounding district.","blanks":[{"ans":["Imperial","imperial"]},{"ans":["California"]}],"hint":"The royal residence in central Tokyo; the US state used for comparison.","explanation":"The 1920s Florida land boom — where swampland sold for more than productive farmland — is a classic example of prices disconnected from reality. But Florida's bubble was local and resolved quickly. Japan's bubble was nationwide, embedded in the banking system through trillions of yen in real-estate collateral loans. Its aftermath lasted not months but decades. Economists now regard it as one of the most damaging asset price collapses in modern history. (Okushi et al. 2025 p.306)\n\nJapan's late-1980s asset bubble produced extraordinary numbers. At the 1989 peak, calculations based on assessed land values suggested the Imperial Palace grounds — 1.15 sq km in central Tokyo — were theoretically worth more than all real estate in California. Land prices had completely detached from any reasonable rental income estimate. When the bubble burst in 1990, the resulting bad loans dragged the financial system into a decade-long crisis. (Takeda 2019 pp.424–426; Miwa 2021 pp.222–224)"},{"id":"s3q15e8d6","type":"fill","pts":2,"q":"In September 1931, Britain was forced off the gold standard after a run on sterling — ending a century of British monetary leadership. Japan had returned to gold just eighteen months earlier at an overvalued prewar parity, triggering a deflation that devastated exports and bankrupted thousands of firms. When Finance Minister ___ Korekiyo abandoned gold in December 1931 and launched deficit spending, Japan's recovery was startlingly swift — making it the first major economy to exit what Japanese historians call the '___ Depression.'","blanks":[{"ans":["Takahashi"]},{"ans":["Showa"]}],"hint":"The finance minister's family name; the Japanese era name for the 1930s depression.","explanation":"Britain was forced off the gold standard in September 1931 — ending a century of British monetary leadership. Japan followed three months later, but more decisively and with more expansionary follow-through. Takahashi's policies anticipated what Keynes would recommend and what FDR would implement in 1933. Tragically, Takahashi was assassinated in February 1936 when he tried to cut the military budget — the story of good economics meeting a bad political fate. (Okushi et al. 2025 pp.307–310; Nakanishi 2023 pp.272–273)\n\nIn January 1930, Japan rejoined the gold standard at the prewar exchange rate — badly timed, as the global economy was already in freefall after the Wall Street Crash. Deflation took hold, exports collapsed, and thousands of businesses failed. This was the Showa Depression. In December 1931, Finance Minister Takahashi Korekiyo took Japan off gold, allowed the yen to depreciate sharply, and began financing government spending through Bank of Japan bond purchases. The economy bottomed in 1932 — faster than any other major country. (Miwa 2021 pp.121–124; Takeda 2019 pp.153–155)"}];
 
@@ -820,9 +479,8 @@ async function loadDecksAsync(){
       if(hasOldSingle){
         const now=new Date().toISOString();
         const updated=[
-          {...decks[0],id:"dk_default_ja_s01",name:"第1回：イントロダクション",folder:"日本経済史2",questions:DEFAULT_QS},
-          {id:"dk_default_en_s01",name:"Session 1 Introduction",
-           folder:"Introductory Lecture on History of Economic Policy",
+          {...decks[0],id:"dk_default_ja_s01",name:"第1回：イントロダクション",questions:DEFAULT_QS},
+          {id:"dk_default_en_s01",name:"Session 1: Introductory Lecture on History of Economic Policy",
            questions:DEFAULT_QS_EN,createdAt:now},
         ];
         await saveDecksAsync(updated);
@@ -852,12 +510,9 @@ async function loadDecksAsync(){
     const now=new Date().toISOString();
     const initial=[
       {id:"dk_default_ja_s01",name:"第1回：イントロダクション",
-       folder:"日本経済史2",questions:DEFAULT_QS,createdAt:now},
-      {id:"dk_default_en_s01",name:"Session 1 Introduction",
-       folder:"Introductory Lecture on History of Economic Policy",
+       questions:DEFAULT_QS,createdAt:now},
+      {id:"dk_default_en_s01",name:"Session 1: Introductory Lecture on History of Economic Policy",
        questions:DEFAULT_QS_EN,createdAt:now},
-      {id:"dk_default_img_test",name:"画像テスト",
-       folder:"テスト",questions:DEFAULT_QS_IMG_TEST,createdAt:now},
     ];
     await saveDecksAsync(initial);
     return initial;
@@ -1799,16 +1454,44 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   // Enter：タイプ再開（最後の空欄かつ全文表示済みなら送信）
   const handleKeyDown=(blankIdx,e)=>{
-    if(e.key==="Tab"||(e.key==="Enter"&&!isComposingRef.current&&e.keyCode!==229)){
+    // ── Tab / Shift+Tab：空欄間の移動のみ（提出はしない） ──────────
+    if(e.key==="Tab"){
+      e.preventDefault();
+      if(isFB||ghosting)return;
+      if(e.shiftKey){
+        // Shift+Tab：一つ前の空欄へ
+        if(blankIdx>0){
+          SFX.blankOk();
+          Hap.impact("Light");
+          setPoppingBlank(blankIdx-1);
+          setTimeout(()=>setPoppingBlank(null),400);
+          setActiveBlank(blankIdx-1);
+          setTimeout(()=>refs.current[blankIdx-1]?.focus(),30);
+        }
+      }else{
+        // Tab：次の空欄へ（最後の空欄では何もしない）
+        if(blankIdx<q.blanks.length-1){
+          SFX.blankOk();
+          Hap.impact("Light");
+          setPaused(false);
+          setPoppingBlank(blankIdx+1);
+          setTimeout(()=>setPoppingBlank(null),400);
+          setActiveBlank(blankIdx+1);
+          setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
+        }
+      }
+      return;
+    }
+    // ── Enter：提出またはタイプ再開 ────────────────────────────────
+    if(e.key==="Enter"&&!isComposingRef.current&&e.keyCode!==229){
       e.preventDefault();
       if(isFB)return;
-      if(ghosting)return; // 自動タイプ中はEnter無効
+      if(ghosting)return;
       const allShown=shown>=fullText.length;
       const isLast=blankIdx===q.blanks.length-1;
       if(isLast&&allShown){
         onSubmit();
       }else if(!isLast){
-        // 次の空欄へフォーカス移動＋タイプ再開
         SFX.blankOk();
         Hap.impact("Light");
         setPaused(false);
@@ -2625,6 +2308,31 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
   const[bulkMode,setBulkMode]=useState(false);
   const[bulkFolder,setBulkFolder]=useState("");
   const[showBulkFolder,setShowBulkFolder]=useState(false);
+  // フォルダ折りたたみ状態（ホーム画面と共通のキーを使用）
+  const[mgrOpenFolders,setMgrOpenFolders]=useState(()=>{
+    try{return new Set(JSON.parse(localStorage.getItem('econ_open_folders')||'[]'));}
+    catch{return new Set();}
+  });
+  const toggleMgrFolder=name=>{
+    setMgrOpenFolders(prev=>{
+      const s=new Set(prev);
+      s.has(name)?s.delete(name):s.add(name);
+      localStorage.setItem('econ_open_folders',JSON.stringify([...s]));
+      return s;
+    });
+  };
+  // フォルダ別グループ化＋名前順ソート（ホーム画面と同じロジック）
+  const mgrFolderGroups=useMemo(()=>{
+    const g={};
+    decks.forEach(dk=>{const f=dk.folder||'';if(!g[f])g[f]=[];g[f].push(dk);});
+    Object.values(g).forEach(arr=>arr.sort((a,b)=>natCompare(a.name,b.name)));
+    return g;
+  },[decks]);
+  const mgrFolderNames=useMemo(()=>Object.keys(mgrFolderGroups).sort((a,b)=>{
+    if(a===''&&b!=='')return 1;
+    if(a!==''&&b==='')return -1;
+    return natCompare(a,b);
+  }),[mgrFolderGroups]);
   const fileRef=useRef();
   const addRef=useRef();
   const flash=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
@@ -2873,8 +2581,28 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
         )}
 
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {decks.map(dk=>(
+          {mgrFolderNames.map(folderName=>{
+          const folderDecks=mgrFolderGroups[folderName];
+          const hasFolder=folderName!=='';
+          const isCollapsed=hasFolder&&!mgrOpenFolders.has(folderName);
+          return(
+          <div key={folderName||'__none__'} style={{display:"flex",flexDirection:"column",gap:8}}>
+            {hasFolder&&(
+              <button onClick={()=>toggleMgrFolder(folderName)}
+                style={{display:"flex",alignItems:"center",gap:8,width:"100%",
+                  background:"none",border:"none",cursor:"pointer",
+                  padding:"6px 2px 2px",fontFamily:"inherit"}}>
+                <span style={{fontSize:11,color:"#4a6a88",fontWeight:700,letterSpacing:0.5}}>
+                  {isCollapsed?"▶":"▼"} 📁 {folderName}
+                </span>
+                <span style={{fontSize:10,color:"#444",marginLeft:"auto"}}>
+                  {folderDecks.length}
+                </span>
+              </button>
+            )}
+            {!isCollapsed&&folderDecks.map(dk=>(
             <div key={dk.id} style={{background:"#0d0d20",borderRadius:12,padding:"12px 14px",
+              marginLeft:hasFolder?10:0,
               border:`1px solid ${bulkMode&&deckSelected.has(dk.id)?"#c9a84c":"transparent"}`}}>
               {editId===dk.id?(
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -2939,7 +2667,10 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
                 </div>
               )}
             </div>
-          ))}
+            ))}
+          </div>
+          );
+          })}
         </div>
 
         <button onClick={()=>fileRef.current.click()}
@@ -2973,13 +2704,13 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onMa
   const folderGroups=useMemo(()=>{
     const g={};
     decks.forEach(dk=>{const f=dk.folder||'';if(!g[f])g[f]=[];g[f].push(dk);});
-    Object.values(g).forEach(arr=>arr.sort((a,b)=>a.name.localeCompare(b.name,'ja')));
+    Object.values(g).forEach(arr=>arr.sort((a,b)=>natCompare(a.name,b.name)));
     return g;
   },[decks]);
   const folderNames=Object.keys(folderGroups).sort((a,b)=>{
     if(a===''&&b!=='')return 1;
     if(a!==''&&b==='')return -1;
-    return a.localeCompare(b);
+    return natCompare(a,b);
   });
   const rank=gSt?getRank(gSt.totalXP):null;
   const freshSRSForLobby=loadSRS();
