@@ -2996,8 +2996,13 @@ function QuizApp(){
   const[rewardStatus,setRewardStatus]=useState('');
   const rewardTimerRef=useRef(null);
   const prevCorrectLenRef=useRef(0);
+  const prevAttemptedLenRef=useRef(0);   // 新問試行カウント用
   const ND_DOMAINS=['twitter.com','x.com','t.co','abs.twimg.com'];
   const ND_MINUTES=5;
+  // 報酬発火（=自動中断）用：正解 or 新問試行が合計 AUTO_PAUSE_REQUIRED 回でホームへ
+  const AUTO_PAUSE_REQUIRED=10;
+  const autoPauseCounterRef=useRef(0);
+  const doPauseRef=useRef(()=>{});
 
   useEffect(()=>{
     const curr=answeredCorrectly.length;
@@ -3012,9 +3017,49 @@ function QuizApp(){
       const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
       if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
 
+      // 5問正解ごとに自動でゲームを保存してホームへ戻す（報酬タイム）
+      autoPauseCounterRef.current+=added;
+      if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
+        autoPauseCounterRef.current=0;
+        // フィードバック表示後に中断（即時だと正解演出が飛ぶため少し待つ）
+        setTimeout(()=>{doPauseRef.current();},900);
+      }
     }
     prevCorrectLenRef.current=curr;
   },[answeredCorrectly.length]);
+
+  // 新問試行（正解・不正解問わず初回アタック）の監視
+  useEffect(()=>{
+    const curr=attemptedIds.length;
+    const prev=prevAttemptedLenRef.current;
+    if(curr<prev){prevAttemptedLenRef.current=curr;return;} // 新ゲーム開始時リセット
+    if(curr>prev){
+      const added=curr-prev;
+      // newCardIds に含まれる ID だけが「新問試行」
+      const newAttempts=added; // 実際には dispatch SUBMIT 後に増えるので 1 ずつ増加
+      // nd_attempt_count を更新（Swift 側の監視対象）
+      const oldAttempt=parseInt(localStorage.getItem('nd_attempt_count')||'0');
+      // 今回増えた attemptedIds のうち newCardIds に含まれるものだけカウント
+      // attemptedIds 自体には新問以外も混在するため newCardIds との積を取る
+      // ここでは直前のフレームで増えた分を検出するためシンプルに差分を見る
+      // （newCardIds との照合は HTML state を直接参照）
+      const newOnlyAdded=[...Array(added)].reduce((_,__,i)=>{
+        const id=attemptedIds[prev+i];
+        return _+(Array.isArray(newCardIds)&&newCardIds.includes(id)?1:0);
+      },0);
+      if(newOnlyAdded>0){
+        const newAttemptTotal=oldAttempt+newOnlyAdded;
+        localStorage.setItem('nd_attempt_count',String(newAttemptTotal));
+        // 自動中断カウンタにも加算
+        autoPauseCounterRef.current+=newOnlyAdded;
+        if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
+          autoPauseCounterRef.current=0;
+          setTimeout(()=>{doPauseRef.current();},900);
+        }
+      }
+    }
+    prevAttemptedLenRef.current=curr;
+  },[attemptedIds.length]);
 
   const ND_WORKER_URL='https://nd-timer.stringhs05.workers.dev';
 
@@ -3405,12 +3450,16 @@ function QuizApp(){
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();Hap.impact("Medium");setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
+    autoPauseCounterRef.current=0;
+    prevAttemptedLenRef.current=0;
     dispatch({type:"START",QS});
   };
   const doResume=()=>{
     if(!savedGame)return;
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();setRankUp(null);setXpInfo(null);
+    autoPauseCounterRef.current=0;
+    prevAttemptedLenRef.current=0;
     setQS(savedGame.QS);
     dispatch({type:"RESUME",state:savedGame.state,QS:savedGame.QS});
   };
@@ -3452,8 +3501,12 @@ function QuizApp(){
     }
     saveGame(s,QS);
     setSavedGame(loadGame());
+    autoPauseCounterRef.current=0;
+    prevAttemptedLenRef.current=0;
     dispatch({type:"BACK",QS});
   };
+  // 最新の doPause を ref に保持（増分監視 useEffect から呼ぶため）
+  doPauseRef.current=doPause;
 
   /* ── ロビー画面 ─────────────────────────────────────────────── */
   if(phase==="start"){
