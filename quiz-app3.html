@@ -3002,6 +3002,7 @@ function QuizApp(){
   // 報酬発火（=自動中断）用：正解 or 新問試行が合計 AUTO_PAUSE_REQUIRED 回でホームへ
   const AUTO_PAUSE_REQUIRED=10;
   const autoPauseCounterRef=useRef(0);
+  const autoPauseTimerRef=useRef(null);  // setTimeout のキャンセル用
   const doPauseRef=useRef(()=>{});
 
   useEffect(()=>{
@@ -3022,7 +3023,8 @@ function QuizApp(){
       if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
         autoPauseCounterRef.current=0;
         // フィードバック表示後に中断（即時だと正解演出が飛ぶため少し待つ）
-        setTimeout(()=>{doPauseRef.current();},900);
+        if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
+        autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
       }
     }
     prevCorrectLenRef.current=curr;
@@ -3054,7 +3056,8 @@ function QuizApp(){
         autoPauseCounterRef.current+=newOnlyAdded;
         if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
           autoPauseCounterRef.current=0;
-          setTimeout(()=>{doPauseRef.current();},900);
+          if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
+          autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
         }
       }
     }
@@ -3450,7 +3453,9 @@ function QuizApp(){
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();Hap.impact("Medium");setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
+    if(autoPauseTimerRef.current){clearTimeout(autoPauseTimerRef.current);autoPauseTimerRef.current=null;}
     autoPauseCounterRef.current=0;
+    prevCorrectLenRef.current=0;
     prevAttemptedLenRef.current=0;
     dispatch({type:"START",QS});
   };
@@ -3458,8 +3463,12 @@ function QuizApp(){
     if(!savedGame)return;
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();setRankUp(null);setXpInfo(null);
+    // 進行中の自動中断タイマーをキャンセル
+    if(autoPauseTimerRef.current){clearTimeout(autoPauseTimerRef.current);autoPauseTimerRef.current=null;}
     autoPauseCounterRef.current=0;
-    prevAttemptedLenRef.current=0;
+    // prev系refをセーブデータの現在値に合わせる（useEffectの誤発火防止）
+    prevCorrectLenRef.current=savedGame.state.answeredCorrectly?.length||0;
+    prevAttemptedLenRef.current=savedGame.state.attemptedIds?.length||0;
     setQS(savedGame.QS);
     dispatch({type:"RESUME",state:savedGame.state,QS:savedGame.QS});
   };
@@ -3501,7 +3510,9 @@ function QuizApp(){
     }
     saveGame(s,QS);
     setSavedGame(loadGame());
+    if(autoPauseTimerRef.current){clearTimeout(autoPauseTimerRef.current);autoPauseTimerRef.current=null;}
     autoPauseCounterRef.current=0;
+    prevCorrectLenRef.current=0;
     prevAttemptedLenRef.current=0;
     dispatch({type:"BACK",QS});
   };
