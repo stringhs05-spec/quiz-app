@@ -1313,7 +1313,7 @@ function TypewriterText({text,qkey,style,onDone}){
     const id=setInterval(()=>{
       i++;setShown(i);charTick(text[i-1]);
       if(i>=text.length){clearInterval(id);onDone&&onDone();}
-    },15);
+    },8);
     return()=>clearInterval(id);
   },[text,qkey]);
   return <p style={style}>{text.slice(0,Math.min(shown,text.length))}</p>;
@@ -1328,6 +1328,9 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   const[activeBlank,setActiveBlank]=useState(null);
   const[poppingBlank,setPoppingBlank]=useState(null);
   const[ghosting,setGhosting]=useState(false);
+  const[ghostedBlanks,setGhostedBlanks]=useState(new Set());
+  const[waitingResume,setWaitingResume]=useState(false);
+  const ghostedBlanksRef=useRef(new Set());
   const tidRef=useRef(null);
   const ghostTid=useRef(null);
   const isComposingRef=useRef(false); // IME変換中フラグ
@@ -1355,42 +1358,45 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   useEffect(()=>{
     setShown(0);setPaused(false);setActiveBlank(null);setPoppingBlank(null);setGhosting(false);
+    const emptySet=new Set();
+    setGhostedBlanks(emptySet);setWaitingResume(false);ghostedBlanksRef.current=emptySet;
     clearTimeout(ghostTid.current);
   },[qkey]);
 
-  // 新規カード：全文表示完了から2秒後に正解を自動タイプ
+  // 全文表示完了 → onDone通知（isNewの自動タイプはkeydown経由に変更）
   useEffect(()=>{
     if(shown>=fullText.length&&onDone)onDone();
-    if(!isNew||isFB||shown<fullText.length)return;
-    clearTimeout(ghostTid.current);
-    ghostTid.current=setTimeout(()=>{
-      setGhosting(true);
-      // 各空欄に正解を1文字ずつタイプ
-      let blankIdx=0;
-      let charIdx=0;
-      const answers=q.blanks.map(b=>b.ans[0]);
-      const typeNext=()=>{
-        if(blankIdx>=answers.length){
+  },[shown]);
+
+  // isNew Previewモード：1空欄ずつ手動トリガーで自動タイプ
+  const ghostOneBlank=(blankIdx)=>{
+    if(ghostedBlanksRef.current.has(blankIdx))return;
+    setGhosting(true);
+    const ans=q.blanks[blankIdx].ans[0];
+    let charIdx=0;
+    const typeNext=()=>{
+      if(charIdx<=ans.length){
+        dispatch({type:"INPUT",idx:blankIdx,v:ans.slice(0,charIdx)});
+        if(charIdx<ans.length)SFX.typeKey();
+        charIdx++;
+        ghostTid.current=setTimeout(typeNext,80);
+      }
+      if(charIdx>ans.length){
+        const newGhosted=new Set([...ghostedBlanksRef.current,blankIdx]);
+        ghostedBlanksRef.current=newGhosted;
+        setGhostedBlanks(newGhosted);
+        setGhosting(false);
+        if(newGhosted.size>=q.blanks.length){
           // 全空欄タイプ完了 → 少し待って送信
-          setTimeout(()=>onSubmit(),700);
-          return;
+          ghostTid.current=setTimeout(()=>onSubmit(),700);
+        }else{
+          // まだ次の空欄がある → Enter待ち（テキスト続きへ）
+          setWaitingResume(true);
         }
-        const ans=answers[blankIdx];
-        if(charIdx<=ans.length){
-          dispatch({type:"INPUT",idx:blankIdx,v:ans.slice(0,charIdx)});
-          if(charIdx<ans.length) SFX.typeKey();
-          charIdx++;
-          ghostTid.current=setTimeout(typeNext,charIdx===0?0:80);
-        }
-        if(charIdx>ans.length){
-          blankIdx++;charIdx=0;
-          ghostTid.current=setTimeout(typeNext,300);
-        }
-      };
-      typeNext();
-    },2000);
-    return()=>clearTimeout(ghostTid.current);
-  },[shown,isNew,isFB]);
+      }
+    };
+    typeNext();
+  };
 
   useEffect(()=>{
     if(paused||isFB||shown>=fullText.length)return;
@@ -1407,19 +1413,19 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
             cur=partEnd+3;
             return q.blanks[i]!=null&&next>partEnd;
           });
-          if(anyBlankVisible&&!isNew){clearInterval(tidRef.current);setPaused(true);}
+          if(anyBlankVisible){clearInterval(tidRef.current);setPaused(true);}
         }
         if(next>=fullText.length){clearInterval(tidRef.current);setPaused(true);}
         return next;
       });
-    },15);
+    },8);
     return()=>clearInterval(tidRef.current);
   },[paused,isFB,qkey]);
 
   // 一時停止時：該当の空欄に自動フォーカス
   useEffect(()=>{
-    if(!paused||isFB||isNew)return;
-    // activeBlankがすでに設定されている場合はそれを使う、なければ最初の表示済み空欄
+    if(!paused||isFB)return;
+    if(isNew&&waitingResume)return; // Previewモード：自動入力完了後はフォーカス不要
     const parts=fullText.split("___");
     let cur=0;
     let target=null;
@@ -1427,7 +1433,9 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       const partEnd=cur+parts[i].length;
       cur=partEnd+3;
       if(q.blanks[i]!=null&&shown>partEnd){
-        if(activeBlank===null||activeBlank===i){target=i;break;}
+        if(isNew&&ghostedBlanksRef.current.has(i))continue; // Previewモード：入力済みはスキップ
+        if(!isNew&&(activeBlank===null||activeBlank===i)){target=i;break;}
+        if(isNew&&target===null){target=i;break;}
       }
     }
     if(target!==null){
@@ -1436,8 +1444,11 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       setPoppingBlank(target);
       setTimeout(()=>setPoppingBlank(null),400);
       setTimeout(()=>refs.current[target]?.focus(),80);
-    } else if(activeBlank!==null){
-      // 次の空欄がまだ表示されていない途中停止 → 自動再開
+    } else if(!isNew&&activeBlank!==null){
+      // 次の空欄がまだ表示されていない途中停止 → 自動再開（通常モードのみ）
+      setTimeout(()=>setPaused(false),150);
+    } else if(isNew){
+      // Previewモード：全空欄入力済みで再停止 → 自動再開
       setTimeout(()=>setPaused(false),150);
     }
   },[paused]);
@@ -1452,53 +1463,66 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
     setActiveBlank(blankIdx);
   };
 
-  // Enter：タイプ再開（最後の空欄かつ全文表示済みなら送信）
+  // Enter / Tab：空欄操作
   const handleKeyDown=(blankIdx,e)=>{
-    // ── Tab / Shift+Tab：空欄間の移動のみ（提出はしない） ──────────
-    if(e.key==="Tab"){
+    const isTabKey=e.key==="Tab";
+    const isEnterKey=e.key==="Enter"&&!isComposingRef.current&&e.keyCode!==229;
+    if(!isTabKey&&!isEnterKey)return;
+
+    // ── Previewモード（isNew）────────────────────────────────────
+    if(isNew){
+      e.preventDefault();
+      if(ghosting)return; // 自動タイプ中は無視
+      if(waitingResume){
+        // 空欄入力完了後：テキスト続きを再開
+        setWaitingResume(false);
+        setActiveBlank(null);
+        setPaused(false);
+        return;
+      }
+      if(paused&&activeBlank!==null&&!ghostedBlanksRef.current.has(activeBlank)){
+        // 一時停止中：アクティブ空欄を自動入力
+        ghostOneBlank(activeBlank);
+        return;
+      }
+      return;
+    }
+
+    // ── Tab / Shift+Tab（通常モード）────────────────────────────
+    if(isTabKey){
       e.preventDefault();
       if(isFB||ghosting)return;
       if(e.shiftKey){
         // Shift+Tab：一つ前の空欄へ
         if(blankIdx>0){
-          SFX.blankOk();
-          Hap.impact("Light");
-          setPoppingBlank(blankIdx-1);
-          setTimeout(()=>setPoppingBlank(null),400);
-          setActiveBlank(blankIdx-1);
-          setTimeout(()=>refs.current[blankIdx-1]?.focus(),30);
+          SFX.blankOk();Hap.impact("Light");
+          setPoppingBlank(blankIdx-1);setTimeout(()=>setPoppingBlank(null),400);
+          setActiveBlank(blankIdx-1);setTimeout(()=>refs.current[blankIdx-1]?.focus(),30);
         }
       }else{
         // Tab：次の空欄へ（最後の空欄では何もしない）
         if(blankIdx<q.blanks.length-1){
-          SFX.blankOk();
-          Hap.impact("Light");
+          SFX.blankOk();Hap.impact("Light");
           setPaused(false);
-          setPoppingBlank(blankIdx+1);
-          setTimeout(()=>setPoppingBlank(null),400);
-          setActiveBlank(blankIdx+1);
-          setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
+          setPoppingBlank(blankIdx+1);setTimeout(()=>setPoppingBlank(null),400);
+          setActiveBlank(blankIdx+1);setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
         }
       }
       return;
     }
-    // ── Enter：提出またはタイプ再開 ────────────────────────────────
-    if(e.key==="Enter"&&!isComposingRef.current&&e.keyCode!==229){
+    // ── Enter（通常モード）──────────────────────────────────────
+    if(isEnterKey){
       e.preventDefault();
-      if(isFB)return;
-      if(ghosting)return;
+      if(isFB||ghosting)return;
       const allShown=shown>=fullText.length;
       const isLast=blankIdx===q.blanks.length-1;
       if(isLast&&allShown){
         onSubmit();
       }else if(!isLast){
-        SFX.blankOk();
-        Hap.impact("Light");
+        SFX.blankOk();Hap.impact("Light");
         setPaused(false);
-        setPoppingBlank(blankIdx+1);
-        setTimeout(()=>setPoppingBlank(null),400);
-        setActiveBlank(blankIdx+1);
-        setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
+        setPoppingBlank(blankIdx+1);setTimeout(()=>setPoppingBlank(null),400);
+        setActiveBlank(blankIdx+1);setTimeout(()=>refs.current[blankIdx+1]?.focus(),30);
       }else{
         // 最後の空欄・まだ全文未表示：タイプ再開のみ
         Hap.impact("Light");
@@ -1539,10 +1563,18 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
           <span key={blankIdx}>
             <span>{text}</span>
             {/* 一時停止中・この空欄がアクティブ・後続テキストあり → 続きインジケーター */}
-            {hasMore&&showBlank&&blankIdx===(activeBlank??0)&&(
+            {hasMore&&showBlank&&!ghostedBlanks.has(blankIdx)&&blankIdx===(activeBlank??0)&&(
               <span style={{
                 display:"inline-block",verticalAlign:"middle",
                 marginLeft:4,fontSize:DK?12:10,color:"#c9a84c",
+                animation:"continueBlink 0.7s ease infinite",
+              }}>▶ Enter</span>
+            )}
+            {/* Previewモード：自動入力完了後 → Enter で続きへ */}
+            {waitingResume&&showBlank&&ghostedBlanks.has(blankIdx)&&blankIdx===activeBlank&&(
+              <span style={{
+                display:"inline-block",verticalAlign:"middle",
+                marginLeft:4,fontSize:DK?12:10,color:"#4ade80",
                 animation:"continueBlink 0.7s ease infinite",
               }}>▶ Enter</span>
             )}
@@ -1557,10 +1589,10 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
                   key={`blank-${blankIdx}-${qkey}`}
                   style={{
                     display:"block",
-                    background:br===true?"rgba(34,197,94,0.18)":br===false?"rgba(239,68,68,0.18)":ghosting?"rgba(201,168,76,0.08)":isActive?"rgba(201,168,76,0.15)":"#1e1e3a",
-                    border:`1.5px solid ${br===true?"#22c55e":br===false?"#ef4444":ghosting?"rgba(201,168,76,0.3)":isActive?"#c9a84c":"#4a4a72"}`,
+                    background:br===true?"rgba(34,197,94,0.18)":br===false?"rgba(239,68,68,0.18)":(ghostedBlanks.has(blankIdx)||ghosting)?"rgba(34,197,94,0.18)":isActive?"rgba(201,168,76,0.15)":"#1e1e3a",
+                    border:`1.5px solid ${br===true?"#22c55e":br===false?"#ef4444":(ghostedBlanks.has(blankIdx)||ghosting)?"#22c55e":isActive?"#c9a84c":"#4a4a72"}`,
                     borderRadius:7,padding:"2px 8px",
-                    color:ghosting?"rgba(201,168,76,0.6)":"#ece8d8",fontSize:16,
+                    color:(ghostedBlanks.has(blankIdx)||ghosting)?"#4ade80":"#ece8d8",fontSize:20,
                     fontFamily:"inherit",
                     width:w,minWidth:80,
                     textAlign:"center",
@@ -3331,9 +3363,10 @@ function QuizApp(){
       // ランクバーストアニメ
       setTimeout(()=>{setRankBurst(newRank);setTimeout(()=>setRankBurst(null),1200);},800);
     }
-    // 新規カードのみのデッキ（score=0でも全部見た）は勝利音
-    const allNew=QS.every(q=>Array.isArray(newCardIds)&&newCardIds.includes(q.id));
-    setTimeout(()=>(allNew||score>=MAX_SCORE*0.7)?SFX.win():SFX.lose(),500);
+    // 新規カードのみのデッキ（Previewモード）は勝利音
+    const allNew=Array.isArray(newCardIds)&&newCardIds.length>0&&QS.every(q=>newCardIds.includes(q.id));
+    const previewDone=(viewedNewCount||0)>=QS.length&&QS.length>0&&allNew;
+    setTimeout(()=>(allNew||previewDone||score>=MAX_SCORE*0.7)?SFX.win():SFX.lose(),500);
   },[phase]);
 
   const q=phase==="feedback"&&feedback?QS.find(qq=>qq.id===feedback.qId):(queue.length>0?QS[queue[0]]:null);
@@ -3412,7 +3445,9 @@ function QuizApp(){
   useEffect(()=>{
     if(phase!=="feedback"||!isFB||!feedback)return;
     const handler=(e)=>{
-      if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229&&feedbackReadyKeyRef.current===questionKey) dispatch({type:"NEXT",QS});
+      if(e.key!=="Enter"||e.isComposing||e.keyCode===229)return;
+      e.preventDefault(); // prevent focused button (e.g. ⏸) from activating
+      if(feedbackReadyKeyRef.current===questionKey) dispatch({type:"NEXT",QS});
     };
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
@@ -3425,8 +3460,8 @@ function QuizApp(){
       if(e.isComposing||e.keyCode===229)return; // IME変換中は無視
       if(ghostingRef.current)return; // 自動タイプ中はEnter無効
       const focused=refs.current.some(r=>r&&r===document.activeElement);
+      e.preventDefault(); // prevent focused button from activating while in question phase
       if(!focused&&refs.current[0]){
-        e.preventDefault();
         refs.current[0].focus();
       }
     };
@@ -3802,6 +3837,15 @@ function QuizApp(){
               <span style={{fontSize:20}}>📖</span>
               <span style={{color:"#c9a84c",fontWeight:700,fontSize:15}}>{T.previewLabel}</span>
               <span style={{color:"#777",fontSize:12,marginLeft:4}}>{T.previewSub}</span>
+            </div>
+            {/* 正解を大きく表示 */}
+            <div style={S.correctBlock}>
+              {feedback.correctAns.map((ans,i)=>(
+                <div key={i} style={S.correctAnsRow}>
+                  {q.blanks&&q.blanks.length>1&&<span style={{fontSize:12,color:"#888",marginRight:4}}>（{i+1}）</span>}
+                  <span style={S.correctAns}>{ans}</span>
+                </div>
+              ))}
             </div>
             {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
