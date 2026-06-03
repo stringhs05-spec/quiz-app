@@ -1302,6 +1302,8 @@ const charTick=(ch)=>{
   }
 };
 
+// 全角（日本語等）は幅2、半角（英数等）は幅1 → 1tickで進む文字数を均等化
+const charDisplayWidth=(ch)=>ch&&ch.charCodeAt(0)>0x2E7F?2:1;
 const SENT_END=/[.。!?！？]/;
 let _lastHapChar=0;
 
@@ -1311,7 +1313,14 @@ function TypewriterText({text,qkey,style,onDone}){
     setShown(0);if(!text)return;
     let i=0;
     const id=setInterval(()=>{
-      i++;setShown(i);charTick(text[i-1]);
+      // 1tickで全角1文字 or 半角2文字ぶん進める
+      let width=0;
+      while(i<text.length&&width<2){
+        width+=charDisplayWidth(text[i]);
+        i++;
+      }
+      charTick(text[i-1]); // 音は最後の1文字のみ
+      setShown(i);
       if(i>=text.length){clearInterval(id);onDone&&onDone();}
     },4);
     return()=>clearInterval(id);
@@ -1403,19 +1412,27 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
     clearInterval(tidRef.current);
     tidRef.current=setInterval(()=>{
       setShown(prev=>{
-        const next=prev+1;
-        charTick(fullText[prev]);
-        if(SENT_END.test(fullText[prev])&&next<fullText.length){
-          const parts=fullText.split("___");
-          let cur=0;
-          const anyBlankVisible=parts.some((part,i)=>{
-            const partEnd=cur+part.length;
-            cur=partEnd+3;
-            return q.blanks[i]!=null&&next>partEnd;
-          });
-          if(anyBlankVisible){clearInterval(tidRef.current);setPaused(true);}
+        // 1tickで全角1文字 or 半角2文字ぶん進める
+        let next=prev;
+        let width=0;
+        let shouldPause=false;
+        while(next<fullText.length&&width<2){
+          const ch=fullText[next];
+          width+=charDisplayWidth(ch);
+          next++;
+          if(SENT_END.test(ch)&&next<fullText.length){
+            const parts=fullText.split("___");
+            let cur=0;
+            const anyBlankVisible=parts.some((part,i)=>{
+              const partEnd=cur+part.length;
+              cur=partEnd+3;
+              return q.blanks[i]!=null&&next>partEnd;
+            });
+            if(anyBlankVisible){clearInterval(tidRef.current);setPaused(true);shouldPause=true;break;}
+          }
         }
-        if(next>=fullText.length){clearInterval(tidRef.current);setPaused(true);}
+        charTick(fullText[next-1]); // 音は最後の1文字のみ
+        if(!shouldPause&&next>=fullText.length){clearInterval(tidRef.current);setPaused(true);}
         return next;
       });
     },4);
