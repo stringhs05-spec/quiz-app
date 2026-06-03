@@ -1491,10 +1491,30 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       e.preventDefault();
       if(ghosting)return; // 自動タイプ中は無視
       if(waitingResume){
-        // 空欄入力完了後：テキスト続きを再開
-        setWaitingResume(false);
-        setActiveBlank(null);
-        setPaused(false);
+        // 同じ一時停止内に未入力の空欄がまだあるか確認
+        const parts2=fullText.split("___");
+        let cur2=0;
+        let nextUnghosted=null;
+        for(let i=0;i<parts2.length;i++){
+          const partEnd2=cur2+parts2[i].length;
+          cur2=partEnd2+3;
+          if(q.blanks[i]!=null&&shown>partEnd2&&!ghostedBlanksRef.current.has(i)){
+            nextUnghosted=i;break;
+          }
+        }
+        if(nextUnghosted!==null){
+          // まだ未入力の可視空欄あり → そちらを直接入力
+          setWaitingResume(false);
+          setActiveBlank(nextUnghosted);
+          SFX.blankOk();
+          setTimeout(()=>refs.current[nextUnghosted]?.focus(),30);
+          ghostOneBlank(nextUnghosted);
+        }else{
+          // 全可視空欄入力済み → テキスト続きを再開
+          setWaitingResume(false);
+          setActiveBlank(null);
+          setPaused(false);
+        }
         return;
       }
       if(paused&&activeBlank!==null&&!ghostedBlanksRef.current.has(activeBlank)){
