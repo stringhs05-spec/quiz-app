@@ -3087,13 +3087,15 @@ function QuizApp(){
       const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
       if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
 
-      // 5問正解ごとに自動でゲームを保存してホームへ戻す（報酬タイム）
-      autoPauseCounterRef.current+=added;
-      if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
-        autoPauseCounterRef.current=0;
-        // フィードバック表示後に中断（即時だと正解演出が飛ぶため少し待つ）
-        if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
-        autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+      // NextDNS設定済みの場合のみ：10問正解でゲームを保存してホームへ戻す
+      if(cfg?.apiKey&&cfg?.profileId){
+        autoPauseCounterRef.current+=added;
+        if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
+          autoPauseCounterRef.current=0;
+          // フィードバック表示後に中断（即時だと正解演出が飛ぶため少し待つ）
+          if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
+          autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+        }
       }
     }
     prevCorrectLenRef.current=curr;
@@ -3121,12 +3123,16 @@ function QuizApp(){
       if(newOnlyAdded>0){
         const newAttemptTotal=oldAttempt+newOnlyAdded;
         localStorage.setItem('nd_attempt_count',String(newAttemptTotal));
-        // 自動中断カウンタにも加算
-        autoPauseCounterRef.current+=newOnlyAdded;
-        if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
-          autoPauseCounterRef.current=0;
-          if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
-          autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+        // Previewモード（全問newCard）では自動中断カウンタを進めない
+        const isPreviewMode=Array.isArray(newCardIds)&&newCardIds.length>0&&QS.every(q=>newCardIds.includes(q.id));
+        const cfg2=JSON.parse(localStorage.getItem('nd_config')||'null');
+        if(!isPreviewMode&&cfg2?.apiKey&&cfg2?.profileId){
+          autoPauseCounterRef.current+=newOnlyAdded;
+          if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
+            autoPauseCounterRef.current=0;
+            if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
+            autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+          }
         }
       }
     }
