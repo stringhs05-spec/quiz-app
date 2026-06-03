@@ -1313,7 +1313,7 @@ function TypewriterText({text,qkey,style,onDone}){
     const id=setInterval(()=>{
       i++;setShown(i);charTick(text[i-1]);
       if(i>=text.length){clearInterval(id);onDone&&onDone();}
-    },8);
+    },4);
     return()=>clearInterval(id);
   },[text,qkey]);
   return <p style={style}>{text.slice(0,Math.min(shown,text.length))}</p>;
@@ -1418,7 +1418,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         if(next>=fullText.length){clearInterval(tidRef.current);setPaused(true);}
         return next;
       });
-    },8);
+    },4);
     return()=>clearInterval(tidRef.current);
   },[paused,isFB,qkey]);
 
