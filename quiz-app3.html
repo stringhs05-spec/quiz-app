@@ -1161,8 +1161,8 @@ function reducer(s,a){
       const base=makeInit(a.QS);
       // newCardIds: SRSデータなしのカードID群（自動入力対象）
       const nids=a.newCardIds||[];
-      // rewardNewIds: 報酬カウント用のSRS未見カードID群（auto-fillとは独立）
-      const rids=a.rewardNewIds||[];
+      // rewardNewIds: 報酬カウント用（null=全試行カウント、配列=指定IDのみカウント）
+      const rids=a.rewardNewIds!==undefined?a.rewardNewIds:[];
       // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
       if(a.pendingStart!=null&&a.pendingStart<a.QS.length){
         return{...base,phase:"question",newCardIds:nids,rewardNewIds:rids,
@@ -3117,14 +3117,6 @@ function QuizApp(){
   const prevAttemptedLenRef=useRef(0);   // 新問試行カウント用
   const ND_DOMAINS=['twitter.com','x.com','t.co','abs.twimg.com'];
   const ND_MINUTES=5;
-  // 報酬発火（=自動中断）用：正解 or 新問試行が合計 AUTO_PAUSE_REQUIRED 回でホームへ
-  const AUTO_PAUSE_REQUIRED=10;
-  const NEW_DECK_PAUSE_REQUIRED=5; // 新問挑戦：正解不正解問わず5枚で中断
-  const autoPauseCounterRef=useRef(0);
-  const autoPauseTimerRef=useRef(null);  // setTimeout のキャンセル用
-  const newDeckModeRef=useRef(false);    // 新問挑戦デッキ中フラグ
-  const newCardAttemptCounterRef=useRef(0); // 個別デッキの新問試行カウント（新問挑戦と分離）
-  const doPauseRef=useRef(()=>{});
 
   useEffect(()=>{
     const curr=answeredCorrectly.length;
@@ -3138,67 +3130,29 @@ function QuizApp(){
       localStorage.setItem('nd_total_correct',String(newTotal));
       const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
       if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
-
-      // NextDNS設定済み かつ 通常モード（新問挑戦中はattemptedIds側で管理）
-      if(cfg?.apiKey&&cfg?.profileId&&!newDeckModeRef.current){
-        autoPauseCounterRef.current+=added;
-        if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
-          autoPauseCounterRef.current=0;
-          // フィードバック表示後に中断（即時だと正解演出が飛ぶため少し待つ）
-          if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
-          autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
-        }
-      }
     }
     prevCorrectLenRef.current=curr;
   },[answeredCorrectly.length]);
 
-  // 新問試行（正解・不正解問わず初回アタック）の監視
+  // 新問試行（正解・不正解問わず初回アタック）の監視：nd_attempt_count を更新（Swift 側の監視対象）
   useEffect(()=>{
     const curr=attemptedIds.length;
     const prev=prevAttemptedLenRef.current;
     if(curr<prev){prevAttemptedLenRef.current=curr;return;} // 新ゲーム開始時リセット
     if(curr>prev){
       const added=curr-prev;
-      // nd_attempt_count を更新（Swift 側の監視対象）
       const oldAttempt=parseInt(localStorage.getItem('nd_attempt_count')||'0');
-      // 今回増えた attemptedIds のうち newCardIds（auto-fill用）に含まれるものだけカウント
-      // ※新問挑戦モード用。個別デッキは rewardNewIds を使う
-      const newOnlyAdded=[...Array(added)].reduce((_,__,i)=>{
-        const id=attemptedIds[prev+i];
-        return _+(Array.isArray(newCardIds)&&newCardIds.includes(id)?1:0);
-      },0);
-      // 個別デッキ用：rewardNewIds に含まれる初出問題の試行数
-      const rewardOnlyAdded=[...Array(added)].reduce((_,__,i)=>{
-        const id=attemptedIds[prev+i];
-        return _+(Array.isArray(rewardNewIds)&&rewardNewIds.includes(id)?1:0);
-      },0);
-      const anyNewAdded=newOnlyAdded+rewardOnlyAdded;
-      if(anyNewAdded>0){
-        const newAttemptTotal=oldAttempt+anyNewAdded;
-        localStorage.setItem('nd_attempt_count',String(newAttemptTotal));
-        // Previewモード（全問newCard）では自動中断カウンタを進めない
-        const isPreviewMode=Array.isArray(newCardIds)&&newCardIds.length>0&&QS.every(q=>newCardIds.includes(q.id));
-        const cfg2=JSON.parse(localStorage.getItem('nd_config')||'null');
-        if(cfg2?.apiKey&&cfg2?.profileId){
-          if(newDeckModeRef.current){
-            // 新問挑戦モード：正解・不正解問わず全試行をカウント・閾値5
-            autoPauseCounterRef.current+=added;
-            if(autoPauseCounterRef.current>=NEW_DECK_PAUSE_REQUIRED){
-              autoPauseCounterRef.current=0;
-              if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
-              autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
-            }
-          }else if(!isPreviewMode&&rewardOnlyAdded>0){
-            // 個別デッキの初出問題試行：5問で報酬発火（新問挑戦デッキと同じ閾値）
-            newCardAttemptCounterRef.current+=rewardOnlyAdded;
-            if(newCardAttemptCounterRef.current>=NEW_DECK_PAUSE_REQUIRED){
-              newCardAttemptCounterRef.current=0;
-              if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
-              autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
-            }
-          }
-        }
+      // 新問挑戦モード（rewardNewIds=null）：全試行をカウント
+      // 個別デッキ（rewardNewIds=配列）：SRS未見問題に含まれるものだけカウント
+      const countAll=rewardNewIds===null;
+      const newOnlyAdded=countAll
+        ? added
+        : [...Array(added)].reduce((_,__,i)=>{
+            const id=attemptedIds[prev+i];
+            return _+(Array.isArray(rewardNewIds)&&rewardNewIds.includes(id)?1:0);
+          },0);
+      if(newOnlyAdded>0){
+        localStorage.setItem('nd_attempt_count',String(oldAttempt+newOnlyAdded));
       }
     }
     prevAttemptedLenRef.current=curr;
@@ -3375,8 +3329,6 @@ function QuizApp(){
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    newDeckModeRef.current=false;
-    newCardAttemptCounterRef.current=0; // 新問試行カウントをリセット
     dispatch({type:"START",QS:qs,newCardIds:newIds,rewardNewIds});
   };
   // 一発復習
@@ -3389,7 +3341,6 @@ function QuizApp(){
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    newDeckModeRef.current=false;
     dispatch({type:"START",QS:cards,pendingStart:cards.length,newCardIds:[]});
   };
   // 新問挑戦
@@ -3397,13 +3348,11 @@ function QuizApp(){
     const freshSRS=loadSRS();
     const cards=buildNewDeck(decks,freshSRS);
     if(cards.length===0)return;
-    newDeckModeRef.current=true;   // 新問挑戦モード ON
-    autoPauseCounterRef.current=0; // カウンタリセット
     setSRS(freshSRS);setQS(cards);setIsToday(true);
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:cards,newCardIds:[]});
+    dispatch({type:"START",QS:cards,newCardIds:[],rewardNewIds:null});
   };
 
   // 今日のデッキをプレイ
@@ -3603,8 +3552,6 @@ function QuizApp(){
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();Hap.impact("Medium");setRankUp(null);setXpInfo(null);
     clearGame();setSavedGame(null);
-    if(autoPauseTimerRef.current){clearTimeout(autoPauseTimerRef.current);autoPauseTimerRef.current=null;}
-    autoPauseCounterRef.current=0;
     prevCorrectLenRef.current=0;
     prevAttemptedLenRef.current=0;
     dispatch({type:"START",QS});
@@ -3613,9 +3560,6 @@ function QuizApp(){
     if(!savedGame)return;
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();setRankUp(null);setXpInfo(null);
-    // 進行中の自動中断タイマーをキャンセル
-    if(autoPauseTimerRef.current){clearTimeout(autoPauseTimerRef.current);autoPauseTimerRef.current=null;}
-    autoPauseCounterRef.current=0;
     // prev系refをセーブデータの現在値に合わせる（useEffectの誤発火防止）
     prevCorrectLenRef.current=savedGame.state.answeredCorrectly?.length||0;
     prevAttemptedLenRef.current=savedGame.state.attemptedIds?.length||0;
@@ -3660,14 +3604,10 @@ function QuizApp(){
     }
     saveGame(s,QS);
     setSavedGame(loadGame());
-    if(autoPauseTimerRef.current){clearTimeout(autoPauseTimerRef.current);autoPauseTimerRef.current=null;}
-    autoPauseCounterRef.current=0;
     prevCorrectLenRef.current=0;
     prevAttemptedLenRef.current=0;
     dispatch({type:"BACK",QS});
   };
-  // 最新の doPause を ref に保持（増分監視 useEffect から呼ぶため）
-  doPauseRef.current=doPause;
 
   /* ── ロビー画面 ─────────────────────────────────────────────── */
   if(phase==="start"){
