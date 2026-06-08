@@ -869,7 +869,30 @@ const unlockAudio=()=>{
 document.addEventListener("touchstart",unlockAudio,{passive:true});
 document.addEventListener("mousedown",unlockAudio,{passive:true});
 document.addEventListener("keydown",unlockAudio,{passive:true});
+
+// ── 音声ON/OFFフラグ & AudioContextリセット ──────────────────
+let _soundEnabled=localStorage.getItem('econ_sound')!=='0';
+// AudioContextを完全再生成してアンロック（別アプリ操作後の音切れ復帰用）
+const resetAudioContext=()=>{
+  try{if(_actx)_actx.close().catch(()=>{});}catch(_){}
+  _actx=null;
+  try{
+    const c=getCtx();
+    // 無音バッファで強制アンロック
+    const buf=c.createBuffer(1,1,22050);
+    const src=c.createBufferSource();
+    src.buffer=buf;src.connect(c.destination);src.start(0);
+  }catch(_){}
+};
+// ウィンドウがフォーカスを取り戻したら自動でresume試行
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&_actx&&_actx.state==='suspended')_actx.resume().catch(()=>{});
+});
+window.addEventListener('focus',()=>{
+  if(_actx&&_actx.state==='suspended')_actx.resume().catch(()=>{});
+});
 const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25}={})=>{
+  if(!_soundEnabled)return;
   try{
     const c=getCtx();
     if(c.state==="suspended"){c.resume().catch(()=>{});return;}
@@ -1014,6 +1037,7 @@ const pad=()=>{
 let _bgmOn=false,_bgmStep=0,_bgmTid=null,_bgmLevel=0,_bgmTheme=null;
 const _bgmTick=()=>{
   if(!_bgmOn)return;
+  if(!_soundEnabled){_bgmStep++;_bgmTid=setTimeout(_bgmTick,_bgmTheme.stepMs);return;}
   const th=_bgmTheme;
   try{
     const c=getCtx();
@@ -1125,7 +1149,7 @@ const bar=(v,color)=>(
 ══════════════════════════════════════════════════════════════ */
 function makeInit(QS){
   return{phase:"start",queue:QS.map((_,i)=>i),
-    pendingQueue:[],newCardIds:[],viewedNewCount:0,
+    pendingQueue:[],newCardIds:[],rewardNewIds:[],viewedNewCount:0,
     answeredCorrectly:[],attemptedIds:[],wrongCounts:{},questionKey:0,
     score:0,combo:0,maxCombo:0,firstTryCorrectCount:0,
     inputs:[],timeLeft:MC_TIMER,feedback:null,showHint:false,shuffled:null};
@@ -1137,16 +1161,18 @@ function reducer(s,a){
       const base=makeInit(a.QS);
       // newCardIds: SRSデータなしのカードID群（自動入力対象）
       const nids=a.newCardIds||[];
+      // rewardNewIds: 報酬カウント用のSRS未見カードID群（auto-fillとは独立）
+      const rids=a.rewardNewIds||[];
       // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
       if(a.pendingStart!=null&&a.pendingStart<a.QS.length){
-        return{...base,phase:"question",newCardIds:nids,
+        return{...base,phase:"question",newCardIds:nids,rewardNewIds:rids,
                queue:a.QS.slice(0,a.pendingStart).map((_,i)=>i),
                pendingQueue:a.QS.slice(a.pendingStart).map((_,i)=>a.pendingStart+i),
                inputs:emptyInputs(q),
                shuffled:q.type==="mc"?shuffleMC(q):null,
                timeLeft:qTimer(q),questionKey:1};
       }
-      return{...base,phase:"question",newCardIds:nids,inputs:emptyInputs(q),
+      return{...base,phase:"question",newCardIds:nids,rewardNewIds:rids,inputs:emptyInputs(q),
              shuffled:q.type==="mc"?shuffleMC(q):null,timeLeft:qTimer(q),questionKey:1};
     }
     case"TICK":
@@ -2756,7 +2782,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
-function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang}){
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
   const T=useT();
   const[openFolders,setOpenFolders]=useState(()=>{
     try{return new Set(JSON.parse(localStorage.getItem('econ_open_folders')||'[]'));}
@@ -2803,6 +2829,13 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onMa
                 border:"1px solid #c9a84c",borderRadius:8,padding:"3px 8px",
                 fontSize:11,fontWeight:700,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit"}}>
               {T.langToggle}
+            </button>
+            <button onClick={onToggleSound}
+              style={{position:"absolute",top:-2,left:-42,background:"#1e1e36",
+                border:`1px solid ${soundOn?"#c9a84c":"#555"}`,borderRadius:8,padding:"3px 8px",
+                fontSize:14,cursor:"pointer",fontFamily:"inherit",lineHeight:1}}
+              title={soundOn?"音声オフ（クリックでオン/リセット）":"音声オン（AudioContextをリセット）"}>
+              {soundOn?"🔊":"🔇"}
             </button>
           </div>
           <h1 style={{fontSize:DK?28:22,fontWeight:900,color:"#ece8d8",marginTop:8}}>{T.appTitle}</h1>
@@ -3031,11 +3064,27 @@ function QuizApp(){
     setLang(nl);localStorage.setItem('econ_lang',nl);
   };
   const T=lang==='en'?T_EN:T_JA;
+  const[soundOn,setSoundOn]=useState(()=>localStorage.getItem('econ_sound')!=='0');
+  const toggleSound=()=>{
+    const next=!soundOn;
+    _soundEnabled=next;
+    localStorage.setItem('econ_sound',next?'1':'0');
+    setSoundOn(next);
+    if(next){
+      // AudioContextを再生成してアンロック
+      resetAudioContext();
+      // 少し待ってから確認音
+      setTimeout(()=>{if(_soundEnabled)tone([659,784,1047],{vol:0.22,dur:0.22,gap:70});},120);
+    }else{
+      BGM.stop();
+      try{if(typeof VBGM!=='undefined')VBGM.stop();}catch(_){}
+    }
+  };
   const[QS,setQS]=useState(DEFAULT_QS);
   const[typingDone,setTypingDone]=useState(false);
   const[s,dispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
   const{phase,queue,pendingQueue,score,combo,maxCombo,inputs,timeLeft,feedback,
-        showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart,viewedNewCount,newCardIds}=s;
+        showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart,viewedNewCount,newCardIds,rewardNewIds}=s;
   const refs=useRef([]);
   const ghostingRef=useRef(false); // 自動タイプ中フラグ（FillInlineと共有）
   const[gSt,setGSt]=useState(()=>loadSt());
@@ -3070,8 +3119,11 @@ function QuizApp(){
   const ND_MINUTES=5;
   // 報酬発火（=自動中断）用：正解 or 新問試行が合計 AUTO_PAUSE_REQUIRED 回でホームへ
   const AUTO_PAUSE_REQUIRED=10;
+  const NEW_DECK_PAUSE_REQUIRED=5; // 新問挑戦：正解不正解問わず5枚で中断
   const autoPauseCounterRef=useRef(0);
   const autoPauseTimerRef=useRef(null);  // setTimeout のキャンセル用
+  const newDeckModeRef=useRef(false);    // 新問挑戦デッキ中フラグ
+  const newCardAttemptCounterRef=useRef(0); // 個別デッキの新問試行カウント（新問挑戦と分離）
   const doPauseRef=useRef(()=>{});
 
   useEffect(()=>{
@@ -3087,8 +3139,8 @@ function QuizApp(){
       const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
       if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
 
-      // NextDNS設定済みの場合のみ：10問正解でゲームを保存してホームへ戻す
-      if(cfg?.apiKey&&cfg?.profileId){
+      // NextDNS設定済み かつ 通常モード（新問挑戦中はattemptedIds側で管理）
+      if(cfg?.apiKey&&cfg?.profileId&&!newDeckModeRef.current){
         autoPauseCounterRef.current+=added;
         if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
           autoPauseCounterRef.current=0;
@@ -3108,30 +3160,43 @@ function QuizApp(){
     if(curr<prev){prevAttemptedLenRef.current=curr;return;} // 新ゲーム開始時リセット
     if(curr>prev){
       const added=curr-prev;
-      // newCardIds に含まれる ID だけが「新問試行」
-      const newAttempts=added; // 実際には dispatch SUBMIT 後に増えるので 1 ずつ増加
       // nd_attempt_count を更新（Swift 側の監視対象）
       const oldAttempt=parseInt(localStorage.getItem('nd_attempt_count')||'0');
-      // 今回増えた attemptedIds のうち newCardIds に含まれるものだけカウント
-      // attemptedIds 自体には新問以外も混在するため newCardIds との積を取る
-      // ここでは直前のフレームで増えた分を検出するためシンプルに差分を見る
-      // （newCardIds との照合は HTML state を直接参照）
+      // 今回増えた attemptedIds のうち newCardIds（auto-fill用）に含まれるものだけカウント
+      // ※新問挑戦モード用。個別デッキは rewardNewIds を使う
       const newOnlyAdded=[...Array(added)].reduce((_,__,i)=>{
         const id=attemptedIds[prev+i];
         return _+(Array.isArray(newCardIds)&&newCardIds.includes(id)?1:0);
       },0);
-      if(newOnlyAdded>0){
-        const newAttemptTotal=oldAttempt+newOnlyAdded;
+      // 個別デッキ用：rewardNewIds に含まれる初出問題の試行数
+      const rewardOnlyAdded=[...Array(added)].reduce((_,__,i)=>{
+        const id=attemptedIds[prev+i];
+        return _+(Array.isArray(rewardNewIds)&&rewardNewIds.includes(id)?1:0);
+      },0);
+      const anyNewAdded=newOnlyAdded+rewardOnlyAdded;
+      if(anyNewAdded>0){
+        const newAttemptTotal=oldAttempt+anyNewAdded;
         localStorage.setItem('nd_attempt_count',String(newAttemptTotal));
         // Previewモード（全問newCard）では自動中断カウンタを進めない
         const isPreviewMode=Array.isArray(newCardIds)&&newCardIds.length>0&&QS.every(q=>newCardIds.includes(q.id));
         const cfg2=JSON.parse(localStorage.getItem('nd_config')||'null');
-        if(!isPreviewMode&&cfg2?.apiKey&&cfg2?.profileId){
-          autoPauseCounterRef.current+=newOnlyAdded;
-          if(autoPauseCounterRef.current>=AUTO_PAUSE_REQUIRED){
-            autoPauseCounterRef.current=0;
-            if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
-            autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+        if(cfg2?.apiKey&&cfg2?.profileId){
+          if(newDeckModeRef.current){
+            // 新問挑戦モード：正解・不正解問わず全試行をカウント・閾値5
+            autoPauseCounterRef.current+=added;
+            if(autoPauseCounterRef.current>=NEW_DECK_PAUSE_REQUIRED){
+              autoPauseCounterRef.current=0;
+              if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
+              autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+            }
+          }else if(!isPreviewMode&&rewardOnlyAdded>0){
+            // 個別デッキの初出問題試行：5問で報酬発火（新問挑戦デッキと同じ閾値）
+            newCardAttemptCounterRef.current+=rewardOnlyAdded;
+            if(newCardAttemptCounterRef.current>=NEW_DECK_PAUSE_REQUIRED){
+              newCardAttemptCounterRef.current=0;
+              if(autoPauseTimerRef.current)clearTimeout(autoPauseTimerRef.current);
+              autoPauseTimerRef.current=setTimeout(()=>{autoPauseTimerRef.current=null;doPauseRef.current();},900);
+            }
           }
         }
       }
@@ -3301,6 +3366,8 @@ function QuizApp(){
     // introMode=true のときはデッキ全問を自動入力対象にする（SRSデータの有無に関わらず）
     // introMode=false のときは自動入力なし
     const newIds=introMode ? dk.questions.map(q=>q.id) : [];
+    // 報酬カウント用：SRS未見問題のID（auto-fillとは独立）
+    const rewardNewIds=introMode ? [] : dk.questions.filter(q=>!freshSRS[q.id]).map(q=>q.id);
     const qs=randomMode ? shuffle([...dk.questions]) : dk.questions;
     setQS(qs);
     setIsToday(false);
@@ -3308,7 +3375,9 @@ function QuizApp(){
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:qs,newCardIds:newIds});
+    newDeckModeRef.current=false;
+    newCardAttemptCounterRef.current=0; // 新問試行カウントをリセット
+    dispatch({type:"START",QS:qs,newCardIds:newIds,rewardNewIds});
   };
   // 一発復習
   const playReview=()=>{
@@ -3320,6 +3389,7 @@ function QuizApp(){
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
+    newDeckModeRef.current=false;
     dispatch({type:"START",QS:cards,pendingStart:cards.length,newCardIds:[]});
   };
   // 新問挑戦
@@ -3327,6 +3397,8 @@ function QuizApp(){
     const freshSRS=loadSRS();
     const cards=buildNewDeck(decks,freshSRS);
     if(cards.length===0)return;
+    newDeckModeRef.current=true;   // 新問挑戦モード ON
+    autoPauseCounterRef.current=0; // カウンタリセット
     setSRS(freshSRS);setQS(cards);setIsToday(true);
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
@@ -3644,6 +3716,7 @@ function QuizApp(){
           onResume={doResume}
           onClearSave={()=>{clearGame();setSavedGame(null);}}
           lang={lang} onToggleLang={toggleLang}
+          soundOn={soundOn} onToggleSound={toggleSound}
         />
       </div>
       </LangCtx.Provider>
@@ -3800,6 +3873,13 @@ function QuizApp(){
           {combo>0&&<span className="comboPop" style={S.comboTag}>{"🔥".repeat(Math.min(combo,5))} ×{combo}</span>}
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={S.scorePill}>{score}<span style={{color:"#444",fontSize:10}}>pt</span></span>
+            <button onClick={toggleSound}
+              style={{background:"none",border:`1px solid ${soundOn?"#c9a84c":"#555"}`,borderRadius:7,
+                padding:DK?"4px 8px":"3px 7px",fontSize:DK?14:12,
+                cursor:"pointer",fontFamily:"inherit",lineHeight:1}}
+              title={soundOn?"音声オフ":"音声オン（AudioContextリセット）"}>
+              {soundOn?"🔊":"🔇"}
+            </button>
             <button onClick={doPause}
               style={{background:"none",border:"1px solid #2a2a44",borderRadius:7,
                 padding:DK?"4px 12px":"3px 9px",fontSize:DK?13:10,color:"#666",
