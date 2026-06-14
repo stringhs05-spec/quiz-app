@@ -2507,22 +2507,35 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                     date:pendingSyncUpload.remote?new Date(pendingSyncUpload.remote.exportedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"データなし",
                     cats:srsCategories(pendingSyncUpload.remote?.srs),plays:pendingSyncUpload.remote?.stats?.plays}}/>
                 <div style={{display:"flex",gap:8,marginTop:12}}>
-                  <button onClick={async()=>{
+                  <button onClick={async(e)=>{
+                    const btn=e.currentTarget;
+                    btn.disabled=true;btn.textContent="保存中…";
                     const ok=await syncSave(syncUrlInput.trim(),srs,loadKarutaSRS(),gSt,{force:true});
+                    btn.textContent=ok?"✅ 保存しました！":"❌ 保存失敗";
+                    btn.style.background=ok?"#0d3a0d":"#3a0d0d";
+                    btn.style.borderColor=ok?"#22c55e":"#ef4444";
+                    btn.style.color=ok?"#4ade80":"#f87171";
+                    await new Promise(r=>setTimeout(r,1800));
                     setPendingSyncUpload(null);
-                    flash(ok?T.syncUploadOk:T.syncUploadErr,ok);
                   }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                     ⬆ ローカルを保存
                   </button>
-                  <button onClick={()=>{
+                  <button onClick={async(e)=>{
+                    const btn=e.currentTarget;
+                    btn.disabled=true;btn.textContent="適用中…";
                     const remote=pendingSyncUpload.remote;
                     if(!remote){setPendingSyncUpload(null);return;}
                     if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
                     if(remote.karutaSrs){setKarutaSRS(remote.karutaSrs);saveKarutaSRS(remote.karutaSrs);}
                     if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
                     if(remote.history?.length){saveAllHistory(remote.history);}
-                    setPendingSyncUpload(null);flash(T.syncLoadOk);
+                    btn.textContent="✅ 適用しました！";
+                    btn.style.background="#1e3a1e";
+                    btn.style.borderColor="#22c55e";
+                    btn.style.color="#4ade80";
+                    await new Promise(r=>setTimeout(r,1800));
+                    setPendingSyncUpload(null);
                   }} style={{flex:1,background:"#1e1e36",border:"1px solid #c9a84c",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                     ⬇ クラウドを使う
@@ -2544,13 +2557,18 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
                     cats:srsCategories(srs),plays:gSt?.plays}}/>
                 <div style={{display:"flex",gap:8,marginTop:12}}>
-                  <button onClick={()=>{
+                  <button onClick={async(e)=>{
+                    const btn=e.currentTarget;
+                    btn.disabled=true;btn.textContent="適用中…";
                     const remote=pendingSync.remote;
                     if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
                     if(remote.karutaSrs){setKarutaSRS(remote.karutaSrs);saveKarutaSRS(remote.karutaSrs);}
                     if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
                     if(remote.history?.length){saveAllHistory(remote.history);}
-                    setPendingSync(null);flash(T.syncLoadOk);
+                    btn.textContent="✅ 適用しました！";
+                    btn.style.background="#0d3a0d";
+                    await new Promise(r=>setTimeout(r,1800));
+                    setPendingSync(null);
                   }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                     ✓ 適用する
