@@ -2330,7 +2330,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
         flash(T.errProgressFormat,false);return;
       }
       if(data.srs){setSRS(data.srs);saveSRS(data.srs);}
-      if(data.karutaSrs){setKarutaSRS(data.karutaSrs);saveKarutaSRS(data.karutaSrs);}
+      if(data.karutaSrs){saveKarutaSRS(data.karutaSrs);}
       const st={...DEF_ST,...(data.stats||data)};
       setGSt(st);saveSt(st);
       if(data.history?.length){await saveAllHistory(data.history);}
@@ -2527,7 +2527,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                     const remote=pendingSyncUpload.remote;
                     if(!remote){setPendingSyncUpload(null);return;}
                     if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
-                    if(remote.karutaSrs){setKarutaSRS(remote.karutaSrs);saveKarutaSRS(remote.karutaSrs);}
+                    if(remote.karutaSrs){saveKarutaSRS(remote.karutaSrs);}
                     if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
                     if(remote.history?.length){saveAllHistory(remote.history);}
                     btn.textContent="✅ 適用しました！";
@@ -2560,15 +2560,24 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                   <button onClick={async(e)=>{
                     const btn=e.currentTarget;
                     btn.disabled=true;btn.textContent="適用中…";
-                    const remote=pendingSync.remote;
-                    if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
-                    if(remote.karutaSrs){setKarutaSRS(remote.karutaSrs);saveKarutaSRS(remote.karutaSrs);}
-                    if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
-                    if(remote.history?.length){saveAllHistory(remote.history);}
-                    btn.textContent="✅ 適用しました！";
-                    btn.style.background="#0d3a0d";
-                    await new Promise(r=>setTimeout(r,1800));
-                    setPendingSync(null);
+                    try{
+                      const remote=pendingSync.remote;
+                      console.log("apply: srsKeys="+(remote.srs?Object.keys(remote.srs).length:"none")+
+                        " karutaKeys="+(remote.karutaSrs?Object.keys(remote.karutaSrs).length:"none")+
+                        " historyLen="+(remote.history?remote.history.length:"none"));
+                      if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);console.log("srs done");}
+                      if(remote.karutaSrs){saveKarutaSRS(remote.karutaSrs);console.log("karuta done");}
+                      if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);console.log("stats done");}
+                      if(remote.history?.length){saveAllHistory(remote.history);console.log("history done");}
+                      btn.textContent="✅ 適用しました！";
+                      btn.style.background="#0d3a0d";
+                      await new Promise(r=>setTimeout(r,1800));
+                      setPendingSync(null);
+                    }catch(err){
+                      console.error("apply error: "+err.message+" stack="+err.stack);
+                      btn.textContent="❌ "+err.message;
+                      btn.disabled=false;
+                    }
                   }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                     ✓ 適用する
