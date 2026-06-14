@@ -37,6 +37,10 @@ input:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#1a1a30}
 ::-webkit-scrollbar-thumb{background:#3a3a58;border-radius:2px}
+@keyframes slideDown{0%{opacity:0;transform:translateX(-50%) translateY(-16px)}100%{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes karutaTake{0%{opacity:1;transform:translate(-50%,0) rotate(0deg) scale(1)}100%{opacity:0;transform:translate(40px,-180px) rotate(22deg) scale(0.5)}}
+@keyframes karutaComboFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-100px) scale(1.6)}}
+@keyframes karutaOtetsuki{0%,100%{transform:rotate(0deg) translateX(0)}20%{transform:rotate(-6deg) translateX(-8px)}50%{transform:rotate(6deg) translateX(8px)}75%{transform:rotate(-3deg) translateX(-4px)}}
 @keyframes rewardPulse{0%,100%{box-shadow:0 0 0 0 rgba(29,161,242,0.5)}50%{box-shadow:0 0 0 10px rgba(29,161,242,0)}}@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rewardIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes tweetBird{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(8deg) scale(1.12)}}
@@ -166,6 +170,15 @@ const T_JA={
   playAgain:"もう一度",nextPhase:"復習完了！未出題の問題へ",
   submitBtn:"回答する ✓",
   langToggle:"EN",
+  karutaSavedBanner:"🎴 カルタの続きがあります",karutaResumeBtn:"▶ 続きから",karutaClearSave:"✕",
+  karutaGameMode:"🎴 百人一首",karutaGameModeSub:"復習段階カードを冒頭から想起",
+  karutaGameNone:"百人一首カードなし",
+  karutaGameDue:n=>`${n}枚が今日の想起対象`,
+  karutaFirstOk:"初回正解 → 7日後",karutaFirstNg:"初回ミス → 学習ステップへ",
+  karutaMode:"百人一首モード",karutaModeSub:"冒頭を見てエピソードを思い出す",
+  karutaReveal:"タップして答えを表示",karutaNext:"次へ →",
+  karutaProgress:(i,n)=>`${i} / ${n}`,
+  karutaDone:"全問終了！ランダムで続ける →",
   supportBtn:"☕ このアプリを支援する",
   folderLabel:"📁 フォルダ",
   folderNone:"── フォルダなし",
@@ -278,6 +291,15 @@ const T_EN={
   playAgain:"Play Again",nextPhase:"Reviews done! Now new cards",
   submitBtn:"Submit ✓",
   langToggle:"日本語",
+  karutaSavedBanner:"🎴 Karuta saved",karutaResumeBtn:"▶ Resume",karutaClearSave:"✕",
+  karutaGameMode:"🎴 Recall",karutaGameModeSub:"Recall review-level cards from cue",
+  karutaGameNone:"No recall cards due",
+  karutaGameDue:n=>`${n} cards due for recall`,
+  karutaFirstOk:"1st correct → 7 days",karutaFirstNg:"1st miss → learning steps",
+  karutaMode:"Recall Mode",karutaModeSub:"Recall the episode from its opening",
+  karutaReveal:"Tap to reveal",karutaNext:"Next →",
+  karutaProgress:(i,n)=>`${i} / ${n}`,
+  karutaDone:"All done! Continue with shuffle →",
   supportBtn:"☕ Support this app",
   folderLabel:"📁 Folder",
   folderNone:"── No folder",
@@ -531,13 +553,94 @@ function loadSRS(){
 }
 function saveSRS(srs){try{localStorage.setItem(SRS_KEY,JSON.stringify(srs));}catch{}}
 
+// NextDNS 報酬チェック（穴埋り・百人一首共通）
+const _ND_URL='https://nd-timer.stringhs05.workers.dev';
+const _ND_THRESH=15,_ND_MIN=5;
+async function checkNdReward(added=1){
+  try{
+    const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
+    const newTotal=oldTotal+added;
+    localStorage.setItem('nd_total_correct',String(newTotal));
+    if(Math.floor(newTotal/_ND_THRESH)<=Math.floor(oldTotal/_ND_THRESH))return false;
+    const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
+    if(!cfg?.apiKey||!cfg?.profileId)return false;
+    await fetch(`${_ND_URL}/start`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({apiKey:cfg.apiKey,profileId:cfg.profileId,minutes:_ND_MIN})});
+    localStorage.setItem('nd_reward_until',String(Date.now()+_ND_MIN*60*1000));
+    return true; // 解放された
+  }catch(_){return false;}
+}
+
+/* ── 百人一首 SRS ─────────────────────────────────────────── */
+const KARUTA_SRS_KEY="karuta_srs_v1";
+function loadKarutaSRS(){
+  try{const v=localStorage.getItem(KARUTA_SRS_KEY);return v?JSON.parse(v):{};}
+  catch{return{};}
+}
+function saveKarutaSRS(srs){try{localStorage.setItem(KARUTA_SRS_KEY,JSON.stringify(srs));}catch{}}
+
+// カルタゲームセーブ
+const KARUTA_SAVE_KEY='karuta_game_save';
+function saveKarutaGame(cardIds,queueCardIds,answeredCount){
+  try{localStorage.setItem(KARUTA_SAVE_KEY,JSON.stringify({cardIds,queueCardIds,answeredCount,savedAt:new Date().toISOString()}));}catch{}
+}
+function loadKarutaSave(){
+  try{const v=localStorage.getItem(KARUTA_SAVE_KEY);return v?JSON.parse(v):null;}catch{return null;}
+}
+function clearKarutaSave(){try{localStorage.removeItem(KARUTA_SAVE_KEY);}catch{}}
+
+// 初回正解 → 学習省略・7日後review
+function updateKarutaSRS(kSRS,qId,correct){
+  const prev=kSRS[qId];
+  if(!prev||prev.state==="new"){
+    if(correct){
+      return{...kSRS,[qId]:{state:"review",step:0,streak:1,totalWrong:0,
+        intervalDays:7,nextDue:addDaysISO(7),reps:1}};
+    }
+    // 初回ミス → 通常学習step0（10分後）
+    return updateSRS(kSRS,qId,false);
+  }
+  return updateSRS(kSRS,qId,correct);
+}
+
+// 穴埋りSRSでreview段階に到達したカードがkaruta対象
+// mainSRS[q.id]?.state==='review' かつ kSRS未登録 → 新規karuta
+const isKuzushiQ=q=>/くずし字|崩し字|くずし|写真の人物|画像を見て|写真を見て/.test(q.q||'');
+function buildKarutaDeck(decks,mainSRS,kSRS,limit=15){
+  const seen=new Set();const newC=[],dueC=[];
+  decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
+    if(seen.has(q.id))return;seen.add(q.id);
+    if(isKuzushiQ(q))return; // くずし字問題を除外
+    if(mainSRS[q.id]?.state!=='review')return;
+    const ks=kSRS[q.id];
+    if(!ks){newC.push(q);return;}
+    if(isDue(ks))dueC.push(q);
+  }));
+  const sd=shuffle(dueC),sn=shuffle(newC);
+  const dSlice=sd.slice(0,Math.ceil(limit*0.7));
+  const nSlice=sn.slice(0,limit-dSlice.length);
+  return[...dSlice,...nSlice].slice(0,limit);
+}
+function countKarutaDue(decks,mainSRS,kSRS){
+  const seen=new Set();let n=0;
+  decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
+    if(seen.has(q.id))return;seen.add(q.id);
+    if(isKuzushiQ(q))return;
+    if(mainSRS[q.id]?.state!=='review')return;
+    if(!kSRS[q.id]||isDue(kSRS[q.id]))n++;
+  }));
+  return n;
+}
+
+
 // ── クラウド同期（GAS）────────────────────────────────────────
 const SYNC_URL_KEY="econ_sync_url_v1";
 const SYNC_TS_KEY="econ_sync_ts_v1";
 let _syncCooldownTs=0;
 const SYNC_COOLDOWN_MS=30000;
 
-async function syncSave(url,srs,stats,{force=false}={}){
+async function syncSave(url,srs,karutaSrs,stats,{force=false}={}){
   if(!url)return false;
   const now=Date.now();
   if(!force&&now-_syncCooldownTs<SYNC_COOLDOWN_MS)return false;
@@ -545,15 +648,15 @@ async function syncSave(url,srs,stats,{force=false}={}){
   try{
     const exportedAt=new Date().toISOString();
     const res=await fetch(url,{method:"POST",
-      body:JSON.stringify({_type:"econ_progress",version:1,exportedAt,srs,stats})});
+      body:JSON.stringify({_type:"econ_progress",version:3,exportedAt,srs,karutaSrs,stats})});
     if(res.ok){localStorage.setItem(SYNC_TS_KEY,exportedAt);return true;}
     return false;
   }catch{return false;}
 }
-function syncSaveBeacon(url,srs,stats){
+function syncSaveBeacon(url,srs,karutaSrs,stats){
   if(!url||!navigator.sendBeacon)return;
   const exportedAt=new Date().toISOString();
-  const blob=new Blob([JSON.stringify({_type:"econ_progress",version:1,exportedAt,srs,stats})],
+  const blob=new Blob([JSON.stringify({_type:"econ_progress",version:3,exportedAt,srs,karutaSrs,stats})],
     {type:"application/json"});
   navigator.sendBeacon(url,blob);
   localStorage.setItem(SYNC_TS_KEY,exportedAt);
@@ -582,7 +685,7 @@ function addDays(d,n){
 
 const LEARNING_STEPS_H=[1/6, 1, 6, 24, 72]; // 時間単位
 const DEFAULT_EASE=2.5;
-const MIN_EASE=1.3;
+const MIN_EASE=1.5;
 
 function nowISO(){return new Date().toISOString();}
 function addHours(h){return new Date(Date.now()+h*3600000).toISOString();}
@@ -637,8 +740,9 @@ function updateSRS(srs,qId,correct){
     // review中の正解 → ease×interval
     if(newStreak>=required){
       const ease=calcEase(totalWrong);
+      const prevDays=prev.intervalDays||1;
       const newInterval=Math.min(
-        Math.round((prev.intervalDays||1)*ease), 180
+        Math.max(Math.round(prevDays*ease), prevDays+1), 180
       );
       return{...srs,[qId]:{
         ...prev,state:"review",step:0,streak:newStreak,
@@ -933,6 +1037,16 @@ const SFX={
   },
   lose:()=>tone([523,494,440,392,349,294],{type:"triangle",vol:0.18,gap:115,dur:0.35}),
 };
+const karutaTakeSound=()=>{
+  if(!_soundEnabled)return;
+  try{
+    const c=getCtx();if(c.state==='suspended'){c.resume().catch(()=>{});return;}
+    // 琴の弦を弾く音：三角波2音でやさしく
+    tone([587.3],{type:'triangle',vol:0.20,gap:0,dur:0.18});
+    setTimeout(()=>tone([784],{type:'triangle',vol:0.15,gap:0,dur:0.14}),90);
+  }catch(_){}
+};
+
 // ── BGM：3テーマからランダム選択、各4段階進化 ────────────────
 
 const _KICK     = new Set([0,8]);
@@ -982,6 +1096,101 @@ const _F={
        [740,.10],null,[659.3,.08],null],
 };
 const _THEMES=[_A,_C,_F];
+
+/* ══ 和風ラスボスBGM（カルタ専用）陰音階 / 185BPM ══
+   陰音階 in A: A, B♭, D, E, F（宮城道雄スケール）
+   コンセプト: ガロップキック + パワー5度スタブ + 高速アルペジオ
+   → ラスボス感・ハイテンポ・和風緊張感
+══════════════════════════════════════════════════════ */
+const _K_STEP_MS=357; // 80 BPM ゆったり和風
+// Dペンタトニックマイナー: D,F,G,A,C（心地よい和風スケール）
+// bass: 低域支え・sine・ゆったり
+const _K_BAS=[
+  [146.8,.15],null,null,null,
+  [196,.12],null,null,null,
+  [220,.12],null,null,null,
+  [146.8,.13],null,[196,.11],null,
+];
+// melody: 尺八・笛風・sine（長めのdur）
+const _K_MEL=[
+  [587.3,.12],null,null,[523.3,.10],
+  [440,.13],[392,.09],null,null,
+  [392,.13],null,[440,.11],null,
+  [523.3,.12],[440,.10],[587.3,.11],null,
+];
+// arp: 琴風・triangle・やさしく全ステップ
+const _K_ARP=[
+  [440,.09],[587.3,.08],[523.3,.08],[392,.07],
+  [349.2,.08],[440,.07],[587.3,.08],[523.3,.07],
+  [440,.09],[349.2,.07],[392,.08],[523.3,.07],
+  [587.3,.08],[440,.07],[523.3,.08],[392,.07],
+];
+let _kOn=false,_kStep=0,_kTid=null,_kLevel=0;
+const _kTick=()=>{
+  if(!_kOn)return;
+  try{
+    const c=getCtx();
+    if(c.state==='running'){
+      const st=_kStep%16;
+      const lv=_kLevel;
+
+      // ── Lv0: 琴アルペジオのみ（とても静か） ────────────
+      const a=_K_ARP[st];
+      if(a)tone([a[0]],{type:'triangle',vol:a[1]*0.75,gap:0,dur:0.20});
+
+      // ── Lv1（25%）: ベース＋ソフト太鼓 ─────────────────
+      if(lv>=1){
+        const b=_K_BAS[st];
+        if(b)tone([b[0]],{type:'sine',vol:b[1],gap:0,dur:0.38});
+        // 拍頭だけ柔らかい太鼓（低音バースト）
+        if(st===0||st===8){
+          try{
+            const cx=getCtx(),t=cx.currentTime;
+            const o=cx.createOscillator(),g=cx.createGain();
+            o.connect(g);g.connect(cx.destination);
+            o.type='sine';o.frequency.setValueAtTime(90,t);
+            o.frequency.exponentialRampToValueAtTime(38,t+0.18);
+            g.gain.setValueAtTime(0.22,t);
+            g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+            o.start(t);o.stop(t+0.24);
+          }catch(_){}
+        }
+      }
+
+      // ── Lv2（50%）: 尺八メロディ＋裏拍にそっとhihat ────
+      if(lv>=2){
+        const m=_K_MEL[st];
+        if(m)tone([m[0]],{type:'sine',vol:m[1],gap:0,dur:0.42});
+        if(st%4===2)hihat(0.015); // 裏拍のみ・非常に控えめ
+      }
+
+      // ── Lv3（75%）: ハーモニー＋裏拍太鼓＋賑やかhihat ──
+      if(lv>=3){
+        const m2=_K_MEL[st];
+        if(m2)tone([m2[0]*1.498],{type:'sine',vol:m2[1]*0.40,gap:0,dur:0.35});
+        if(st===4||st===12){
+          try{
+            const cx=getCtx(),t=cx.currentTime;
+            const o=cx.createOscillator(),g=cx.createGain();
+            o.connect(g);g.connect(cx.destination);
+            o.type='sine';o.frequency.setValueAtTime(70,t);
+            o.frequency.exponentialRampToValueAtTime(30,t+0.14);
+            g.gain.setValueAtTime(0.16,t);
+            g.gain.exponentialRampToValueAtTime(0.001,t+0.18);
+            o.start(t);o.stop(t+0.2);
+          }catch(_){}
+        }
+        if(st%2===1)hihat(0.012); // 控えめな全打ち
+      }
+    }
+  }catch(_){}
+  _kStep++;_kTid=setTimeout(_kTick,_K_STEP_MS);
+};
+const KBGM={
+  start:()=>{if(_kOn)return;_kOn=true;_kStep=0;_kLevel=0;_kTick();},
+  stop: ()=>{_kOn=false;clearTimeout(_kTid);_kLevel=0;},
+  setLevel:(lv)=>{_kLevel=Math.max(0,Math.min(3,lv));},
+};
 
 const kick=(loud)=>{
   try{
@@ -2108,8 +2317,8 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
   const exportProgress=async()=>{
     if(!gSt){flash(T.noStats,false);return;}
     const history=await loadAllHistory();
-    await downloadJSON({_type:"econ_progress",version:2,
-      exportedAt:new Date().toISOString(),srs,stats:gSt,history},
+    await downloadJSON({_type:"econ_progress",version:3,
+      exportedAt:new Date().toISOString(),srs,karutaSrs:loadKarutaSRS(),stats:gSt,history},
       `progress_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.json`);
     flash(T.progressExported);
   };
@@ -2121,6 +2330,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
         flash(T.errProgressFormat,false);return;
       }
       if(data.srs){setSRS(data.srs);saveSRS(data.srs);}
+      if(data.karutaSrs){setKarutaSRS(data.karutaSrs);saveKarutaSRS(data.karutaSrs);}
       const st={...DEF_ST,...(data.stats||data)};
       setGSt(st);saveSt(st);
       if(data.history?.length){await saveAllHistory(data.history);}
@@ -2288,7 +2498,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
             <>
             {pendingSyncUpload&&(
               <div style={{background:"#0d0d20",border:"1px solid #c9a84c",borderRadius:12,padding:"14px",marginTop:6}}>
-                <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドへ保存して上書きします</div>
+                <div style={{fontSize:12,color:"#c9a84c",fontWeight:700,marginBottom:10}}>クラウドとローカルを比較</div>
                 <SrsCmpTable
                   left={{label:"💻 ローカル（送信）",color:"#4ade80",
                     date:localStorage.getItem(SYNC_TS_KEY)?new Date(localStorage.getItem(SYNC_TS_KEY)).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"不明",
@@ -2298,12 +2508,24 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                     cats:srsCategories(pendingSyncUpload.remote?.srs),plays:pendingSyncUpload.remote?.stats?.plays}}/>
                 <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button onClick={async()=>{
-                    const ok=await syncSave(syncUrlInput.trim(),srs,gSt,{force:true});
+                    const ok=await syncSave(syncUrlInput.trim(),srs,loadKarutaSRS(),gSt,{force:true});
                     setPendingSyncUpload(null);
                     flash(ok?T.syncUploadOk:T.syncUploadErr,ok);
                   }} style={{flex:1,background:"#1e3a1e",border:"1px solid #22c55e",borderRadius:8,
                     padding:"8px 0",fontSize:12,color:"#4ade80",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                    ✓ 保存する
+                    ⬆ ローカルを保存
+                  </button>
+                  <button onClick={()=>{
+                    const remote=pendingSyncUpload.remote;
+                    if(!remote){setPendingSyncUpload(null);return;}
+                    if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
+                    if(remote.karutaSrs){setKarutaSRS(remote.karutaSrs);saveKarutaSRS(remote.karutaSrs);}
+                    if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
+                    if(remote.history?.length){saveAllHistory(remote.history);}
+                    setPendingSyncUpload(null);flash(T.syncLoadOk);
+                  }} style={{flex:1,background:"#1e1e36",border:"1px solid #c9a84c",borderRadius:8,
+                    padding:"8px 0",fontSize:12,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                    ⬇ クラウドを使う
                   </button>
                   <button onClick={()=>setPendingSyncUpload(null)}
                     style={{background:"none",border:"1px solid #333",borderRadius:8,
@@ -2325,6 +2547,7 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                   <button onClick={()=>{
                     const remote=pendingSync.remote;
                     if(remote.srs){setSRS(remote.srs);saveSRS(remote.srs);}
+                    if(remote.karutaSrs){setKarutaSRS(remote.karutaSrs);saveKarutaSRS(remote.karutaSrs);}
                     if(remote.stats){const st={...DEF_ST,...remote.stats};setGSt(st);saveSt(st);}
                     if(remote.history?.length){saveAllHistory(remote.history);}
                     setPendingSync(null);flash(T.syncLoadOk);
@@ -2782,7 +3005,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
-function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCount,karutaSave,onResumeKaruta,onClearKarutaSave,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
   const T=useT();
   const[openFolders,setOpenFolders]=useState(()=>{
     try{return new Set(JSON.parse(localStorage.getItem('econ_open_folders')||'[]'));}
@@ -2886,6 +3109,46 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onMa
           ))}
         </div>
 
+        {/* 🎴 カルタ セーブバナー */}
+        {karutaSave&&(
+          <div style={{background:'rgba(201,168,76,0.1)',border:'1px solid #c9a84c',
+            borderRadius:12,padding:'10px 14px',display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:18}}>🎴</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:'#c9a84c'}}>{T.karutaSavedBanner}</div>
+              <div style={{fontSize:11,color:'#888',marginTop:1}}>
+                {`残り${(karutaSave.queueCardIds||[]).length}枚 · ${karutaSave.answeredCount||0}問正解済み`}
+              </div>
+            </div>
+            <button onClick={onResumeKaruta}
+              style={{background:'#c9a84c',border:'none',borderRadius:8,padding:'6px 14px',
+                fontSize:12,fontWeight:800,color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
+              {T.karutaResumeBtn}
+            </button>
+            <button onClick={onClearKarutaSave}
+              style={{background:'none',border:'none',color:'#555',fontSize:16,cursor:'pointer'}}>
+              {T.karutaClearSave}
+            </button>
+          </div>
+        )}
+
+        {/* 🎴 百人一首 */}
+        <button onClick={()=>karutaCount>0&&onPlayKarutaGame()} disabled={karutaCount===0}
+          style={{width:'100%',background:karutaCount>0?'rgba(201,168,76,0.07)':'#111120',
+            border:`2px solid ${karutaCount>0?'#c9a84c':'#2a2a44'}`,
+            borderRadius:16,padding:'13px 16px',cursor:karutaCount>0?'pointer':'default',
+            fontFamily:'inherit',textAlign:'left',display:'flex',alignItems:'center',gap:12,transition:'all 0.2s'}}>
+          <span style={{fontSize:24}}>🎴</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:DK?15:13,fontWeight:800,color:karutaCount>0?'#c9a84c':'#555'}}>{T.karutaGameMode}</div>
+            <div style={{fontSize:11,color:karutaCount>0?'#888':'#444',marginTop:1}}>
+              {karutaCount>0?T.karutaGameDue(karutaCount):T.karutaGameNone}
+            </div>
+          </div>
+          {karutaCount>0&&<div style={{background:'#c9a84c',color:'#0d0d18',
+            borderRadius:20,padding:'2px 10px',fontSize:13,fontWeight:800}}>{karutaCount}</div>}
+        </button>
+
         {/* デッキ一覧 */}
         <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>{T.myDecks}</div>
         {decks.length===0&&(
@@ -2937,6 +3200,16 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayToday,onPlayReview,onPlayNew,onMa
                 <div>
                   <div>{T.previewMode}</div>
                   <div style={{fontSize:11,fontWeight:400,color:"#888",marginTop:2}}>{T.previewModeSub}</div>
+                </div>
+              </button>
+              <button onClick={()=>{setDeckDialog(null);onPlayKaruta(deckDialog);}}
+                style={{background:"#1e1e36",border:"1px solid #4a6a4a",borderRadius:12,padding:"14px",
+                  fontSize:DK?16:14,fontWeight:800,color:"#c9a84c",cursor:"pointer",
+                  fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>🃏</span>
+                <div>
+                  <div>{T.karutaMode}</div>
+                  <div style={{fontSize:11,fontWeight:400,color:"#888",marginTop:2}}>{T.karutaModeSub}</div>
                 </div>
               </button>
               <button onClick={()=>setDeckDialog(null)}
@@ -3082,7 +3355,22 @@ function QuizApp(){
   };
   const[QS,setQS]=useState(DEFAULT_QS);
   const[typingDone,setTypingDone]=useState(false);
-  const[s,dispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
+  const[s,rawDispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
+  // 新問挑戦中（rewardNewIds===null）の全SUBMIT（再試行含む）をnd_attempt_countに反映するdispatchラッパー
+  const dispatch=(action)=>{
+    if(action.type==="SUBMIT"&&s.rewardNewIds===null){
+      // 10回SUBMIT = 10カウント = Chrome開放 + iPhone(NextDNS)解放
+      const old=parseInt(localStorage.getItem('nd_attempt_count')||'0');
+      const nw=old+1;
+      localStorage.setItem('nd_attempt_count',String(nw));
+      // 10の倍数でiPhone側NextDNSも解放
+      if(Math.floor(nw/10)>Math.floor(old/10)){
+        const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
+        if(cfg?.apiKey&&cfg?.profileId) triggerReward(cfg);
+      }
+    }
+    rawDispatch(action);
+  };
   const{phase,queue,pendingQueue,score,combo,maxCombo,inputs,timeLeft,feedback,
         showHint,wrongCounts,questionKey,answeredCorrectly,attemptedIds,shuffled,firstTryCorrectCount,newPhaseStart,viewedNewCount,newCardIds,rewardNewIds}=s;
   const refs=useRef([]);
@@ -3125,36 +3413,24 @@ function QuizApp(){
     if(curr<prev){prevCorrectLenRef.current=curr;return;}
     if(curr>prev){
       const added=curr-prev;
-      const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
-      const newTotal=oldTotal+added;
-      localStorage.setItem('nd_total_correct',String(newTotal));
-      const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
-      if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
+      // 新問挑戦モード（rewardNewIds===null）はnd_attempt_count側で追跡するのでnd_total_correctは更新しない
+      if(rewardNewIds!==null){
+        const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
+        const newTotal=oldTotal+added;
+        localStorage.setItem('nd_total_correct',String(newTotal));
+        const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
+        if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
+      }
     }
     prevCorrectLenRef.current=curr;
   },[answeredCorrectly.length]);
 
-  // 新問試行（正解・不正解問わず初回アタック）の監視：nd_attempt_count を更新（Swift 側の監視対象）
+  // attemptedIds の増減を追跡（prevAttemptedLenRef のリセット検知のみ）
+  // nd_attempt_count の更新は dispatch ラッパーが担当（新問挑戦の全SUBMIT時）
   useEffect(()=>{
     const curr=attemptedIds.length;
     const prev=prevAttemptedLenRef.current;
-    if(curr<prev){prevAttemptedLenRef.current=curr;return;} // 新ゲーム開始時リセット
-    if(curr>prev){
-      const added=curr-prev;
-      const oldAttempt=parseInt(localStorage.getItem('nd_attempt_count')||'0');
-      // 新問挑戦モード（rewardNewIds=null）：全試行をカウント
-      // 個別デッキ（rewardNewIds=配列）：SRS未見問題に含まれるものだけカウント
-      const countAll=rewardNewIds===null;
-      const newOnlyAdded=countAll
-        ? added
-        : [...Array(added)].reduce((_,__,i)=>{
-            const id=attemptedIds[prev+i];
-            return _+(Array.isArray(rewardNewIds)&&rewardNewIds.includes(id)?1:0);
-          },0);
-      if(newOnlyAdded>0){
-        localStorage.setItem('nd_attempt_count',String(oldAttempt+newOnlyAdded));
-      }
-    }
+    if(curr<prev){prevAttemptedLenRef.current=curr;return;} // 新ゲーム開始時リセット検知
     prevAttemptedLenRef.current=curr;
   },[attemptedIds.length]);
 
@@ -3315,6 +3591,72 @@ function QuizApp(){
     dispatch({type:"BACK",QS});
   };
   // デッキを選んでプレイ
+  const[karutaDeck,setKarutaDeck]=useState(null);
+  const playKaruta=(dk)=>{
+    // デッキ個別モードもロビー版と同様にreview段階のみ対象
+    const freshSRS=loadSRS();
+    const cards=shuffle(
+      (dk.questions||[]).filter(q=>
+        !isKuzushiQ(q)&&freshSRS[q.id]?.state==='review'
+      )
+    );
+    if(cards.length===0)return; // reviewカードなし
+    setKarutaStartQueue(null);setKarutaStartAnswered(0);
+    setKarutaCards(cards);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+  };
+  // 🎴 百人一首 SRS（独立）
+  const[karutaSRS,setKarutaSRS]=useState(()=>loadKarutaSRS());
+  const[karutaCards,setKarutaCards]=useState(null);
+  const[karutaStartQueue,setKarutaStartQueue]=useState(null);
+  const[karutaStartAnswered,setKarutaStartAnswered]=useState(0);
+  const[karutaSave,setKarutaSave]=useState(()=>loadKarutaSave());
+  // 百人一首正解時に穴埋りSRSにもボーナス記録
+  // ※ streak不足で降格するケースは何もしない（百人一首は必ずプラスのみ）
+  const onKarutaCorrect=(qId)=>{
+    const fresh=loadSRS();
+    const prev=fresh[qId];
+    if(!prev||prev.state!=='review')return;
+    const newStreak=(prev.streak||0)+1;
+    const required=calcRequiredStreak(prev.totalWrong||0);
+    if(newStreak<required)return; // streak不足 → 何もしない
+    const newSRS=updateSRS(fresh,qId,true);
+    setSRS(newSRS);saveSRS(newSRS);
+  };
+  const doPauseKaruta=(cards,queue,answeredCount)=>{
+    saveKarutaGame(cards.map(c=>c.id),queue.map(i=>cards[i].id),answeredCount);
+    setKarutaSave(loadKarutaSave());
+    setKarutaCards(null);
+  };
+  const doResumeKaruta=()=>{
+    if(!karutaSave)return;
+    const allQ={};
+    decks.forEach(dk=>(dk.questions||[]).forEach(q=>{allQ[q.id]=q;}));
+    const cards=karutaSave.cardIds.map(id=>allQ[id]).filter(Boolean);
+    if(cards.length===0){clearKarutaSave();setKarutaSave(null);return;}
+        const idToIdx=Object.fromEntries(cards.map((c,i)=>[c.id,i]));
+    const queue=(karutaSave.queueCardIds||karutaSave.cardIds)
+      .map(id=>idToIdx[id]).filter(n=>n!==undefined);
+    setKarutaStartQueue(queue);
+    setKarutaStartAnswered(karutaSave.answeredCount||0);
+    setKarutaCards(cards);
+    clearKarutaSave();setKarutaSave(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+  };
+  const playKarutaGame=()=>{
+    const freshMain=loadSRS();
+    const freshKaruta=loadKarutaSRS();
+    const cards=buildKarutaDeck(decks,freshMain,freshKaruta,15);
+    if(cards.length===0)return;
+    setSRS(freshMain);setKarutaSRS(freshKaruta);
+    // オーディオ解放（クリックイベント内で同期的に実行する必要がある）
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    setKarutaStartQueue(null);setKarutaStartAnswered(0);
+    setKarutaCards(cards);
+  };
   const playDeck=(dk,introMode=false,randomMode=false)=>{
     const freshSRS=loadSRS();
     // introMode=true のときはデッキ全問を自動入力対象にする（SRSデータの有無に関わらず）
@@ -3611,6 +3953,25 @@ function QuizApp(){
 
   /* ── ロビー画面 ─────────────────────────────────────────────── */
   if(phase==="start"){
+    if(karutaCards) return(
+      <LangCtx.Provider value={lang}>
+        <KarutaGamePlay
+          cards={karutaCards}
+          initialQueue={karutaStartQueue}
+          initialAnsweredCount={karutaStartAnswered}
+          karutaSRS={karutaSRS}
+          setKarutaSRS={setKarutaSRS}
+          onClose={()=>setKarutaCards(null)}
+          onMainCorrect={onKarutaCorrect}
+          onPause={(queue,answeredCount)=>doPauseKaruta(karutaCards,queue,answeredCount)}
+        />
+      </LangCtx.Provider>
+    );
+    if(karutaDeck) return(
+      <LangCtx.Provider value={lang}>
+        <KarutaPlay deck={karutaDeck} onClose={()=>setKarutaDeck(null)}/>
+      </LangCtx.Provider>
+    );
     if(!dbReady) return(
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",
         height:"100vh",background:"#0d0d18",flexDirection:"column",gap:12}}>
@@ -3645,7 +4006,12 @@ function QuizApp(){
         </button>
         <Lobby
           decks={decks} srs={srs} gSt={gSt}
-          onPlayDeck={playDeck}
+          onPlayDeck={playDeck} onPlayKaruta={playKaruta}
+          onPlayKarutaGame={playKarutaGame}
+          karutaCount={dbReady?countKarutaDue(decks,loadSRS(),karutaSRS):0}
+          karutaSave={karutaSave}
+          onResumeKaruta={doResumeKaruta}
+          onClearKarutaSave={()=>{clearKarutaSave();setKarutaSave(null);}}
           onPlayToday={playToday} onPlayReview={playReview} onPlayNew={playNew}
           onManageDecks={()=>setShowDeckMgr(true)}
           onSettings={(t)=>{
@@ -3910,7 +4276,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3938,7 +4304,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -3963,7 +4329,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {q.explanation&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
@@ -4162,6 +4528,524 @@ function ZoomableImage({src,alt,style}){
       </div>
     )}
   </>);
+}
+
+
+
+/* ══════════════════════════════════════════════════════════════
+   KARUTA GAME PLAY（ロビー発・SRS連動）
+   ・キューシステム：不正解→末尾に戻す。全問正解で終了
+   ・Reactフック規則準拠：全hookをearly return前に配置
+══════════════════════════════════════════════════════════════ */
+function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,setKarutaSRS,onMainCorrect,onClose,onPause}){
+  const T=useT();
+  const lang=React.useContext(LangCtx);
+
+  // キュー：カードのインデックス配列。不正解は末尾に戻す
+  const[queue,setQueue]=useState(()=>initialQueue||cards.map((_,i)=>i));
+  const[answeredCount,setAnsweredCount]=useState(initialAnsweredCount);
+  const[phase,setPhase]=useState('fill');
+  const[inputs,setInputs]=useState([]);
+  const[results,setResults]=useState(null);
+  const[isCorrect,setIsCorrect]=useState(null);
+  const[correctAnim,setCorrectAnim]=useState(false);
+  const[wrongAnim,setWrongAnim]=useState(false);
+  const[flash,setFlash]=useState(null);
+  const[ndUnlocked,setNdUnlocked]=useState(false);
+  const[takeAnim,setTakeAnim]=useState(false);
+  const[karutaCombo,setKarutaCombo]=useState(0);
+  const[comboAnim,setComboAnim]=useState(null);
+  const inputRefs=useRef([]);
+
+  const q=queue.length>0?cards[queue[0]]:null;
+  const blanks=q?.blanks||[];
+
+  const initCard=()=>{
+    if(!q)return;
+    setPhase('fill');
+    setInputs(new Array(blanks.length).fill(''));
+    setResults(null);setIsCorrect(null);
+    setTimeout(()=>inputRefs.current[0]?.focus(),80);
+  };
+
+  // BGM（全hookをearly return前に）
+  useEffect(()=>{
+    KBGM.start();
+    if(initialAnsweredCount>0){
+      const r=initialAnsweredCount/cards.length;
+      KBGM.setLevel(r>=0.75?3:r>=0.5?2:r>=0.25?1:0);
+    }
+    return()=>{KBGM.stop();};
+  },[]);
+
+  // フェーズ変更後エフェクト
+  useEffect(()=>{
+    if(phase!=='feedback'||isCorrect===null)return;
+    if(isCorrect){
+      const nc=answeredCount+1;setAnsweredCount(nc);
+      const ratio=nc/cards.length;
+      KBGM.setLevel(ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0);
+      // 穴埋りSRSにもボーナス記録
+      if(onMainCorrect&&q)onMainCorrect(q.id);
+      // NextDNS報酬カウント（百人一首は難易度が高いため1正解=+2）
+      checkNdReward(2).then(unlocked=>{
+        if(unlocked){setNdUnlocked(true);setTimeout(()=>setNdUnlocked(false),4000);}
+      });
+      karutaTakeSound();SFX.correct();
+      Hap.impact('Light');
+      setTimeout(()=>Hap.impact('Light'),150);
+      setTimeout(()=>Hap.impact('Medium'),300);
+      setTimeout(()=>Hap.impact('Heavy'),550);
+      setCorrectAnim(true);setTimeout(()=>setCorrectAnim(false),700);
+      setFlash('correct');setTimeout(()=>setFlash(null),1900);
+      setTakeAnim(true);setTimeout(()=>setTakeAnim(false),650);
+      const newCombo=karutaCombo+1;setKarutaCombo(newCombo);
+      if(newCombo>=2){setComboAnim(newCombo);setTimeout(()=>setComboAnim(null),950);}
+    }else{
+      SFX.wrong();Hap.notification('Error');
+      setWrongAnim(true);setTimeout(()=>setWrongAnim(false),500);
+      setFlash('wrong');setTimeout(()=>setFlash(null),1900);
+      setKarutaCombo(0);
+    }
+  },[phase,isCorrect]);
+
+  // 問題切り替え時に初期化（q?.id を依存に）
+  useEffect(()=>{initCard();},[q?.id]);
+
+  // ── 全カード正解で終了（early return は全hook後） ─────────────────
+  if(queue.length===0) return(
+    <div style={{minHeight:'100vh',background:'#0d0d18',display:'flex',
+      flexDirection:'column',alignItems:'center',justifyContent:'center',
+      fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',gap:20,padding:24}}>
+      <div style={{fontSize:52,animation:'bounceIn 0.6s ease'}}>🎴</div>
+      <div style={{fontSize:22,fontWeight:900,color:'#c9a84c'}}>
+        {lang==='ja'?'全問正解！':'All correct!'}
+      </div>
+      <div style={{fontSize:13,color:'#555',marginBottom:8}}>
+        {cards.length}{lang==='ja'?'枚コンプリート':'cards complete'}
+      </div>
+      <button onClick={onClose}
+        style={{background:'#c9a84c',border:'none',borderRadius:12,
+          padding:'14px 32px',fontSize:15,fontWeight:800,color:'#0d0d18',
+          cursor:'pointer',fontFamily:'inherit'}}>
+        {lang==='ja'?'ロビーへ戻る':'Back to Lobby'}
+      </button>
+    </div>
+  );
+
+  // ── submit / next ────────────────────────────────────────────────
+  const submit=()=>{
+    if(phase!=='fill')return;
+    const res=chkFill(blanks,inputs);
+    const ok=res.every(Boolean);
+    const newKSRS=updateKarutaSRS(karutaSRS,q.id,ok);
+    setKarutaSRS(newKSRS);saveKarutaSRS(newKSRS);
+    setResults(res);setIsCorrect(ok);setPhase('feedback');
+  };
+
+  const next=()=>{
+    setQueue(prev=>{
+      const rest=prev.slice(1);
+      if(isCorrect) return rest; // 正解：除去
+      // 不正解：末尾に追加（全問出題後に再出題）
+      return[...rest,prev[0]];
+    });
+    setPhase('fill');setInputs([]);setResults(null);setIsCorrect(null);
+  };
+
+  const handleKey=(i,e)=>{
+    if(e.key==='Enter'){
+      if(i<blanks.length-1)inputRefs.current[i+1]?.focus();
+      else submit();
+    }
+  };
+
+  const renderFullQ=()=>{
+    const parts=(q.q||'').split('___');
+    return parts.map((part,i)=>(
+      <React.Fragment key={i}>
+        <span>{part}</span>
+        {i<parts.length-1&&(()=>{
+          const correctAns=blanks[i]?.ans[0]||'';
+          const userVal=(inputs[i]||'').trim();
+          const ok=results?results[i]:null;
+          const color=ok?'#4ade80':'#f87171';
+          return(
+            <span style={{background:`rgba(${ok?'34,197,94':'239,68,68'},0.15)`,
+              border:`1px solid ${color}`,borderRadius:5,
+              padding:'1px 8px',margin:'0 2px',fontWeight:700,color,whiteSpace:'nowrap'}}>
+              {!ok&&userVal&&<span style={{textDecoration:'line-through',opacity:0.5,marginRight:5,color:'#888'}}>{userVal}</span>}
+              {correctAns}
+            </span>
+          );
+        })()}
+      </React.Fragment>
+    ));
+  };
+
+  const srsLabel=()=>{
+    const ks=karutaSRS[q.id];
+    if(!ks||ks.state==='new') return isCorrect?T.karutaFirstOk:T.karutaFirstNg;
+    if(isCorrect) return`✅ ${ks.intervalDays}日後`;
+    return`❌ ${lang==='ja'?'再学習':'Re-learning'}`;
+  };
+
+  // 進捗：正解済み枚数
+  const progress=answeredCount;
+  const remaining=queue.length;
+
+  return(
+    <LangCtx.Provider value={lang}>
+    <div style={{minHeight:'100vh',background:'#0d0d18',
+      fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',
+      display:'flex',flexDirection:'column',alignItems:'center',
+      padding:DK?'28px 16px':'12px 16px'}}>
+
+      {/* エフェクトオーバーレイ */}
+      {flash&&<div className='flashFade' style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:50,
+        background:flash==='correct'?'rgba(34,197,94,0.18)':'rgba(239,68,68,0.42)',
+        animationDuration:'1.9s'}}/>}
+      {correctAnim&&(
+        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',
+          justifyContent:'center',pointerEvents:'none',zIndex:60}}>
+          <div style={{width:150,height:150,borderRadius:'50%',
+            border:'5px solid #4ade80',animation:'correctRing 0.65s ease-out forwards'}}/>
+        </div>
+      )}
+      {wrongAnim&&(
+        <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:60,
+          boxShadow:'inset 0 0 70px rgba(239,68,68,0.75)',
+          animation:'wrongFlash 0.5s ease forwards'}}/>
+      )}
+      {takeAnim&&(
+        <div style={{position:'fixed',top:'42%',left:'50%',
+          pointerEvents:'none',zIndex:80,fontSize:DK?64:52,
+          animation:'karutaTake 0.62s ease-out forwards'}}>🎴</div>
+      )}
+      {comboAnim&&(
+        <div style={{position:'fixed',top:'32%',left:0,right:0,textAlign:'center',
+          pointerEvents:'none',zIndex:80,fontSize:DK?48:36,fontWeight:900,color:'#c9a84c',
+          fontFamily:"'Noto Serif JP',serif",animation:'karutaComboFloat 0.92s ease-out forwards'}}>
+          🎴×{comboAnim}
+        </div>
+      )}
+
+      {/* NextDNS解放通知 */}
+      {ndUnlocked&&(
+        <div style={{position:'fixed',top:DK?28:16,left:'50%',
+          transform:'translateX(-50%)',zIndex:90,
+          background:'#1a3a1a',border:'2px solid #4ade80',
+          borderRadius:14,padding:'10px 20px',
+          display:'flex',alignItems:'center',gap:10,
+          boxShadow:'0 4px 20px rgba(74,222,128,0.3)',
+          animation:'slideDown 0.3s ease',whiteSpace:'nowrap'}}>
+          <span style={{fontSize:20}}>🎉</span>
+          <span style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>
+            {lang==='ja'?`X が ${_ND_MIN}分間解放されました！`:`X unlocked for ${_ND_MIN} min!`}
+          </span>
+        </div>
+      )}
+
+      {/* ヘッダー */}
+      <div style={{width:'100%',maxWidth:520,display:'flex',
+        alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        <button onClick={onClose}
+          style={{background:'none',border:'1px solid #333',borderRadius:8,
+            padding:'5px 12px',color:'#888',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+          ← {lang==='ja'?'戻る':'Back'}
+        </button>
+        <div style={{fontSize:12,color:'#666',fontWeight:700,textAlign:'center'}}>
+          🎴 {lang==='ja'?`正解 ${progress}/${cards.length}枚 · 残り${remaining}`:`${progress}/${cards.length} · ${remaining} left`}
+        </div>
+        <button onClick={()=>onPause&&onPause(queue,answeredCount)}
+          style={{background:'none',border:'1px solid #555',borderRadius:8,
+            padding:'5px 10px',color:'#888',fontSize:14,cursor:'pointer',lineHeight:1}}>
+          ⏸
+        </button>
+      </div>
+
+      {/* プログレスバー */}
+      <div style={{width:'100%',maxWidth:520,height:3,background:'#1e1e32',
+        borderRadius:2,marginBottom:16,overflow:'hidden'}}>
+        <div style={{height:'100%',background:'#c9a84c',borderRadius:2,
+          width:`${progress/cards.length*100}%`,transition:'width 0.4s ease'}}/>
+      </div>
+
+      <div style={{width:'100%',maxWidth:520,display:'flex',flexDirection:'column',gap:12,flex:1}}>
+        {phase==='fill'&&(
+          <>
+            <div style={{background:'#13132a',border:'2px solid #c9a84c',
+              borderRadius:16,padding:'18px 16px'}}>
+              <div style={{fontSize:10,color:'#c9a84c',letterSpacing:2,marginBottom:8,fontWeight:700}}>
+                🃏 {lang==='ja'?'冒頭':'OPENING'}
+              </div>
+              <div style={{fontSize:DK?18:15,lineHeight:1.9,color:'#ece8d8'}}>{makeCue(q)}</div>
+            </div>
+            <div style={{background:'#0d0d20',border:'1px solid #2a2a44',
+              borderRadius:16,padding:'18px 16px',display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{fontSize:11,color:'#555',letterSpacing:1}}>
+                {lang==='ja'?'答えを入力してください':'Fill in the blanks'}
+              </div>
+              {blanks.map((b,i)=>(
+                <div key={i} style={{display:'flex',alignItems:'center',gap:10}}>
+                  <span style={{fontSize:16,color:'#c9a84c',fontWeight:800,minWidth:24}}>
+                    {'①②③④⑤⑥⑦⑧⑨⑩'[i]||String(i+1)}
+                  </span>
+                  <input ref={el=>inputRefs.current[i]=el}
+                    value={inputs[i]||''}
+                    onChange={e=>{const v=[...inputs];v[i]=e.target.value;setInputs(v);SFX.typeKey();}}
+                    onKeyDown={e=>handleKey(i,e)}
+                    style={{width:DK?180:140,background:'#1e1e3a',border:'1.5px solid #4a4a72',
+                      borderRadius:8,padding:'9px 12px',color:'#ece8d8',
+                      fontSize:DK?18:16,fontFamily:'inherit',outline:'none',textAlign:'center'}}
+                    autoComplete="off" autoCorrect="off" autoCapitalize="off"
+                    spellCheck="false" placeholder={`(${i+1})`}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {phase==='feedback'&&(
+          <>
+            <div style={{background:isCorrect?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)',
+              border:`2px solid ${isCorrect?'#22c55e':'#ef4444'}`,
+              borderRadius:14,padding:'12px 16px',
+              display:'flex',justifyContent:'space-between',alignItems:'center',
+              animation:isCorrect?undefined:'karutaOtetsuki 0.45s ease'}}>
+              <span style={{fontSize:DK?16:14,fontWeight:800,color:isCorrect?'#4ade80':'#f87171'}}>
+                {isCorrect
+                  ?'✅ '+(lang==='ja'?'正解！':'Correct!')
+                  :'❌ '+(lang==='ja'?'不正解（全問終了後に再出題）':'Wrong (retry after all cards)')}
+              </span>
+              <span style={{fontSize:11,color:'#888'}}>{srsLabel()}</span>
+            </div>
+            <div style={{background:'#13132a',border:'1px solid #2a2a44',
+              borderRadius:14,padding:'14px 16px',
+              display:'flex',flexDirection:'column',gap:DK?6:4,alignItems:'center'}}>
+              {blanks.map((b,i)=>(
+                <div key={i} style={{display:'flex',alignItems:'center',gap:DK?10:6}}>
+                  {blanks.length>1&&<span style={{fontSize:12,color:'#888',marginRight:4}}>（{i+1}）</span>}
+                  <span style={{fontSize:DK?38:28,fontWeight:900,color:'#f0c060',lineHeight:1.4}}>
+                    {b.ans[0]}
+                  </span>
+                  {results&&!results[i]&&(
+                    <span style={{fontSize:12,color:'#f87171',marginLeft:6}}>
+                      ← {(inputs[i]||'').trim()||'（未入力）'}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{background:'#0d0d20',border:'1px solid #2a2a44',
+              borderRadius:16,padding:'18px 16px',animation:'slideUp 0.2s ease'}}>
+              <div style={{fontSize:10,color:'#555',letterSpacing:2,marginBottom:10,fontWeight:700}}>
+                {lang==='ja'?'問題文全文':'FULL QUESTION'}
+              </div>
+              <div style={{fontSize:DK?16:14,lineHeight:2.0,color:'#c8c0a8'}}>{renderFullQ()}</div>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={{width:'100%',maxWidth:520,marginTop:14,paddingBottom:16}}>
+        {phase==='fill'?(
+          <button onClick={submit}
+            style={{width:'100%',background:'#c9a84c',border:'none',
+              borderRadius:14,padding:'15px',fontSize:15,fontWeight:800,
+              color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
+            {T.submitBtn}
+          </button>
+        ):(
+          <button onClick={next}
+            style={{width:'100%',
+              background:isCorrect?'#c9a84c':'#1e1e36',
+              border:`2px solid ${isCorrect?'#c9a84c':'#ef4444'}`,
+              borderRadius:14,padding:'15px',fontSize:15,fontWeight:800,
+              color:isCorrect?'#0d0d18':'#f87171',
+              cursor:'pointer',fontFamily:'inherit',transition:'all 0.2s'}}>
+            {T.karutaNext}
+          </button>
+        )}
+      </div>
+    </div>
+    </LangCtx.Provider>
+  );
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   KARUTA MODE HELPERS
+══════════════════════════════════════════════════════════════ */
+function makeCue(q){
+  const text=q.q||'';
+  const BLANK='___';
+  // 言語判定: 先頭20字に漢字・仮名が2文字以上あればJP
+  const start20=text.slice(0,20);
+  const jpCount=(start20.match(/[\u3040-\u9fff\u4e00-\u9fff]/g)||[]).length;
+  const isJP=jpCount>=2;
+  if(isJP){
+    // 最初の句点 or ピリオド（小数点を除く）を探す
+    const m=text.search(/(?<!\d)[。.](?!\d)/);
+    if(m!==-1&&m<=60) return text.slice(0,m+1).trim();
+    // 空欄を●●●に置き換えて30字分表示（空欄が早く来ても文脈を確保）
+    const masked=text.replace(/___/g,'●●●');
+    return masked.slice(0,30).trim()+'…';
+  } else {
+    // EN: 最初の文末（.）か10語
+    const m=text.search(/(?<!\d)\.(?!\d)/);
+    if(m!==-1&&m<=80) return text.slice(0,m+1).trim();
+    const words=text.split(/\s+/).slice(0,10).join(' ');
+    return words+'…';
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   KARUTA PLAY SCREEN
+══════════════════════════════════════════════════════════════ */
+function KarutaPlay({deck,onClose}){
+  const T=useT();
+  const questions=deck.questions||[];
+  const[order,setOrder]=useState(()=>[...Array(questions.length).keys()].sort(()=>Math.random()-0.5));
+  const[idx,setIdx]=useState(0);
+  const[revealed,setRevealed]=useState(false);
+  const[done,setDone]=useState(false);
+
+  const q=questions[order[idx]];
+  if(!q) return null;
+
+  const cue=makeCue(q);
+  const answers=(q.blanks||[]).map(b=>b.ans?b.ans[0]:b);
+
+  const next=()=>{
+    if(idx<order.length-1){
+      setIdx(i=>i+1);setRevealed(false);setDone(false);
+    } else {
+      setDone(true);
+    }
+  };
+  const restart=()=>{
+    setOrder([...Array(questions.length).keys()].sort(()=>Math.random()-0.5));
+    setIdx(0);setRevealed(false);setDone(false);
+  };
+
+  // 問題文のブランクをハイライト表示用にパース
+  const renderFull=()=>{
+    const parts=q.q.split('___');
+    return parts.map((part,i)=>(
+      <React.Fragment key={i}>
+        <span>{part}</span>
+        {i<parts.length-1&&(
+          <span style={{background:'rgba(201,168,76,0.2)',border:'1px solid #c9a84c',
+            borderRadius:4,padding:'1px 6px',color:'#c9a84c',fontWeight:700,margin:'0 2px'}}>
+            {answers[i]||'__'}
+          </span>
+        )}
+      </React.Fragment>
+    ));
+  };
+
+  return(
+    <LangCtx.Provider value={React.useContext(LangCtx)}>
+    <div style={{minHeight:'100vh',background:'#0d0d18',fontFamily:"'Noto Serif JP',serif",
+      display:'flex',flexDirection:'column',alignItems:'center',padding:DK?'32px 16px':'16px',
+      color:'#e8dcc8'}}>
+
+      {/* ヘッダー */}
+      <div style={{width:'100%',maxWidth:500,display:'flex',alignItems:'center',
+        justifyContent:'space-between',marginBottom:16}}>
+        <button onClick={onClose}
+          style={{background:'none',border:'1px solid #333',borderRadius:8,
+            padding:'6px 14px',color:'#888',fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>
+          ← 戻る
+        </button>
+        <div style={{fontSize:12,color:'#555',fontWeight:700,letterSpacing:1}}>
+          {T.karutaMode} · {T.karutaProgress(idx+1,questions.length)}
+        </div>
+        <div style={{width:60}}/>
+      </div>
+
+      {/* プログレスバー */}
+      <div style={{width:'100%',maxWidth:500,height:3,background:'#1e1e32',
+        borderRadius:2,marginBottom:20,overflow:'hidden'}}>
+        <div style={{height:'100%',width:`${(idx+1)/questions.length*100}%`,
+          background:'#c9a84c',borderRadius:2,transition:'width 0.3s ease'}}/>
+      </div>
+
+      {/* カード */}
+      <div style={{width:'100%',maxWidth:500,flex:1,display:'flex',
+        flexDirection:'column',gap:12}}>
+
+        {/* キュー部分（常に表示） */}
+        <div
+          onClick={()=>!revealed&&setRevealed(true)}
+          style={{background:'#13132a',border:'2px solid #2a2a44',
+            borderRadius:16,padding:'24px 20px',
+            cursor:revealed?'default':'pointer',
+            transition:'border-color 0.2s',
+            ...(revealed?{}:{borderColor:'#c9a84c'})}}>
+          <div style={{fontSize:11,color:'#555',letterSpacing:2,marginBottom:10,fontWeight:700}}>
+            🃏 {deck.name}
+          </div>
+          <div style={{fontSize:DK?19:16,lineHeight:1.9,color:'#ece8d8'}}>
+            {cue}
+          </div>
+          {!revealed&&(
+            <div style={{marginTop:14,fontSize:12,color:'#555',textAlign:'center',
+              animation:'continueBlink 2s ease infinite'}}>
+              {T.karutaReveal}
+            </div>
+          )}
+        </div>
+
+        {/* 全文＋答え（タップで表示） */}
+        {revealed&&(
+          <div style={{background:'#0d0d20',border:'1px solid #2a2a44',
+            borderRadius:16,padding:'20px',animation:'slideUp 0.25s ease'}}>
+            <div style={{fontSize:DK?17:15,lineHeight:1.9,color:'#c8c0a8',marginBottom:16}}>
+              {renderFull()}
+            </div>
+            <div style={{borderTop:'1px solid #2a2a38',paddingTop:14,
+              display:'flex',flexWrap:'wrap',gap:8}}>
+              {answers.map((a,i)=>(
+                <div key={i} style={{background:'rgba(201,168,76,0.12)',
+                  border:'1px solid rgba(201,168,76,0.4)',borderRadius:8,
+                  padding:'6px 14px',display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:11,color:'#888'}}>{'①②③④⑤⑥⑦⑧⑨⑩'[i]||String(i+1)}</span>
+                  <span style={{fontSize:DK?22:19,fontWeight:900,color:'#f0c060'}}>{a}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 次へボタン */}
+      <div style={{width:'100%',maxWidth:500,marginTop:20,paddingBottom:20}}>
+        {done?(
+          <button onClick={restart}
+            style={{width:'100%',background:'rgba(201,168,76,0.15)',
+              border:'2px solid #c9a84c',borderRadius:14,padding:'16px',
+              fontSize:15,fontWeight:800,color:'#c9a84c',cursor:'pointer',fontFamily:'inherit'}}>
+            {T.karutaDone}
+          </button>
+        ):(
+          <button onClick={revealed?next:()=>setRevealed(true)}
+            style={{width:'100%',
+              background:revealed?'#c9a84c':'#1e1e36',
+              border:`2px solid ${revealed?'#c9a84c':'#3a3a58'}`,
+              borderRadius:14,padding:'16px',
+              fontSize:15,fontWeight:800,
+              color:revealed?'#0d0d18':'#555',
+              cursor:'pointer',fontFamily:'inherit',
+              transition:'all 0.2s'}}>
+            {revealed?T.karutaNext:T.karutaReveal}
+          </button>
+        )}
+      </div>
+    </div>
+    </LangCtx.Provider>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<QuizApp/>);
