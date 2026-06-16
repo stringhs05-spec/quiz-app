@@ -607,18 +607,23 @@ function updateKarutaSRS(kSRS,qId,correct){
 // 穴埋りSRSでreview段階に到達したカードがkaruta対象
 // mainSRS[q.id]?.state==='review' かつ kSRS未登録 → 新規karuta
 const isKuzushiQ=q=>/くずし字|崩し字|くずし|写真の人物|画像を見て|写真を見て/.test(q.q||'');
-function buildKarutaDeck(decks,mainSRS,kSRS,limit=15){
+function buildKarutaDeck(decks,mainSRS,kSRS,limit=10){
   const seen=new Set();const newC=[],dueC=[];
   decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
     if(seen.has(q.id))return;seen.add(q.id);
     if(isKuzushiQ(q))return; // くずし字問題を除外
     if(mainSRS[q.id]?.state!=='review')return;
     const ks=kSRS[q.id];
-    if(!ks){newC.push(q);return;}
+    if(!ks){
+      // 百人一首新カードは14日以上定着したものに限定
+      if((mainSRS[q.id]?.intervalDays||0)>=14)newC.push(q);
+      return;
+    }
     if(isDue(ks))dueC.push(q);
   }));
   const sd=shuffle(dueC),sn=shuffle(newC);
-  const dSlice=sd.slice(0,Math.ceil(limit*0.7));
+  // due優先7枚、不足分は新カードで10枚まで補充
+  const dSlice=sd.slice(0,Math.min(7,sd.length));
   const nSlice=sn.slice(0,limit-dSlice.length);
   return[...dSlice,...nSlice].slice(0,limit);
 }
@@ -640,15 +645,16 @@ const SYNC_TS_KEY="econ_sync_ts_v1";
 let _syncCooldownTs=0;
 const SYNC_COOLDOWN_MS=30000;
 
-async function syncSave(url,srs,karutaSrs,stats,{force=false}={}){
+async function syncSave(url,srs,karutaSrs,stats,{force=false,history=null}={}){
   if(!url)return false;
   const now=Date.now();
   if(!force&&now-_syncCooldownTs<SYNC_COOLDOWN_MS)return false;
   _syncCooldownTs=now;
   try{
     const exportedAt=new Date().toISOString();
-    const res=await fetch(url,{method:"POST",
-      body:JSON.stringify({_type:"econ_progress",version:3,exportedAt,srs,karutaSrs,stats})});
+    const payload={_type:"econ_progress",version:3,exportedAt,srs,karutaSrs,stats};
+    if(history)payload.history=history;
+    const res=await fetch(url,{method:"POST",body:JSON.stringify(payload)});
     if(res.ok){localStorage.setItem(SYNC_TS_KEY,exportedAt);return true;}
     return false;
   }catch{return false;}
@@ -1128,6 +1134,7 @@ const _K_ARP=[
 let _kOn=false,_kStep=0,_kTid=null,_kLevel=0;
 const _kTick=()=>{
   if(!_kOn)return;
+  if(!_soundEnabled){_kStep++;_kTid=setTimeout(_kTick,_K_STEP_MS);return;}
   try{
     const c=getCtx();
     if(c.state==='running'){
@@ -1585,7 +1592,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
     const onStart=()=>{ isComposingRef.current=true; };
     const onEnd=()=>{
       // compositionend の直後に keydown が来るブラウザがあるため少し遅延
-      setTimeout(()=>{ isComposingRef.current=false; },50);
+      setTimeout(()=>{ isComposingRef.current=false; },100);
     };
     window.addEventListener("compositionstart",onStart);
     window.addEventListener("compositionend",onEnd);
@@ -1718,7 +1725,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   // Enter / Tab：空欄操作
   const handleKeyDown=(blankIdx,e)=>{
     const isTabKey=e.key==="Tab";
-    const isEnterKey=e.key==="Enter"&&!isComposingRef.current&&e.keyCode!==229;
+    const isEnterKey=e.key==="Enter"&&!e.isComposing&&!isComposingRef.current&&e.keyCode!==229;
     if(!isTabKey&&!isEnterKey)return;
 
     // ── Previewモード（isNew）────────────────────────────────────
@@ -2510,7 +2517,8 @@ function IOPanel({QS,setQS,gSt,setGSt,decks,setDecks,srs,setSRS,syncUrl,setSyncU
                   <button onClick={async(e)=>{
                     const btn=e.currentTarget;
                     btn.disabled=true;btn.textContent="保存中…";
-                    const ok=await syncSave(syncUrlInput.trim(),srs,loadKarutaSRS(),gSt,{force:true});
+                    const history=await loadAllHistory();
+                    const ok=await syncSave(syncUrlInput.trim(),srs,loadKarutaSRS(),gSt,{force:true,history});
                     btn.textContent=ok?"✅ 保存しました！":"❌ 保存失敗";
                     btn.style.background=ok?"#0d3a0d":"#3a0d0d";
                     btn.style.borderColor=ok?"#22c55e":"#ef4444";
@@ -3675,7 +3683,7 @@ function QuizApp(){
   const playKarutaGame=()=>{
     const freshMain=loadSRS();
     const freshKaruta=loadKarutaSRS();
-    const cards=buildKarutaDeck(decks,freshMain,freshKaruta,15);
+    const cards=buildKarutaDeck(decks,freshMain,freshKaruta,10);
     if(cards.length===0)return;
     setSRS(freshMain);setKarutaSRS(freshKaruta);
     // オーディオ解放（クリックイベント内で同期的に実行する必要がある）
@@ -4568,6 +4576,22 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
   const T=useT();
   const lang=React.useContext(LangCtx);
 
+  // 報酬進捗（Swift WKWebView内のみ有効）
+  const KARUTA_REWARD_REQUIRED=8;
+  const inApp=!!(window.webkit?.messageHandlers?.quizBridge);
+  const[rewardCount,setRewardCount]=useState(()=>
+    inApp?parseInt(localStorage.getItem('nd_karuta_count')||'0'):0
+  );
+
+  // 音声オン/オフ（穴埋りモードと共有）
+  const[soundOn,setSoundOn]=useState(()=>localStorage.getItem('econ_sound')!=='0');
+  const toggleSound=()=>{
+    const next=!soundOn;
+    _soundEnabled=next;
+    localStorage.setItem('econ_sound',next?'1':'0');
+    setSoundOn(next);
+  };
+
   // キュー：カードのインデックス配列。不正解は末尾に戻す
   const[queue,setQueue]=useState(()=>initialQueue||cards.map((_,i)=>i));
   const[answeredCount,setAnsweredCount]=useState(initialAnsweredCount);
@@ -4583,6 +4607,8 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
   const[karutaCombo,setKarutaCombo]=useState(0);
   const[comboAnim,setComboAnim]=useState(null);
   const inputRefs=useRef([]);
+  const composingRef=useRef(false);      // IME変換中フラグ
+  const feedbackTsRef=useRef(0);         // feedbackになった時刻
 
   const q=queue.length>0?cards[queue[0]]:null;
   const blanks=q?.blanks||[];
@@ -4594,6 +4620,25 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
     setResults(null);setIsCorrect(null);
     setTimeout(()=>inputRefs.current[0]?.focus(),80);
   };
+
+  // フィードバック中のEnterキー → 次へ
+  useEffect(()=>{
+    const onKey=(e)=>{
+      if(e.key==='Enter'&&phase==='feedback'&&!composingRef.current){
+        // feedbackになってから400ms以上経過していれば進む
+        if(Date.now()-feedbackTsRef.current>400){
+          e.preventDefault();next();
+        }
+      }
+    };
+    window.addEventListener('keyup',onKey);
+    return()=>window.removeEventListener('keyup',onKey);
+  },[phase,isCorrect]);
+
+  // feedbackになった時刻を記録（Enter誤作動防止）
+  useEffect(()=>{
+    if(phase==='feedback') feedbackTsRef.current=Date.now();
+  },[phase]);
 
   // BGM（全hookをearly return前に）
   useEffect(()=>{
@@ -4617,6 +4662,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
       // NextDNS報酬カウント（百人一首は難易度が高いため1正解=+2）
       checkNdReward(2).then(unlocked=>{
         if(unlocked){setNdUnlocked(true);setTimeout(()=>setNdUnlocked(false),4000);}
+        if(inApp) setRewardCount(parseInt(localStorage.getItem('nd_karuta_count')||'0'));
       });
       karutaTakeSound();SFX.correct();
       Hap.impact('Light');
@@ -4645,15 +4691,15 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
       flexDirection:'column',alignItems:'center',justifyContent:'center',
       fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',gap:20,padding:24}}>
       <div style={{fontSize:52,animation:'bounceIn 0.6s ease'}}>🎴</div>
-      <div style={{fontSize:22,fontWeight:900,color:'#c9a84c'}}>
+      <div style={{fontSize:23,fontWeight:900,color:'#c9a84c'}}>
         {lang==='ja'?'全問正解！':'All correct!'}
       </div>
-      <div style={{fontSize:13,color:'#555',marginBottom:8}}>
+      <div style={{fontSize:14,color:'#555',marginBottom:8}}>
         {cards.length}{lang==='ja'?'枚コンプリート':'cards complete'}
       </div>
       <button onClick={onClose}
         style={{background:'#c9a84c',border:'none',borderRadius:12,
-          padding:'14px 32px',fontSize:15,fontWeight:800,color:'#0d0d18',
+          padding:'14px 32px',fontSize:16,fontWeight:800,color:'#0d0d18',
           cursor:'pointer',fontFamily:'inherit'}}>
         {lang==='ja'?'ロビーへ戻る':'Back to Lobby'}
       </button>
@@ -4681,7 +4727,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
   };
 
   const handleKey=(i,e)=>{
-    if(e.key==='Enter'){
+    if(e.key==='Enter'&&!composingRef.current){
       if(i<blanks.length-1)inputRefs.current[i+1]?.focus();
       else submit();
     }
@@ -4766,8 +4812,8 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
           display:'flex',alignItems:'center',gap:10,
           boxShadow:'0 4px 20px rgba(74,222,128,0.3)',
           animation:'slideDown 0.3s ease',whiteSpace:'nowrap'}}>
-          <span style={{fontSize:20}}>🎉</span>
-          <span style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>
+          <span style={{fontSize:21}}>🎉</span>
+          <span style={{fontSize:14,fontWeight:700,color:'#4ade80'}}>
             {lang==='ja'?`X が ${_ND_MIN}分間解放されました！`:`X unlocked for ${_ND_MIN} min!`}
           </span>
         </div>
@@ -4775,20 +4821,31 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
 
       {/* ヘッダー */}
       <div style={{width:'100%',maxWidth:520,display:'flex',
-        alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        alignItems:'center',justifyContent:'space-between',marginBottom:10,gap:6}}>
         <button onClick={onClose}
-          style={{background:'none',border:'1px solid #333',borderRadius:8,
-            padding:'5px 12px',color:'#888',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>
+          style={{background:'none',border:'1px solid #333',borderRadius:8,flexShrink:0,
+            padding:'5px 12px',color:'#888',fontSize:14,cursor:'pointer',fontFamily:'inherit'}}>
           ← {lang==='ja'?'戻る':'Back'}
         </button>
-        <div style={{fontSize:12,color:'#666',fontWeight:700,textAlign:'center'}}>
+        <div style={{flex:1,minWidth:0,fontSize:14,color:'#666',fontWeight:700,textAlign:'center',lineHeight:1.6}}>
           🎴 {lang==='ja'?`正解 ${progress}/${cards.length}枚 · 残り${remaining}`:`${progress}/${cards.length} · ${remaining} left`}
+          {inApp&&<div style={{fontSize:13,color:'#c9a84c',marginTop:1}}>
+            🎁 {lang==='ja'?`報酬まであと${KARUTA_REWARD_REQUIRED-rewardCount}問`:`${KARUTA_REWARD_REQUIRED-rewardCount} more for reward`}
+          </div>}
         </div>
-        <button onClick={()=>onPause&&onPause(queue,answeredCount)}
-          style={{background:'none',border:'1px solid #555',borderRadius:8,
-            padding:'5px 10px',color:'#888',fontSize:14,cursor:'pointer',lineHeight:1}}>
-          ⏸
-        </button>
+        <div style={{display:'flex',gap:6,flexShrink:0}}>
+          <button onClick={()=>onPause&&onPause(queue,answeredCount)}
+            style={{background:'none',border:'1px solid #555',borderRadius:8,
+              padding:'5px 10px',color:'#888',fontSize:15,cursor:'pointer',lineHeight:1}}>
+            ⏸
+          </button>
+          <button onClick={toggleSound}
+            style={{background:'none',border:`1px solid ${soundOn?'#c9a84c':'#555'}`,borderRadius:8,
+              padding:'5px 10px',color:soundOn?'#c9a84c':'#666',fontSize:15,cursor:'pointer',lineHeight:1}}
+            title={soundOn?'音声オフ':'音声オン'}>
+            {soundOn?'🔊':'🔇'}
+          </button>
+        </div>
       </div>
 
       {/* プログレスバー */}
@@ -4803,19 +4860,19 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
           <>
             <div style={{background:'#13132a',border:'2px solid #c9a84c',
               borderRadius:16,padding:'18px 16px'}}>
-              <div style={{fontSize:10,color:'#c9a84c',letterSpacing:2,marginBottom:8,fontWeight:700}}>
+              <div style={{fontSize:12,color:'#c9a84c',letterSpacing:2,marginBottom:8,fontWeight:700}}>
                 🃏 {lang==='ja'?'冒頭':'OPENING'}
               </div>
-              <div style={{fontSize:DK?18:15,lineHeight:1.9,color:'#ece8d8'}}>{makeCue(q)}</div>
+              <div style={{fontSize:DK?20:17,lineHeight:1.9,color:'#ece8d8'}}>{makeCue(q)}</div>
             </div>
             <div style={{background:'#0d0d20',border:'1px solid #2a2a44',
               borderRadius:16,padding:'18px 16px',display:'flex',flexDirection:'column',gap:12}}>
-              <div style={{fontSize:11,color:'#555',letterSpacing:1}}>
+              <div style={{fontSize:13,color:'#555',letterSpacing:1}}>
                 {lang==='ja'?'答えを入力してください':'Fill in the blanks'}
               </div>
               {blanks.map((b,i)=>(
                 <div key={i} style={{display:'flex',alignItems:'center',gap:10}}>
-                  <span style={{fontSize:16,color:'#c9a84c',fontWeight:800,minWidth:24}}>
+                  <span style={{fontSize:17,color:'#c9a84c',fontWeight:800,minWidth:24}}>
                     {'①②③④⑤⑥⑦⑧⑨⑩'[i]||String(i+1)}
                   </span>
                   <input ref={el=>inputRefs.current[i]=el}
@@ -4824,7 +4881,9 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
                     onKeyDown={e=>handleKey(i,e)}
                     style={{width:DK?180:140,background:'#1e1e3a',border:'1.5px solid #4a4a72',
                       borderRadius:8,padding:'9px 12px',color:'#ece8d8',
-                      fontSize:DK?18:16,fontFamily:'inherit',outline:'none',textAlign:'center'}}
+                      fontSize:DK?20:18,fontFamily:'inherit',outline:'none',textAlign:'center'}}
+                    onCompositionStart={()=>{composingRef.current=true;}}
+                    onCompositionEnd={()=>{setTimeout(()=>{composingRef.current=false;},50);}}
                     autoComplete="off" autoCorrect="off" autoCapitalize="off"
                     spellCheck="false" placeholder={`(${i+1})`}
                   />
@@ -4840,24 +4899,24 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
               borderRadius:14,padding:'12px 16px',
               display:'flex',justifyContent:'space-between',alignItems:'center',
               animation:isCorrect?undefined:'karutaOtetsuki 0.45s ease'}}>
-              <span style={{fontSize:DK?16:14,fontWeight:800,color:isCorrect?'#4ade80':'#f87171'}}>
+              <span style={{fontSize:DK?18:16,fontWeight:800,color:isCorrect?'#4ade80':'#f87171'}}>
                 {isCorrect
                   ?'✅ '+(lang==='ja'?'正解！':'Correct!')
                   :'❌ '+(lang==='ja'?'不正解（全問終了後に再出題）':'Wrong (retry after all cards)')}
               </span>
-              <span style={{fontSize:11,color:'#888'}}>{srsLabel()}</span>
+              <span style={{fontSize:13,color:'#888'}}>{srsLabel()}</span>
             </div>
             <div style={{background:'#13132a',border:'1px solid #2a2a44',
               borderRadius:14,padding:'14px 16px',
               display:'flex',flexDirection:'column',gap:DK?6:4,alignItems:'center'}}>
               {blanks.map((b,i)=>(
                 <div key={i} style={{display:'flex',alignItems:'center',gap:DK?10:6}}>
-                  {blanks.length>1&&<span style={{fontSize:12,color:'#888',marginRight:4}}>（{i+1}）</span>}
-                  <span style={{fontSize:DK?38:28,fontWeight:900,color:'#f0c060',lineHeight:1.4}}>
+                  {blanks.length>1&&<span style={{fontSize:14,color:'#888',marginRight:4}}>（{i+1}）</span>}
+                  <span style={{fontSize:DK?40:30,fontWeight:900,color:'#f0c060',lineHeight:1.4}}>
                     {b.ans[0]}
                   </span>
                   {results&&!results[i]&&(
-                    <span style={{fontSize:12,color:'#f87171',marginLeft:6}}>
+                    <span style={{fontSize:14,color:'#f87171',marginLeft:6}}>
                       ← {(inputs[i]||'').trim()||'（未入力）'}
                     </span>
                   )}
@@ -4866,10 +4925,10 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
             </div>
             <div style={{background:'#0d0d20',border:'1px solid #2a2a44',
               borderRadius:16,padding:'18px 16px',animation:'slideUp 0.2s ease'}}>
-              <div style={{fontSize:10,color:'#555',letterSpacing:2,marginBottom:10,fontWeight:700}}>
+              <div style={{fontSize:12,color:'#555',letterSpacing:2,marginBottom:10,fontWeight:700}}>
                 {lang==='ja'?'問題文全文':'FULL QUESTION'}
               </div>
-              <div style={{fontSize:DK?16:14,lineHeight:2.0,color:'#c8c0a8'}}>{renderFullQ()}</div>
+              <div style={{fontSize:DK?18:16,lineHeight:2.0,color:'#c8c0a8'}}>{renderFullQ()}</div>
             </div>
           </>
         )}
@@ -4879,7 +4938,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
         {phase==='fill'?(
           <button onClick={submit}
             style={{width:'100%',background:'#c9a84c',border:'none',
-              borderRadius:14,padding:'15px',fontSize:15,fontWeight:800,
+              borderRadius:14,padding:'15px',fontSize:16,fontWeight:800,
               color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
             {T.submitBtn}
           </button>
@@ -4888,7 +4947,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
             style={{width:'100%',
               background:isCorrect?'#c9a84c':'#1e1e36',
               border:`2px solid ${isCorrect?'#c9a84c':'#ef4444'}`,
-              borderRadius:14,padding:'15px',fontSize:15,fontWeight:800,
+              borderRadius:14,padding:'15px',fontSize:16,fontWeight:800,
               color:isCorrect?'#0d0d18':'#f87171',
               cursor:'pointer',fontFamily:'inherit',transition:'all 0.2s'}}>
             {T.karutaNext}
@@ -4983,10 +5042,10 @@ function KarutaPlay({deck,onClose}){
         justifyContent:'space-between',marginBottom:16}}>
         <button onClick={onClose}
           style={{background:'none',border:'1px solid #333',borderRadius:8,
-            padding:'6px 14px',color:'#888',fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>
+            padding:'6px 14px',color:'#888',fontSize:14,cursor:'pointer',fontFamily:'inherit'}}>
           ← 戻る
         </button>
-        <div style={{fontSize:12,color:'#555',fontWeight:700,letterSpacing:1}}>
+        <div style={{fontSize:14,color:'#555',fontWeight:700,letterSpacing:1}}>
           {T.karutaMode} · {T.karutaProgress(idx+1,questions.length)}
         </div>
         <div style={{width:60}}/>
@@ -5011,14 +5070,14 @@ function KarutaPlay({deck,onClose}){
             cursor:revealed?'default':'pointer',
             transition:'border-color 0.2s',
             ...(revealed?{}:{borderColor:'#c9a84c'})}}>
-          <div style={{fontSize:11,color:'#555',letterSpacing:2,marginBottom:10,fontWeight:700}}>
+          <div style={{fontSize:13,color:'#555',letterSpacing:2,marginBottom:10,fontWeight:700}}>
             🃏 {deck.name}
           </div>
-          <div style={{fontSize:DK?19:16,lineHeight:1.9,color:'#ece8d8'}}>
+          <div style={{fontSize:DK?21:18,lineHeight:1.9,color:'#ece8d8'}}>
             {cue}
           </div>
           {!revealed&&(
-            <div style={{marginTop:14,fontSize:12,color:'#555',textAlign:'center',
+            <div style={{marginTop:14,fontSize:14,color:'#555',textAlign:'center',
               animation:'continueBlink 2s ease infinite'}}>
               {T.karutaReveal}
             </div>
@@ -5029,7 +5088,7 @@ function KarutaPlay({deck,onClose}){
         {revealed&&(
           <div style={{background:'#0d0d20',border:'1px solid #2a2a44',
             borderRadius:16,padding:'20px',animation:'slideUp 0.25s ease'}}>
-            <div style={{fontSize:DK?17:15,lineHeight:1.9,color:'#c8c0a8',marginBottom:16}}>
+            <div style={{fontSize:DK?19:17,lineHeight:1.9,color:'#c8c0a8',marginBottom:16}}>
               {renderFull()}
             </div>
             <div style={{borderTop:'1px solid #2a2a38',paddingTop:14,
@@ -5038,8 +5097,8 @@ function KarutaPlay({deck,onClose}){
                 <div key={i} style={{background:'rgba(201,168,76,0.12)',
                   border:'1px solid rgba(201,168,76,0.4)',borderRadius:8,
                   padding:'6px 14px',display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:11,color:'#888'}}>{'①②③④⑤⑥⑦⑧⑨⑩'[i]||String(i+1)}</span>
-                  <span style={{fontSize:DK?22:19,fontWeight:900,color:'#f0c060'}}>{a}</span>
+                  <span style={{fontSize:13,color:'#888'}}>{'①②③④⑤⑥⑦⑧⑨⑩'[i]||String(i+1)}</span>
+                  <span style={{fontSize:DK?24:21,fontWeight:900,color:'#f0c060'}}>{a}</span>
                 </div>
               ))}
             </div>
@@ -5053,7 +5112,7 @@ function KarutaPlay({deck,onClose}){
           <button onClick={restart}
             style={{width:'100%',background:'rgba(201,168,76,0.15)',
               border:'2px solid #c9a84c',borderRadius:14,padding:'16px',
-              fontSize:15,fontWeight:800,color:'#c9a84c',cursor:'pointer',fontFamily:'inherit'}}>
+              fontSize:16,fontWeight:800,color:'#c9a84c',cursor:'pointer',fontFamily:'inherit'}}>
             {T.karutaDone}
           </button>
         ):(
@@ -5062,7 +5121,7 @@ function KarutaPlay({deck,onClose}){
               background:revealed?'#c9a84c':'#1e1e36',
               border:`2px solid ${revealed?'#c9a84c':'#3a3a58'}`,
               borderRadius:14,padding:'16px',
-              fontSize:15,fontWeight:800,
+              fontSize:16,fontWeight:800,
               color:revealed?'#0d0d18':'#555',
               cursor:'pointer',fontFamily:'inherit',
               transition:'all 0.2s'}}>
