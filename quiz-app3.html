@@ -183,6 +183,12 @@ const T_JA={
   folderLabel:"📁 フォルダ",
   folderNone:"── フォルダなし",
   folderPlaceholder:"フォルダ名（例：日本語講義）",
+  randomGameMode:"🎲 ランダム出題",
+  randomGameModeSub:"フォルダからランダム15問",
+  randomFolderNone:"フォルダ未選択",
+  randomFolderSelectTitle:"出題フォルダを選択",
+  randomFolderSelectSub:"対象フォルダをタップして選択",
+  randomCancel:"キャンセル",
 };
 
 const T_EN={
@@ -304,6 +310,12 @@ const T_EN={
   folderLabel:"📁 Folder",
   folderNone:"── No folder",
   folderPlaceholder:"Folder name (e.g. Japanese Course)",
+  randomGameMode:"🎲 Random Quiz",
+  randomGameModeSub:"15 random cards from folder",
+  randomFolderNone:"No folder selected",
+  randomFolderSelectTitle:"Select folder",
+  randomFolderSelectSub:"Tap a folder to select",
+  randomCancel:"Cancel",
 };
 
 
@@ -555,7 +567,7 @@ function saveSRS(srs){try{localStorage.setItem(SRS_KEY,JSON.stringify(srs));}cat
 
 // NextDNS 報酬チェック（穴埋り・百人一首共通）
 const _ND_URL='https://nd-timer.stringhs05.workers.dev';
-const _ND_THRESH=15,_ND_MIN=5;
+const _ND_THRESH=15,_ND_MIN=2;
 async function checkNdReward(added=1){
   try{
     const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
@@ -1581,6 +1593,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   const[ghosting,setGhosting]=useState(false);
   const[ghostedBlanks,setGhostedBlanks]=useState(new Set());
   const[waitingResume,setWaitingResume]=useState(false);
+  const[pendingSubmitAfterText,setPendingSubmitAfterText]=useState(false);
   const ghostedBlanksRef=useRef(new Set());
   const tidRef=useRef(null);
   const ghostTid=useRef(null);
@@ -1610,13 +1623,20 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   useEffect(()=>{
     setShown(0);setPaused(false);setActiveBlank(null);setPoppingBlank(null);setGhosting(false);
     const emptySet=new Set();
-    setGhostedBlanks(emptySet);setWaitingResume(false);ghostedBlanksRef.current=emptySet;
+    setGhostedBlanks(emptySet);setWaitingResume(false);setPendingSubmitAfterText(false);ghostedBlanksRef.current=emptySet;
     clearTimeout(ghostTid.current);
   },[qkey]);
 
-  // 全文表示完了 → onDone通知（isNewの自動タイプはkeydown経由に変更）
+  // 全文表示完了 → onDone通知 / pendingSubmitAfterTextなら自動送信
   useEffect(()=>{
-    if(shown>=fullText.length&&onDone)onDone();
+    if(shown>=fullText.length){
+      if(pendingSubmitAfterText){
+        setPendingSubmitAfterText(false);
+        ghostTid.current=setTimeout(()=>onSubmit(),600);
+      }else if(onDone){
+        onDone();
+      }
+    }
   },[shown]);
 
   // isNew Previewモード：1空欄ずつ手動トリガーで自動タイプ
@@ -1638,8 +1658,17 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         setGhostedBlanks(newGhosted);
         setGhosting(false);
         if(newGhosted.size>=q.blanks.length){
-          // 全空欄タイプ完了 → 少し待って送信
-          ghostTid.current=setTimeout(()=>onSubmit(),700);
+          // 全空欄タイプ完了
+          if(shown>=fullText.length){
+            // 全文も表示済み → 即送信
+            ghostTid.current=setTimeout(()=>onSubmit(),700);
+          }else{
+            // 後続テキストが残っている → 続きを表示してから送信
+            setPendingSubmitAfterText(true);
+            setWaitingResume(false);
+            setActiveBlank(null);
+            setPaused(false);
+          }
         }else{
           // まだ次の空欄がある → Enter待ち（テキスト続きへ）
           setWaitingResume(true);
@@ -3040,7 +3069,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
-function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCount,karutaSave,onResumeKaruta,onClearKarutaSave,onPlayToday,onPlayReview,onPlayNew,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCount,karutaSave,onResumeKaruta,onClearKarutaSave,onPlayToday,onPlayReview,onPlayNew,onPlayRandom,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
   const T=useT();
   const[openFolders,setOpenFolders]=useState(()=>{
     try{return new Set(JSON.parse(localStorage.getItem('econ_open_folders')||'[]'));}
@@ -3066,6 +3095,11 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
     return natCompare(a,b);
   });
   const rank=gSt?getRank(gSt.totalXP):null;
+  const[randomFolder,setRandomFolder]=useState(()=>{
+    try{const v=localStorage.getItem('econ_random_folder');return v!==null?v:null;}
+    catch{return null;}
+  });
+  const[showRandomFolderDialog,setShowRandomFolderDialog]=useState(false);
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
   const reviewCount=buildReviewDeck(decks,freshSRSForLobby,15,gSt?.questionStats||{}).length;
@@ -3117,72 +3151,161 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
           </div>
         )}
 
-        {/* 一発復習 / 新問挑戦 */}
-        <div style={{display:"flex",gap:10}}>
-          {[
-            {label:T.reviewAllDue,sub:reviewCount>0?T.todayDue(reviewCount):T.reviewNone,
-             count:reviewCount,icon:"🔁",color:"#22c55e",onClick:onPlayReview},
-            {label:T.tryNewCards,sub:newCount>0?T.todayDue(newCount):T.newCardsNone,
-             count:newCount,icon:"✨",color:"#c9a84c",onClick:onPlayNew},
-          ].map(({label,sub,count,icon,color,onClick})=>(
-            <button key={label} onClick={onClick} disabled={count===0}
-              style={{flex:1,background:count>0?`rgba(${color==="#22c55e"?"34,197,94":"201,168,76"},0.08)`:"#111120",
-                border:`2px solid ${count>0?color:"#2a2a44"}`,
-                borderRadius:16,padding:"14px 12px",cursor:count>0?"pointer":"default",
-                fontFamily:"inherit",textAlign:"left",transition:"all 0.2s"}}>
+        {/* 一発復習 / 新問挑戦 / 百人一首 / ランダム出題 — 2×2グリッド */}
+        {(()=>{
+          const hasRandomFolder=randomFolder!==null;
+          const randomFolderDecks=hasRandomFolder
+            ?(randomFolder===''?decks.filter(dk=>!dk.folder):decks.filter(dk=>dk.folder===randomFolder))
+            :[];
+          const randomCanPlay=hasRandomFolder&&randomFolderDecks.some(dk=>dk.questions.length>0);
+          const randomColor="#7c6ae8";
+          const randomFolderLabel=hasRandomFolder?(randomFolder||'フォルダなし'):T.randomFolderNone;
+          return(<>
+          <div style={{display:"flex",gap:10}}>
+            {[
+              {label:T.reviewAllDue,sub:reviewCount>0?T.todayDue(reviewCount):T.reviewNone,
+               count:reviewCount,icon:"🔁",color:"#22c55e",onClick:onPlayReview},
+              {label:T.tryNewCards,sub:newCount>0?T.todayDue(newCount):T.newCardsNone,
+               count:newCount,icon:"✨",color:"#c9a84c",onClick:onPlayNew},
+            ].map(({label,sub,count,icon,color,onClick})=>(
+              <button key={label} onClick={onClick} disabled={count===0}
+                style={{flex:1,background:count>0?`rgba(${color==="#22c55e"?"34,197,94":"201,168,76"},0.08)`:"#111120",
+                  border:`2px solid ${count>0?color:"#2a2a44"}`,
+                  borderRadius:16,padding:"14px 12px",cursor:count>0?"pointer":"default",
+                  fontFamily:"inherit",textAlign:"left",transition:"all 0.2s"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <span style={{fontSize:22}}>{icon}</span>
+                  {count>0&&<div style={{background:color,color:"#0d0d18",
+                    borderRadius:20,padding:"2px 9px",fontSize:13,fontWeight:800,marginLeft:"auto"}}>
+                    {count}
+                  </div>}
+                </div>
+                <div style={{fontSize:DK?15:13,fontWeight:800,
+                  color:count>0?color:"#555"}}>{label}</div>
+                <div style={{fontSize:11,color:count>0?"#888":"#444",marginTop:2}}>{sub}</div>
+              </button>
+            ))}
+          </div>
+          {/* 🎴 カルタ セーブバナー */}
+          {karutaSave&&(
+            <div style={{background:'rgba(201,168,76,0.1)',border:'1px solid #c9a84c',
+              borderRadius:12,padding:'10px 14px',display:'flex',alignItems:'center',gap:10}}>
+              <span style={{fontSize:18}}>🎴</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#c9a84c'}}>{T.karutaSavedBanner}</div>
+                <div style={{fontSize:11,color:'#888',marginTop:1}}>
+                  {`残り${(karutaSave.queueCardIds||[]).length}枚 · ${karutaSave.answeredCount||0}問正解済み`}
+                </div>
+              </div>
+              <button onClick={onResumeKaruta}
+                style={{background:'#c9a84c',border:'none',borderRadius:8,padding:'6px 14px',
+                  fontSize:12,fontWeight:800,color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
+                {T.karutaResumeBtn}
+              </button>
+              <button onClick={onClearKarutaSave}
+                style={{background:'none',border:'none',color:'#555',fontSize:16,cursor:'pointer'}}>
+                {T.karutaClearSave}
+              </button>
+            </div>
+          )}
+          <div style={{display:"flex",gap:10}}>
+            {/* 🎴 百人一首 */}
+            <button onClick={()=>karutaCount>0&&onPlayKarutaGame()} disabled={karutaCount===0}
+              style={{flex:1,background:karutaCount>0?'rgba(201,168,76,0.07)':'#111120',
+                border:`2px solid ${karutaCount>0?'#c9a84c':'#2a2a44'}`,
+                borderRadius:16,padding:'14px 12px',cursor:karutaCount>0?'pointer':'default',
+                fontFamily:'inherit',textAlign:'left',transition:'all 0.2s'}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                <span style={{fontSize:22}}>{icon}</span>
-                {count>0&&<div style={{background:color,color:"#0d0d18",
-                  borderRadius:20,padding:"2px 9px",fontSize:13,fontWeight:800,marginLeft:"auto"}}>
-                  {count}
+                <span style={{fontSize:22}}>🎴</span>
+                {karutaCount>0&&<div style={{background:'#c9a84c',color:'#0d0d18',
+                  borderRadius:20,padding:'2px 9px',fontSize:13,fontWeight:800,marginLeft:"auto"}}>
+                  {karutaCount}
                 </div>}
               </div>
-              <div style={{fontSize:DK?15:13,fontWeight:800,
-                color:count>0?color:"#555"}}>{label}</div>
-              <div style={{fontSize:11,color:count>0?"#888":"#444",marginTop:2}}>{sub}</div>
+              <div style={{fontSize:DK?15:13,fontWeight:800,color:karutaCount>0?'#c9a84c':'#555'}}>{T.karutaGameMode}</div>
+              <div style={{fontSize:11,color:karutaCount>0?'#888':'#444',marginTop:2}}>
+                {karutaCount>0?T.karutaGameDue(karutaCount):T.karutaGameNone}
+              </div>
             </button>
-          ))}
-        </div>
-
-        {/* 🎴 カルタ セーブバナー */}
-        {karutaSave&&(
-          <div style={{background:'rgba(201,168,76,0.1)',border:'1px solid #c9a84c',
-            borderRadius:12,padding:'10px 14px',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:18}}>🎴</span>
-            <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:700,color:'#c9a84c'}}>{T.karutaSavedBanner}</div>
-              <div style={{fontSize:11,color:'#888',marginTop:1}}>
-                {`残り${(karutaSave.queueCardIds||[]).length}枚 · ${karutaSave.answeredCount||0}問正解済み`}
+            {/* 🎲 ランダム出題 */}
+            <div style={{flex:1,position:"relative"}}>
+              <button
+                onClick={()=>{
+                  if(!hasRandomFolder){setShowRandomFolderDialog(true);return;}
+                  onPlayRandom(randomFolder);
+                }}
+                style={{width:"100%",background:randomCanPlay?`rgba(124,106,232,0.08)`:"#111120",
+                  border:`2px solid ${randomCanPlay?randomColor:"#2a2a44"}`,
+                  borderRadius:16,padding:"14px 12px",cursor:"pointer",
+                  fontFamily:"inherit",textAlign:"left",transition:"all 0.2s",boxSizing:"border-box"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <span style={{fontSize:22}}>🎲</span>
+                </div>
+                <div style={{fontSize:DK?15:13,fontWeight:800,color:randomCanPlay?randomColor:"#555"}}>{T.randomGameMode}</div>
+                <div style={{fontSize:11,color:randomCanPlay?"#888":"#444",marginTop:2,
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"calc(100% - 28px)"}}>
+                  📁 {randomFolderLabel}
+                </div>
+              </button>
+              {/* ✎ フォルダ変更ボタン */}
+              <div
+                onClick={e=>{e.stopPropagation();setShowRandomFolderDialog(true);}}
+                style={{position:"absolute",top:9,right:9,background:"rgba(124,106,232,0.18)",
+                  border:"1px solid rgba(124,106,232,0.4)",borderRadius:6,
+                  padding:"2px 7px",fontSize:12,color:"#9d8ef0",cursor:"pointer",
+                  lineHeight:1.5,userSelect:"none",zIndex:1}}>
+                ✎
               </div>
             </div>
-            <button onClick={onResumeKaruta}
-              style={{background:'#c9a84c',border:'none',borderRadius:8,padding:'6px 14px',
-                fontSize:12,fontWeight:800,color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
-              {T.karutaResumeBtn}
-            </button>
-            <button onClick={onClearKarutaSave}
-              style={{background:'none',border:'none',color:'#555',fontSize:16,cursor:'pointer'}}>
-              {T.karutaClearSave}
-            </button>
           </div>
-        )}
-
-        {/* 🎴 百人一首 */}
-        <button onClick={()=>karutaCount>0&&onPlayKarutaGame()} disabled={karutaCount===0}
-          style={{width:'100%',background:karutaCount>0?'rgba(201,168,76,0.07)':'#111120',
-            border:`2px solid ${karutaCount>0?'#c9a84c':'#2a2a44'}`,
-            borderRadius:16,padding:'13px 16px',cursor:karutaCount>0?'pointer':'default',
-            fontFamily:'inherit',textAlign:'left',display:'flex',alignItems:'center',gap:12,transition:'all 0.2s'}}>
-          <span style={{fontSize:24}}>🎴</span>
-          <div style={{flex:1}}>
-            <div style={{fontSize:DK?15:13,fontWeight:800,color:karutaCount>0?'#c9a84c':'#555'}}>{T.karutaGameMode}</div>
-            <div style={{fontSize:11,color:karutaCount>0?'#888':'#444',marginTop:1}}>
-              {karutaCount>0?T.karutaGameDue(karutaCount):T.karutaGameNone}
+          {/* フォルダ選択ダイアログ */}
+          {showRandomFolderDialog&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",
+              display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}
+              onClick={()=>setShowRandomFolderDialog(false)}>
+              <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
+                padding:"22px 20px",width:"100%",maxWidth:320,maxHeight:"calc(100vh - 80px)",
+                overflowY:"auto",display:"flex",flexDirection:"column",gap:10}}
+                onClick={e=>e.stopPropagation()}>
+                <div style={{fontSize:15,fontWeight:800,color:"#ece8d8",marginBottom:2}}>
+                  {T.randomFolderSelectTitle}
+                </div>
+                <div style={{fontSize:11,color:"#555",marginBottom:6}}>{T.randomFolderSelectSub}</div>
+                {folderNames.map(fn=>{
+                  const fDecks=folderGroups[fn];
+                  const qCount=fDecks.reduce((s,dk)=>s+dk.questions.length,0);
+                  const isSelected=randomFolder===fn;
+                  return(
+                    <button key={fn||'__none__'}
+                      onClick={()=>{
+                        setRandomFolder(fn);
+                        try{localStorage.setItem('econ_random_folder',fn);}catch(_){}
+                        setShowRandomFolderDialog(false);
+                      }}
+                      style={{background:isSelected?'rgba(124,106,232,0.15)':'#0d0d20',
+                        border:`1px solid ${isSelected?'#7c6ae8':'#252542'}`,
+                        borderRadius:10,padding:"10px 14px",cursor:"pointer",
+                        fontFamily:"inherit",textAlign:"left"}}>
+                      <div style={{fontSize:13,fontWeight:700,color:isSelected?'#9d8ef0':'#ece8d8'}}>
+                        {fn?`📁 ${fn}`:'📂 フォルダなし'}
+                        {isSelected&&<span style={{marginLeft:6,fontSize:11,color:"#7c6ae8"}}>✓</span>}
+                      </div>
+                      <div style={{fontSize:11,color:"#555",marginTop:2}}>
+                        {qCount}問 · {fDecks.length}デッキ
+                      </div>
+                    </button>
+                  );
+                })}
+                <button onClick={()=>setShowRandomFolderDialog(false)}
+                  style={{background:"none",border:"1px solid #333",borderRadius:10,padding:"10px",
+                    fontSize:13,color:"#666",cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                  {T.randomCancel}
+                </button>
+              </div>
             </div>
-          </div>
-          {karutaCount>0&&<div style={{background:'#c9a84c',color:'#0d0d18',
-            borderRadius:20,padding:'2px 10px',fontSize:13,fontWeight:800}}>{karutaCount}</div>}
-        </button>
+          )}
+          </>);
+        })()}
 
         {/* デッキ一覧 */}
         <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>{T.myDecks}</div>
@@ -3439,7 +3562,7 @@ function QuizApp(){
   const prevCorrectLenRef=useRef(0);
   const prevAttemptedLenRef=useRef(0);   // 新問試行カウント用
   const ND_DOMAINS=['twitter.com','x.com','t.co','abs.twimg.com'];
-  const ND_MINUTES=5;
+  const ND_MINUTES=2;
 
   useEffect(()=>{
     const curr=answeredCorrectly.length;
@@ -3730,6 +3853,21 @@ function QuizApp(){
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
     dispatch({type:"START",QS:cards,newCardIds:[],rewardNewIds:null});
+  };
+  // ランダム出題
+  const playRandom=(folderName)=>{
+    const folderDecks=folderName===''
+      ?decks.filter(dk=>!dk.folder)
+      :decks.filter(dk=>dk.folder===folderName);
+    const allQs=folderDecks.flatMap(dk=>dk.questions);
+    if(allQs.length===0)return;
+    const picked=shuffle([...allQs]).slice(0,15);
+    const freshSRS=loadSRS();
+    setSRS(freshSRS);setQS(picked);setIsToday(false);
+    setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    dispatch({type:"START",QS:picked,newCardIds:[],rewardNewIds:[]});
   };
 
   // 今日のデッキをプレイ
@@ -4048,6 +4186,7 @@ function QuizApp(){
           onResumeKaruta={doResumeKaruta}
           onClearKarutaSave={()=>{clearKarutaSave();setKarutaSave(null);}}
           onPlayToday={playToday} onPlayReview={playReview} onPlayNew={playNew}
+          onPlayRandom={playRandom}
           onManageDecks={()=>setShowDeckMgr(true)}
           onSettings={(t)=>{
             if(t==="stats") setShowStats(true);
