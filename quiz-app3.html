@@ -843,12 +843,16 @@ function buildReviewDeck(decks,srs,limit=15,qStats={}){
   const revCount=Math.min(revSorted.length, limit-lCount);
   return[...s0,...s1p,...revSorted.slice(0,revCount)];
 }
-// 新問挑戦：全デッキの未見カードのみ（最大15枚）
+// 新問挑戦：全デッキの「一度も正解していない」カード（未見 or 中断でSRSエントリだけ出来た既出問題、最大15枚）
 function buildNewDeck(decks,srs,limit=15){
   const seen=new Set();const newCards=[];
   decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
     if(seen.has(q.id))return;seen.add(q.id);
-    if(!srs[q.id])newCards.push(q);
+    const sr=srs[q.id];
+    // reps>0 は「一度でも正解して卒業/前進した」ことを意味する。
+    // srsエントリが無い、またはreps===0（中断時のupdateSRSPauseのみで
+    // エントリが出来た未正解カード）はどちらも「新問」として再出題対象にする。
+    if(!sr||!sr.reps)newCards.push(q);
   }));
   return shuffle(newCards).slice(0,limit);
 }
@@ -1013,14 +1017,15 @@ document.addEventListener('visibilitychange',()=>{
 window.addEventListener('focus',()=>{
   if(_actx&&_actx.state==='suspended')_actx.resume().catch(()=>{});
 });
-const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25}={})=>{
+const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25,at=null}={})=>{
   if(!_soundEnabled)return;
   try{
     const c=getCtx();
     if(c.state==="suspended"){c.resume().catch(()=>{});return;}
+    const base=at!==null?at:c.currentTime;
     freqs.forEach((f,i)=>{
       if(!f)return;
-      const t=c.currentTime+i*gap/1000;
+      const t=base+i*gap/1000;
       const o=c.createOscillator(),g=c.createGain();
       o.connect(g);g.connect(c.destination);
       o.type=type;o.frequency.value=f;
@@ -1143,30 +1148,38 @@ const _K_ARP=[
   [440,.09],[349.2,.07],[392,.08],[523.3,.07],
   [587.3,.08],[440,.07],[523.3,.08],[392,.07],
 ];
-let _kOn=false,_kStep=0,_kTid=null,_kLevel=0;
+let _kOn=false,_kStep=0,_kTid=null,_kLevel=0,_kNextBeat=null;
 const _kTick=()=>{
   if(!_kOn)return;
-  if(!_soundEnabled){_kStep++;_kTid=setTimeout(_kTick,_K_STEP_MS);return;}
+  const c=getCtx();
+  if(_kNextBeat===null||_kNextBeat<c.currentTime-_K_STEP_MS/500){
+    _kNextBeat=c.currentTime+_LOOKAHEAD;
+  }
+  const at=_kNextBeat;
+  if(!_soundEnabled){
+    _kNextBeat+=_K_STEP_MS/1000;
+    const delay=Math.max(1,(_kNextBeat-_LOOKAHEAD-c.currentTime)*1000);
+    _kStep++;_kTid=setTimeout(_kTick,delay);return;
+  }
   try{
-    const c=getCtx();
     if(c.state==='running'){
       const st=_kStep%16;
       const lv=_kLevel;
 
       // ── Lv0: 琴アルペジオのみ（とても静か） ────────────
       const a=_K_ARP[st];
-      if(a)tone([a[0]],{type:'triangle',vol:a[1]*0.75,gap:0,dur:0.20});
+      if(a)tone([a[0]],{type:'triangle',vol:a[1]*0.75,gap:0,dur:0.20,at});
 
       // ── Lv1（25%）: ベース＋ソフト太鼓 ─────────────────
       if(lv>=1){
         const b=_K_BAS[st];
-        if(b)tone([b[0]],{type:'sine',vol:b[1],gap:0,dur:0.38});
+        if(b)tone([b[0]],{type:'sine',vol:b[1],gap:0,dur:0.38,at});
         // 拍頭だけ柔らかい太鼓（低音バースト）
         if(st===0||st===8){
           try{
-            const cx=getCtx(),t=cx.currentTime;
-            const o=cx.createOscillator(),g=cx.createGain();
-            o.connect(g);g.connect(cx.destination);
+            const t=at;
+            const o=c.createOscillator(),g=c.createGain();
+            o.connect(g);g.connect(c.destination);
             o.type='sine';o.frequency.setValueAtTime(90,t);
             o.frequency.exponentialRampToValueAtTime(38,t+0.18);
             g.gain.setValueAtTime(0.22,t);
@@ -1179,19 +1192,19 @@ const _kTick=()=>{
       // ── Lv2（50%）: 尺八メロディ＋裏拍にそっとhihat ────
       if(lv>=2){
         const m=_K_MEL[st];
-        if(m)tone([m[0]],{type:'sine',vol:m[1],gap:0,dur:0.42});
-        if(st%4===2)hihat(0.015); // 裏拍のみ・非常に控えめ
+        if(m)tone([m[0]],{type:'sine',vol:m[1],gap:0,dur:0.42,at});
+        if(st%4===2)hihat(0.015,at); // 裏拍のみ・非常に控えめ
       }
 
       // ── Lv3（75%）: ハーモニー＋裏拍太鼓＋賑やかhihat ──
       if(lv>=3){
         const m2=_K_MEL[st];
-        if(m2)tone([m2[0]*1.498],{type:'sine',vol:m2[1]*0.40,gap:0,dur:0.35});
+        if(m2)tone([m2[0]*1.498],{type:'sine',vol:m2[1]*0.40,gap:0,dur:0.35,at});
         if(st===4||st===12){
           try{
-            const cx=getCtx(),t=cx.currentTime;
-            const o=cx.createOscillator(),g=cx.createGain();
-            o.connect(g);g.connect(cx.destination);
+            const t=at;
+            const o=c.createOscillator(),g=c.createGain();
+            o.connect(g);g.connect(c.destination);
             o.type='sine';o.frequency.setValueAtTime(70,t);
             o.frequency.exponentialRampToValueAtTime(30,t+0.14);
             g.gain.setValueAtTime(0.16,t);
@@ -1199,21 +1212,23 @@ const _kTick=()=>{
             o.start(t);o.stop(t+0.2);
           }catch(_){}
         }
-        if(st%2===1)hihat(0.012); // 控えめな全打ち
+        if(st%2===1)hihat(0.012,at); // 控えめな全打ち
       }
     }
   }catch(_){}
-  _kStep++;_kTid=setTimeout(_kTick,_K_STEP_MS);
+  _kNextBeat+=_K_STEP_MS/1000;
+  const delay=Math.max(1,(_kNextBeat-_LOOKAHEAD-c.currentTime)*1000);
+  _kStep++;_kTid=setTimeout(_kTick,delay);
 };
 const KBGM={
-  start:()=>{if(_kOn)return;_kOn=true;_kStep=0;_kLevel=0;_kTick();},
-  stop: ()=>{_kOn=false;clearTimeout(_kTid);_kLevel=0;},
+  start:()=>{if(_kOn)return;_kOn=true;_kStep=0;_kLevel=0;_kNextBeat=null;_kTick();},
+  stop: ()=>{_kOn=false;clearTimeout(_kTid);_kNextBeat=null;_kLevel=0;},
   setLevel:(lv)=>{_kLevel=Math.max(0,Math.min(3,lv));},
 };
 
-const kick=(loud)=>{
+const kick=(loud,at=null)=>{
   try{
-    const c=getCtx();const t=c.currentTime;
+    const c=getCtx();const t=at!==null?at:c.currentTime;
     const o=c.createOscillator(),g=c.createGain();
     o.connect(g);g.connect(c.destination);
     o.type="sine";o.frequency.setValueAtTime(loud?180:150,t);
@@ -1223,9 +1238,9 @@ const kick=(loud)=>{
     o.start(t);o.stop(t+0.22);
   }catch(_){}
 };
-const snare=()=>{
+const snare=(at=null)=>{
   try{
-    const c=getCtx();const t=c.currentTime;
+    const c=getCtx();const t=at!==null?at:c.currentTime;
     [200,310,440].forEach(f=>{
       const o=c.createOscillator(),g=c.createGain();
       o.connect(g);g.connect(c.destination);
@@ -1236,9 +1251,9 @@ const snare=()=>{
     });
   }catch(_){}
 };
-const hihat=(vol=0.048)=>{
+const hihat=(vol=0.048,at=null)=>{
   try{
-    const c=getCtx();const t=c.currentTime;
+    const c=getCtx();const t=at!==null?at:c.currentTime;
     const o=c.createOscillator(),g=c.createGain();
     o.connect(g);g.connect(c.destination);
     o.type="square";o.frequency.value=7000+Math.random()*3000;
@@ -1247,9 +1262,9 @@ const hihat=(vol=0.048)=>{
     o.start(t);o.stop(t+0.05);
   }catch(_){}
 };
-const pad=()=>{
+const pad=(at=null)=>{
   try{
-    const c=getCtx();const t=c.currentTime;
+    const c=getCtx();const t=at!==null?at:c.currentTime;
     [55,110].forEach((f,i)=>{
       const o=c.createOscillator(),g=c.createGain();
       o.connect(g);g.connect(c.destination);
@@ -1262,51 +1277,57 @@ const pad=()=>{
   }catch(_){}
 };
 
-let _bgmOn=false,_bgmStep=0,_bgmTid=null,_bgmLevel=0,_bgmTheme=null;
+const _LOOKAHEAD=0.05; // 50ms先読み：音ズレ防止用lookaheadバッファ
+let _bgmOn=false,_bgmStep=0,_bgmTid=null,_bgmLevel=0,_bgmTheme=null,_bgmNextBeat=null;
 const _bgmTick=()=>{
   if(!_bgmOn)return;
-  if(!_soundEnabled){_bgmStep++;_bgmTid=setTimeout(_bgmTick,_bgmTheme.stepMs);return;}
   const th=_bgmTheme;
-  try{
-    const c=getCtx();
-    if(c.state==="suspended") c.resume().catch(()=>{});
-    if(c.state==="running"){
-      const st=_bgmStep%16;
-      const lv=_bgmLevel;
-      if(lv===0){
-        if(_KICK.has(st)) kick(false);
-        if(th.lv0==="pad"){
-          if(_PAD_STEPS.has(st)) pad();
-        }else{
-          if(_SNARE.has(st)) snare();
-          if(th.hatSteps.has(st)) hihat(0.012);
-        }
+  const c=getCtx();
+  // nextBeat初期化（初回または大幅遅延後）
+  if(_bgmNextBeat===null||_bgmNextBeat<c.currentTime-th.stepMs/500){
+    _bgmNextBeat=c.currentTime+_LOOKAHEAD;
+  }
+  const at=_bgmNextBeat;
+  if(_soundEnabled&&c.state==="running"){
+    const st=_bgmStep%16;
+    const lv=_bgmLevel;
+    if(lv===0){
+      if(_KICK.has(st)) kick(false,at);
+      if(th.lv0==="pad"){
+        if(_PAD_STEPS.has(st)) pad(at);
       }else{
-        if(_KICK.has(st)) kick(true);
-        const b=th.bas[st];
-        if(b) tone([b[0]],{type:th.bassWave||"sawtooth",vol:b[1],gap:0,dur:th.bassDur||0.20});
-        if(!th.noSnare&&_SNARE.has(st)) snare();
-        if(lv>=2){
-          if(th.hatSteps.has(st)) hihat(th.hatVol||0.032);
-          const m=th.mel[st];
-          if(m) tone([m[0]],{type:th.melWave||"triangle",vol:m[1],gap:0,dur:th.melDur||0.24});
-        }
-        if(lv>=3){
-          const a=th.arp[st];
-          if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:th.arpDur||0.20});
-        }
+        if(_SNARE.has(st)) snare(at);
+        if(th.hatSteps.has(st)) hihat(0.012,at);
+      }
+    }else{
+      if(_KICK.has(st)) kick(true,at);
+      const b=th.bas[st];
+      if(b) tone([b[0]],{type:th.bassWave||"sawtooth",vol:b[1],gap:0,dur:th.bassDur||0.20,at});
+      if(!th.noSnare&&_SNARE.has(st)) snare(at);
+      if(lv>=2){
+        if(th.hatSteps.has(st)) hihat(th.hatVol||0.032,at);
+        const m=th.mel[st];
+        if(m) tone([m[0]],{type:th.melWave||"triangle",vol:m[1],gap:0,dur:th.melDur||0.24,at});
+      }
+      if(lv>=3){
+        const a=th.arp[st];
+        if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:th.arpDur||0.20,at});
       }
     }
-  }catch(_){}
-  _bgmStep++;_bgmTid=setTimeout(_bgmTick,th.stepMs);
+  }else if(c.state==="suspended"){
+    c.resume().catch(()=>{});
+  }
+  _bgmNextBeat+=th.stepMs/1000;
+  const delay=Math.max(1,(_bgmNextBeat-_LOOKAHEAD-c.currentTime)*1000);
+  _bgmStep++;_bgmTid=setTimeout(_bgmTick,delay);
 };
 const BGM={
   start:()=>{
     if(_bgmOn)return;
     _bgmTheme=_THEMES[Math.floor(Math.random()*_THEMES.length)];
-    _bgmOn=true;_bgmStep=0;_bgmTick();
+    _bgmOn=true;_bgmStep=0;_bgmNextBeat=null;_bgmTick();
   },
-  stop: ()=>{_bgmOn=false;clearTimeout(_bgmTid);},
+  stop: ()=>{_bgmOn=false;clearTimeout(_bgmTid);_bgmNextBeat=null;},
   setLevel:(lv)=>{_bgmLevel=lv;},
 };
 
@@ -1330,26 +1351,32 @@ const _VARP=[
   [1047,.12],[1175,.11],[1047,.10],[880,.09],
   [1047,.12],null,[784,.10],[659.3,.09],
 ];
-let _vOn=false,_vStep=0,_vTid=null;
+let _vOn=false,_vStep=0,_vTid=null,_vNextBeat=null;
 const _vTick=()=>{
   if(!_vOn)return;
+  const c=getCtx();
+  if(_vNextBeat===null||_vNextBeat<c.currentTime-_VS/500){
+    _vNextBeat=c.currentTime+_LOOKAHEAD;
+  }
+  const at=_vNextBeat;
   try{
-    const c=getCtx();
     if(c.state==="running"){
       const st=_vStep%16;
-      if(_KICK.has(st))  kick(true);
-      if(_SNARE.has(st)) snare();
-      if(_HAT_STD.has(st)) hihat(0.04);
-      const b=_VBAS[st]; if(b) tone([b[0]],{type:"sawtooth",vol:b[1],gap:0,dur:0.18});
-      const m=_VMEL[st]; if(m) tone([m[0]],{type:"triangle",vol:m[1],gap:0,dur:0.22});
-      const a=_VARP[st]; if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:0.16});
+      if(_KICK.has(st))  kick(true,at);
+      if(_SNARE.has(st)) snare(at);
+      if(_HAT_STD.has(st)) hihat(0.04,at);
+      const b=_VBAS[st]; if(b) tone([b[0]],{type:"sawtooth",vol:b[1],gap:0,dur:0.18,at});
+      const m=_VMEL[st]; if(m) tone([m[0]],{type:"triangle",vol:m[1],gap:0,dur:0.22,at});
+      const a=_VARP[st]; if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:0.16,at});
     }
   }catch(_){}
-  _vStep++;_vTid=setTimeout(_vTick,_VS);
+  _vNextBeat+=_VS/1000;
+  const delay=Math.max(1,(_vNextBeat-_LOOKAHEAD-c.currentTime)*1000);
+  _vStep++;_vTid=setTimeout(_vTick,delay);
 };
 const VBGM={
-  start:()=>{if(_vOn)return;_vOn=true;_vStep=0;_vTick();},
-  stop: ()=>{_vOn=false;clearTimeout(_vTid);},
+  start:()=>{if(_vOn)return;_vOn=true;_vStep=0;_vNextBeat=null;_vTick();},
+  stop: ()=>{_vOn=false;clearTimeout(_vTid);_vNextBeat=null;},
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -4158,7 +4185,7 @@ function QuizApp(){
       <LangCtx.Provider value={lang}>
       <div>
         {/* NextDNS 報酬オーバーレイ */}
-        {(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
+        {ndConfig&&(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
         {/* NextDNS 設定モーダル */}
         {showNdSettings&&<NdSettingsModal
           initKey={ndConfig?.apiKey||''} initId={ndConfig?.profileId||''}
@@ -4314,7 +4341,7 @@ function QuizApp(){
         </div>
       )}
       {/* NextDNS 報酬オーバーレイ（ゲーム中） */}
-      {(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
+      {ndConfig&&(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
       {/* 不正解：画面縁が赤く光る */}
       {wrongAnim&&(
         <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:60,
@@ -4603,13 +4630,34 @@ function RewardOverlay({rewardStatus,rewardSecs,fmtSecs,onClose}){
 function NdSettingsModal({onClose,onSave,initKey,initId}){
   const[k,setK]=useState(initKey||'');
   const[p,setP]=useState(initId||'');
+  const[device,setDevice]=useState(localStorage.getItem('nd_reward_device')||'quest');
   const total=parseInt(localStorage.getItem('nd_total_correct')||'0');
   const next=total%15===0?15:15-(total%15);
+  const handleSave=()=>{
+    localStorage.setItem('nd_reward_device',device);
+    onSave(k.trim(),p.trim());
+  };
   return(
     <div style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{background:'#13132a',border:'1px solid #2a2a48',borderRadius:20,padding:24,width:'100%',maxWidth:400}}>
         <div style={{fontWeight:900,fontSize:16,color:'#c9a84c',marginBottom:4}}>🐦 報酬タイマー設定</div>
         <div style={{fontSize:12,color:'#666',marginBottom:18}}>15問正解ごとに Twitter が {5} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next === 30 ? 30 : next}問</span></div>
+        {/* 報酬デバイス選択 */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,color:'#888',marginBottom:8}}>報酬を開くデバイス</div>
+          <div style={{display:'flex',gap:8}}>
+            {[{id:'quest',label:'🥽 Meta Quest',sub:'QuestブラウザでXを開く'},
+              {id:'mac',  label:'💻 MacBook',   sub:'MacのブラウザでXを開く'}].map(opt=>(
+              <button key={opt.id} onClick={()=>setDevice(opt.id)}
+                style={{flex:1,background:device===opt.id?'rgba(201,168,76,0.15)':'#0d0d1a',
+                  border:`1px solid ${device===opt.id?'#c9a84c':'#2a2a42'}`,
+                  borderRadius:10,padding:'10px 8px',cursor:'pointer',fontFamily:'inherit',textAlign:'center'}}>
+                <div style={{fontSize:14,fontWeight:700,color:device===opt.id?'#c9a84c':'#aaa',marginBottom:3}}>{opt.label}</div>
+                <div style={{fontSize:10,color:device===opt.id?'#888':'#555',lineHeight:1.4}}>{opt.sub}</div>
+              </button>
+            ))}
+          </div>
+        </div>
         <div style={{marginBottom:12}}>
           <div style={{fontSize:12,color:'#888',marginBottom:6}}>NextDNS API Key</div>
           <input type="password" value={k} onChange={e=>setK(e.target.value)} placeholder="my.nextdns.io/account の下部" style={{width:'100%',background:'#0d0d1a',border:'1px solid #2a2a42',borderRadius:8,padding:'10px 12px',color:'#ece8d8',fontSize:13}}/>
@@ -4620,7 +4668,7 @@ function NdSettingsModal({onClose,onSave,initKey,initId}){
         </div>
         <div style={{display:'flex',gap:10}}>
           <button onClick={onClose} style={{flex:1,background:'#1a1a32',border:'1px solid #2a2a42',borderRadius:10,padding:'10px',color:'#888',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-          <button onClick={()=>onSave(k.trim(),p.trim())} disabled={!k.trim()||!p.trim()} style={{flex:2,background:k.trim()&&p.trim()?'#1d9bf0':'#1a1a32',border:'none',borderRadius:10,padding:'10px',color:k.trim()&&p.trim()?'#fff':'#444',fontSize:13,fontWeight:700,cursor:k.trim()&&p.trim()?'pointer':'default'}}>保存</button>
+          <button onClick={handleSave} disabled={!k.trim()||!p.trim()} style={{flex:2,background:k.trim()&&p.trim()?'#1d9bf0':'#1a1a32',border:'none',borderRadius:10,padding:'10px',color:k.trim()&&p.trim()?'#fff':'#444',fontSize:13,fontWeight:700,cursor:k.trim()&&p.trim()?'pointer':'default'}}>保存</button>
         </div>
         <div style={{marginTop:14,padding:'10px 12px',background:'rgba(29,161,242,0.07)',border:'1px solid rgba(29,161,242,0.2)',borderRadius:8,fontSize:11,color:'#666',lineHeight:1.7}}>
           ⚠️ CORS制限で失敗する場合: SafariよりもChrome系ブラウザで開くと動作しやすい場合があります。それでも失敗する場合はAPIキーを確認してください。
@@ -4943,7 +4991,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
       )}
 
       {/* NextDNS解放通知 */}
-      {ndUnlocked&&(
+      {ndConfig&&ndUnlocked&&(
         <div style={{position:'fixed',top:DK?28:16,left:'50%',
           transform:'translateX(-50%)',zIndex:90,
           background:'#1a3a1a',border:'2px solid #4ade80',
@@ -4968,7 +5016,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
         </button>
         <div style={{flex:1,minWidth:0,fontSize:14,color:'#666',fontWeight:700,textAlign:'center',lineHeight:1.6}}>
           🎴 {lang==='ja'?`正解 ${progress}/${cards.length}枚 · 残り${remaining}`:`${progress}/${cards.length} · ${remaining} left`}
-          {inApp&&<div style={{fontSize:13,color:'#c9a84c',marginTop:1}}>
+          {ndConfig&&inApp&&<div style={{fontSize:13,color:'#c9a84c',marginTop:1}}>
             🎁 {lang==='ja'?`報酬まであと${KARUTA_REWARD_REQUIRED-rewardCount}問`:`${KARUTA_REWARD_REQUIRED-rewardCount} more for reward`}
           </div>}
         </div>
