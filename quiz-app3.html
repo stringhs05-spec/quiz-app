@@ -183,12 +183,23 @@ const T_JA={
   folderLabel:"📁 フォルダ",
   folderNone:"── フォルダなし",
   folderPlaceholder:"フォルダ名（例：日本語講義）",
-  randomGameMode:"🎲 ランダム出題",
-  randomGameModeSub:"フォルダからランダム15問",
+  randomGameMode:"🔥 テスト対策モード",
+  randomGameModeSub:"模試・弱点補強・詰め込み",
   randomFolderNone:"フォルダ未選択",
   randomFolderSelectTitle:"出題フォルダを選択",
   randomFolderSelectSub:"対象フォルダをタップして選択",
   randomCancel:"キャンセル",
+  testPrepTitle:"テスト対策モード",
+  testPrepFolderLabel:"出題フォルダ",
+  testPrepChange:"変更",
+  tpCram:"🔥 詰め込みモード",
+  tpCramSub:"全問を繰り返して定着させる",
+  tpCramResume:"（続きから）",
+  tpWeak:"💪 弱点補強モード",
+  tpWeakSub:"間違いが多い順に15問",
+  tpMock:"📝 模擬試験モード",
+  tpMockSub:"フォルダから15問ランダム",
+  tpWeakEmpty:"まだ間違えた問題がありません。通常の学習で間違えた問題が記録されると、ここに出題されます。",
 };
 
 const T_EN={
@@ -310,11 +321,22 @@ const T_EN={
   folderLabel:"📁 Folder",
   folderNone:"── No folder",
   folderPlaceholder:"Folder name (e.g. Japanese Course)",
-  randomGameMode:"🎲 Random Quiz",
-  randomGameModeSub:"15 random cards from folder",
+  randomGameMode:"🔥 Test Prep",
+  randomGameModeSub:"Mock / Weakness / Cram",
   randomFolderNone:"No folder selected",
   randomFolderSelectTitle:"Select folder",
   randomFolderSelectSub:"Tap a folder to select",
+  testPrepTitle:"Test Prep Mode",
+  testPrepFolderLabel:"Folder",
+  testPrepChange:"Change",
+  tpCram:"🔥 Cram Mode",
+  tpCramSub:"Repeat all cards until mastered",
+  tpCramResume:"(resume)",
+  tpWeak:"💪 Weakness Mode",
+  tpWeakSub:"15 most-missed cards",
+  tpMock:"📝 Mock Exam",
+  tpMockSub:"15 random cards from folder",
+  tpWeakEmpty:"No missed questions yet. Once you miss questions during normal study, they'll appear here.",
   randomCancel:"Cancel",
 };
 
@@ -1277,7 +1299,7 @@ const pad=(at=null)=>{
   }catch(_){}
 };
 
-const _LOOKAHEAD=0.05; // 50ms先読み：音ズレ防止用lookaheadバッファ
+const _LOOKAHEAD=0.2; // 200ms先読み：バックグラウンドthrottle対策
 let _bgmOn=false,_bgmStep=0,_bgmTid=null,_bgmLevel=0,_bgmTheme=null,_bgmNextBeat=null;
 const _bgmTick=()=>{
   if(!_bgmOn)return;
@@ -3096,7 +3118,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
-function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCount,karutaSave,onResumeKaruta,onClearKarutaSave,onPlayToday,onPlayReview,onPlayNew,onPlayRandom,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
+function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCount,karutaSave,onResumeKaruta,onClearKarutaSave,onPlayToday,onPlayReview,onPlayNew,onPlayRandom,onPlayWeak,onPlayCram,cramHasSave,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
   const T=useT();
   const[openFolders,setOpenFolders]=useState(()=>{
     try{return new Set(JSON.parse(localStorage.getItem('econ_open_folders')||'[]'));}
@@ -3127,6 +3149,8 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
     catch{return null;}
   });
   const[showRandomFolderDialog,setShowRandomFolderDialog]=useState(false);
+  const[showTestPrepModal,setShowTestPrepModal]=useState(false);
+  const[tpFolderPicking,setTpFolderPicking]=useState(false);
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
   const reviewCount=buildReviewDeck(decks,freshSRSForLobby,15,gSt?.questionStats||{}).length;
@@ -3254,29 +3278,26 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
                 {karutaCount>0?T.karutaGameDue(karutaCount):T.karutaGameNone}
               </div>
             </button>
-            {/* 🎲 ランダム出題 */}
+            {/* 🔥 テスト対策モード */}
             <div style={{flex:1,position:"relative"}}>
               <button
-                onClick={()=>{
-                  if(!hasRandomFolder){setShowRandomFolderDialog(true);return;}
-                  onPlayRandom(randomFolder);
-                }}
-                style={{width:"100%",background:randomCanPlay?`rgba(124,106,232,0.08)`:"#111120",
-                  border:`2px solid ${randomCanPlay?randomColor:"#2a2a44"}`,
+                onClick={()=>{setTpFolderPicking(!hasRandomFolder);setShowTestPrepModal(true);}}
+                style={{width:"100%",background:`rgba(124,106,232,0.08)`,
+                  border:`2px solid ${randomColor}`,
                   borderRadius:16,padding:"14px 12px",cursor:"pointer",
                   fontFamily:"inherit",textAlign:"left",transition:"all 0.2s",boxSizing:"border-box"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                  <span style={{fontSize:22}}>🎲</span>
+                  <span style={{fontSize:22}}>🔥</span>
                 </div>
-                <div style={{fontSize:DK?15:13,fontWeight:800,color:randomCanPlay?randomColor:"#555"}}>{T.randomGameMode}</div>
-                <div style={{fontSize:11,color:randomCanPlay?"#888":"#444",marginTop:2,
+                <div style={{fontSize:DK?15:13,fontWeight:800,color:randomColor}}>{T.randomGameMode}</div>
+                <div style={{fontSize:11,color:"#888",marginTop:2,
                   overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"calc(100% - 28px)"}}>
                   📁 {randomFolderLabel}
                 </div>
               </button>
               {/* ✎ フォルダ変更ボタン */}
               <div
-                onClick={e=>{e.stopPropagation();setShowRandomFolderDialog(true);}}
+                onClick={e=>{e.stopPropagation();setTpFolderPicking(true);setShowTestPrepModal(true);}}
                 style={{position:"absolute",top:9,right:9,background:"rgba(124,106,232,0.18)",
                   border:"1px solid rgba(124,106,232,0.4)",borderRadius:6,
                   padding:"2px 7px",fontSize:12,color:"#9d8ef0",cursor:"pointer",
@@ -3285,52 +3306,114 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
               </div>
             </div>
           </div>
-          {/* フォルダ選択ダイアログ */}
-          {showRandomFolderDialog&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",
+          {/* テスト対策モーダル（一体型：前段フォルダ＋3サブモード） */}
+          {showTestPrepModal&&(()=>{
+            const wrongOf=(qid)=>(gSt?.questionStats?.[qid]?.wrong)||0;
+            const weakCount=randomFolderDecks.flatMap(dk=>dk.questions).filter(q=>wrongOf(q.id)>0).length;
+            const cramTotal=randomFolderDecks.flatMap(dk=>dk.questions).length;
+            const closeModal=()=>{setShowTestPrepModal(false);setTpFolderPicking(false);};
+            return(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",
               display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}
-              onClick={()=>setShowRandomFolderDialog(false)}>
+              onClick={closeModal}>
               <div style={{background:"#13132a",border:"1px solid #2a2a44",borderRadius:18,
-                padding:"22px 20px",width:"100%",maxWidth:320,maxHeight:"calc(100vh - 80px)",
-                overflowY:"auto",display:"flex",flexDirection:"column",gap:10}}
+                padding:"22px 20px",width:"100%",maxWidth:360,maxHeight:"calc(100vh - 80px)",
+                overflowY:"auto",display:"flex",flexDirection:"column",gap:12}}
                 onClick={e=>e.stopPropagation()}>
-                <div style={{fontSize:15,fontWeight:800,color:"#ece8d8",marginBottom:2}}>
-                  {T.randomFolderSelectTitle}
+                <div style={{fontSize:16,fontWeight:900,color:"#c9a84c"}}>🔥 {T.testPrepTitle}</div>
+                {/* 共通前段：フォルダ表示＋変更 */}
+                <div style={{display:"flex",alignItems:"center",gap:8,background:"#0d0d20",
+                  border:"1px solid #252542",borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,color:"#555",marginBottom:2}}>{T.testPrepFolderLabel}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#ece8d8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {hasRandomFolder?(randomFolder?`📁 ${randomFolder}`:'📂 フォルダなし'):T.randomFolderNone}
+                    </div>
+                  </div>
+                  <button onClick={()=>setTpFolderPicking(v=>!v)}
+                    style={{flexShrink:0,background:"rgba(124,106,232,0.18)",border:"1px solid rgba(124,106,232,0.4)",
+                      borderRadius:8,padding:"6px 12px",fontSize:12,color:"#9d8ef0",cursor:"pointer",fontFamily:"inherit"}}>
+                    {T.testPrepChange}
+                  </button>
                 </div>
-                <div style={{fontSize:11,color:"#555",marginBottom:6}}>{T.randomFolderSelectSub}</div>
-                {folderNames.map(fn=>{
-                  const fDecks=folderGroups[fn];
-                  const qCount=fDecks.reduce((s,dk)=>s+dk.questions.length,0);
-                  const isSelected=randomFolder===fn;
-                  return(
-                    <button key={fn||'__none__'}
-                      onClick={()=>{
-                        setRandomFolder(fn);
-                        try{localStorage.setItem('econ_random_folder',fn);}catch(_){}
-                        setShowRandomFolderDialog(false);
-                      }}
-                      style={{background:isSelected?'rgba(124,106,232,0.15)':'#0d0d20',
-                        border:`1px solid ${isSelected?'#7c6ae8':'#252542'}`,
-                        borderRadius:10,padding:"10px 14px",cursor:"pointer",
-                        fontFamily:"inherit",textAlign:"left"}}>
-                      <div style={{fontSize:13,fontWeight:700,color:isSelected?'#9d8ef0':'#ece8d8'}}>
-                        {fn?`📁 ${fn}`:'📂 フォルダなし'}
-                        {isSelected&&<span style={{marginLeft:6,fontSize:11,color:"#7c6ae8"}}>✓</span>}
-                      </div>
-                      <div style={{fontSize:11,color:"#555",marginTop:2}}>
-                        {qCount}問 · {fDecks.length}デッキ
-                      </div>
-                    </button>
-                  );
-                })}
-                <button onClick={()=>setShowRandomFolderDialog(false)}
+                {/* フォルダ選択リスト（変更押下時のみ展開） */}
+                {tpFolderPicking&&(
+                  <div style={{display:"flex",flexDirection:"column",gap:8,
+                    background:"#0d0d18",border:"1px solid #252542",borderRadius:10,padding:10}}>
+                    {folderNames.map(fn=>{
+                      const fDecks=folderGroups[fn];
+                      const qCount=fDecks.reduce((s,dk)=>s+dk.questions.length,0);
+                      const isSelected=randomFolder===fn;
+                      return(
+                        <button key={fn||'__none__'}
+                          onClick={()=>{
+                            setRandomFolder(fn);
+                            try{localStorage.setItem('econ_random_folder',fn);}catch(_){}
+                            setTpFolderPicking(false);
+                          }}
+                          style={{background:isSelected?'rgba(124,106,232,0.15)':'#13132a',
+                            border:`1px solid ${isSelected?'#7c6ae8':'#252542'}`,
+                            borderRadius:8,padding:"9px 12px",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                          <div style={{fontSize:13,fontWeight:700,color:isSelected?'#9d8ef0':'#ece8d8'}}>
+                            {fn?`📁 ${fn}`:'📂 フォルダなし'}{isSelected&&<span style={{marginLeft:6,fontSize:11,color:"#7c6ae8"}}>✓</span>}
+                          </div>
+                          <div style={{fontSize:11,color:"#555",marginTop:2}}>{qCount}問 · {fDecks.length}デッキ</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* 3サブモード */}
+                {!tpFolderPicking&&(<>
+                  {/* 🔥 詰め込みモード */}
+                  <button
+                    onClick={()=>{if(cramTotal===0)return;closeModal();onPlayCram(randomFolder);}}
+                    disabled={cramTotal===0}
+                    style={{background:cramTotal>0?"rgba(239,138,76,0.09)":"#0d0d18",
+                      border:`2px solid ${cramTotal>0?'#ef8a4c':'#2a2a44'}`,borderRadius:12,
+                      padding:"14px 14px",cursor:cramTotal>0?"pointer":"default",fontFamily:"inherit",textAlign:"left",position:"relative"}}>
+                    <div style={{fontSize:14,fontWeight:800,color:cramTotal>0?'#ef8a4c':'#666'}}>
+                      {T.tpCram}{cramHasSave&&<span style={{fontSize:11,color:'#c9a84c',fontWeight:600}}> {T.tpCramResume}</span>}
+                    </div>
+                    <div style={{fontSize:11,color:cramTotal>0?'#888':'#555',marginTop:3}}>
+                      {T.tpCramSub}{cramTotal>0?`（${cramTotal}問）`:''}
+                    </div>
+                  </button>
+                  {/* 💪 弱点補強モード */}
+                  <button
+                    onClick={()=>{
+                      if(weakCount===0){alert(T.tpWeakEmpty);return;}
+                      closeModal();onPlayWeak(randomFolder);
+                    }}
+                    disabled={!hasRandomFolder}
+                    style={{background:weakCount>0?"rgba(239,68,68,0.08)":"#0d0d18",
+                      border:`2px solid ${weakCount>0?'#ef4444':'#2a2a44'}`,borderRadius:12,
+                      padding:"14px 14px",cursor:hasRandomFolder?"pointer":"default",fontFamily:"inherit",textAlign:"left"}}>
+                    <div style={{fontSize:14,fontWeight:800,color:weakCount>0?'#ef4444':'#666'}}>{T.tpWeak}</div>
+                    <div style={{fontSize:11,color:weakCount>0?'#888':'#555',marginTop:3}}>
+                      {T.tpWeakSub}{weakCount>0?`（${weakCount}問）`:''}
+                    </div>
+                  </button>
+                  {/* 📝 模擬試験モード */}
+                  <button
+                    onClick={()=>{closeModal();onPlayRandom(randomFolder);}}
+                    disabled={!randomCanPlay}
+                    style={{background:randomCanPlay?"rgba(124,106,232,0.08)":"#0d0d18",
+                      border:`2px solid ${randomCanPlay?randomColor:'#2a2a44'}`,borderRadius:12,
+                      padding:"14px 14px",cursor:randomCanPlay?"pointer":"default",fontFamily:"inherit",textAlign:"left"}}>
+                    <div style={{fontSize:14,fontWeight:800,color:randomCanPlay?randomColor:'#666'}}>{T.tpMock}</div>
+                    <div style={{fontSize:11,color:randomCanPlay?'#888':'#555',marginTop:3}}>{T.tpMockSub}</div>
+                  </button>
+                </>)}
+                <button onClick={closeModal}
                   style={{background:"none",border:"1px solid #333",borderRadius:10,padding:"10px",
-                    fontSize:13,color:"#666",cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                    fontSize:13,color:"#666",cursor:"pointer",fontFamily:"inherit",marginTop:2}}>
                   {T.randomCancel}
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
           </>);
         })()}
 
@@ -3579,6 +3662,7 @@ function QuizApp(){
 
   /* ── NextDNS 報酬タイマー ── */
   const[ndConfig,setNdConfig]=useState(()=>{try{return JSON.parse(localStorage.getItem('nd_config'))||null;}catch{return null;}});
+  const[rewardProgress,setRewardProgress]=useState(()=>parseInt(localStorage.getItem('nd_session_count')||'0'));
   const[showNdSettings,setShowNdSettings]=useState(false);
   const[ndApiKey,setNdApiKey]=useState('');
   const[ndProfileId,setNdProfileId]=useState('');
@@ -3603,6 +3687,8 @@ function QuizApp(){
         const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
         const newTotal=oldTotal+added;
         localStorage.setItem('nd_total_correct',String(newTotal));
+        // Swift注入JSがnd_session_countをorigSetItemで更新した直後なので同期的に読める
+        setRewardProgress(parseInt(localStorage.getItem('nd_session_count')||'0'));
         const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
         if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
       }
@@ -3654,14 +3740,11 @@ function QuizApp(){
 
   // 新規報酬：APIで解除してタイマー開始
   const triggerReward=async(cfg)=>{
-    setRewardActive(true);
-    setRewardSecs(ND_MINUTES*60);
-    setRewardStatus('unlocking');
+    // バナー表示なし（サイレント解除）
     try{
       await ndPCUnlock(cfg);
     }catch(e){
-      setRewardStatus('error');
-      return;
+      return; // エラーバナーも表示しない
     }
     const until=Date.now()+ND_MINUTES*60*1000;
     localStorage.setItem('nd_reward_until',String(until));
@@ -3797,6 +3880,20 @@ function QuizApp(){
   const[karutaStartQueue,setKarutaStartQueue]=useState(null);
   const[karutaStartAnswered,setKarutaStartAnswered]=useState(0);
   const[karutaSave,setKarutaSave]=useState(()=>loadKarutaSave());
+  // 詰め込みモード（CRAM）
+  const[cramCards,setCramCards]=useState(null);
+  const[cramFolderKey,setCramFolderKey]=useState('');
+  const[cramInitGrad,setCramInitGrad]=useState([]);
+  // 現在選択フォルダに詰め込み保存があるか（ロビー表示用）
+  const cramSaveInfo=(()=>{
+    try{
+      const fk=localStorage.getItem('econ_random_folder');
+      const key=fk!==null?(fk||'__nofolder__'):null;
+      if(key===null)return null;
+      const saved=JSON.parse(localStorage.getItem(CRAM_SAVE_KEY)||'null');
+      return(saved&&saved.folderKey===key)?saved:null;
+    }catch{return null;}
+  })();
   // 百人一首正解時に穴埋りSRSにもボーナス記録
   // ※ streak不足で降格するケースは何もしない（百人一首は必ずプラスのみ）
   const onKarutaCorrect=(qId)=>{
@@ -3895,6 +3992,61 @@ function QuizApp(){
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
     dispatch({type:"START",QS:picked,newCardIds:[],rewardNewIds:[]});
+  };
+
+  // 弱点補強モード：間違い回数(questionStats.wrong)降順の上位15問（同数はランダム）
+  const playWeak=(folderName)=>{
+    const folderDecks=folderName===''
+      ?decks.filter(dk=>!dk.folder)
+      :decks.filter(dk=>dk.folder===folderName);
+    const allQs=folderDecks.flatMap(dk=>dk.questions);
+    const qStats=gSt?.questionStats||{};
+    const wrongOf=q=>(qStats[q.id]?.wrong)||0;
+    const missed=allQs.filter(q=>wrongOf(q)>0);
+    if(missed.length===0)return;
+    const picked=shuffle([...missed])
+      .sort((a,b)=>wrongOf(b)-wrongOf(a))
+      .slice(0,15);
+    const freshSRS=loadSRS();
+    setSRS(freshSRS);setQS(picked);setIsToday(false);
+    setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
+    dispatch({type:"START",QS:picked,newCardIds:[],rewardNewIds:[]});
+  };
+
+  // 詰め込みモード：フォルダ全問をキュー方式で。完全分離ストア。
+  const playCram=(folderName)=>{
+    const folderDecks=folderName===''
+      ?decks.filter(dk=>!dk.folder)
+      :decks.filter(dk=>dk.folder===folderName);
+    const allQs=folderDecks.flatMap(dk=>dk.questions);
+    if(allQs.length===0)return;
+    const folderKey=folderName||'__nofolder__';
+    // 保存済み進捗があれば復元、なければ新規（カード順はシャッフルして固定）
+    const saved=loadCramSave(folderKey);
+    let ordered,initGrad;
+    if(saved&&Array.isArray(saved.cardOrder)){
+      // cardOrderで順序を復元
+      const byId={};allQs.forEach(q=>{byId[q.id]=q;});
+      ordered=saved.cardOrder.map(id=>byId[id]).filter(Boolean);
+      // 新規追加カード（保存後に増えたぶん）を末尾に足す
+      const known=new Set(saved.cardOrder);
+      allQs.forEach(q=>{if(!known.has(q.id))ordered.push(q);});
+      initGrad=saved.graduatedIds||[];
+    }else{
+      ordered=shuffle([...allQs]);
+      initGrad=[];
+      // 新規セッションのカード順を保存（復元時の順序一致のため）
+      try{localStorage.setItem(CRAM_SAVE_KEY,JSON.stringify({
+        folderKey,cardOrder:ordered.map(q=>q.id),graduatedIds:[],savedAt:Date.now()
+      }));}catch(_){}
+    }
+    setCramCards(ordered);
+    setCramFolderKey(folderKey);
+    setCramInitGrad(initGrad);
+    try{getCtx().resume().catch(()=>{});}catch(_){}
+    SFX.start();
   };
 
   // 今日のデッキをプレイ
@@ -4153,6 +4305,16 @@ function QuizApp(){
 
   /* ── ロビー画面 ─────────────────────────────────────────────── */
   if(phase==="start"){
+    if(cramCards) return(
+      <LangCtx.Provider value={lang}>
+        <CramGamePlay
+          allCards={cramCards}
+          folderKey={cramFolderKey}
+          initialGraduated={cramInitGrad}
+          onClose={()=>setCramCards(null)}
+        />
+      </LangCtx.Provider>
+    );
     if(karutaCards) return(
       <LangCtx.Provider value={lang}>
         <KarutaGamePlay
@@ -4214,6 +4376,9 @@ function QuizApp(){
           onClearKarutaSave={()=>{clearKarutaSave();setKarutaSave(null);}}
           onPlayToday={playToday} onPlayReview={playReview} onPlayNew={playNew}
           onPlayRandom={playRandom}
+          onPlayWeak={playWeak}
+          onPlayCram={playCram}
+          cramHasSave={!!cramSaveInfo}
           onManageDecks={()=>setShowDeckMgr(true)}
           onSettings={(t)=>{
             if(t==="stats") setShowStats(true);
@@ -4379,6 +4544,7 @@ function QuizApp(){
           <span style={S.qnum}>✓{answeredCorrectly.length}<span style={{color:"#444",fontSize:10}}>/{QS.length}</span></span>
           {combo>0&&<span className="comboPop" style={S.comboTag}>{"🔥".repeat(Math.min(combo,5))} ×{combo}</span>}
           <div style={{display:"flex",alignItems:"center",gap:10}}>
+            {ndConfig&&<span style={{fontSize:11,color:'#c9a84c',background:'rgba(201,168,76,0.1)',border:'1px solid rgba(201,168,76,0.25)',borderRadius:6,padding:'2px 6px',lineHeight:1.4,whiteSpace:'nowrap'}}>🎁{10-rewardProgress}問</span>}
             <span style={S.scorePill}>{score}<span style={{color:"#444",fontSize:10}}>pt</span></span>
             <button onClick={toggleSound}
               style={{background:"none",border:`1px solid ${soundOn?"#c9a84c":"#555"}`,borderRadius:7,
@@ -4759,6 +4925,467 @@ function ZoomableImage({src,alt,style}){
    ・キューシステム：不正解→末尾に戻す。全問正解で終了
    ・Reactフック規則準拠：全hookをearly return前に配置
 ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   詰め込みモード（CRAM）— セッション内完結キュー方式
+   - 完全分離ストア（SRS・questionStats に一切書かない）
+   - 10問バッチ動的投入
+   - 卒業：一発正解=即卒業 / 誤答経験あり=連続2回正解
+   - 間違えたカードは 3〜4問後に再挿入（キュー長でクランプ）
+   - バッチ完了ごとに進捗保存、フォルダ全問卒業=完走で破棄
+══════════════════════════════════════════════════════════════ */
+const CRAM_SAVE_KEY="cram_progress_v1";
+const CRAM_BATCH=10;         // 一度にキューへ投入する問題数
+const CRAM_REINSERT_MIN=3;   // 誤答カードの再挿入：最短3問後
+const CRAM_REINSERT_MAX=4;   // 　　　　　　　　　　最長4問後
+
+function loadCramSave(folderKey){
+  try{
+    const all=JSON.parse(localStorage.getItem(CRAM_SAVE_KEY)||'null');
+    if(!all||all.folderKey!==folderKey)return null;
+    return all;
+  }catch{return null;}
+}
+function saveCramProgress(folderKey,graduatedIds){
+  try{
+    // 既存のcardOrderを保持したまま進捗だけ更新（poolCursorは廃止）
+    const prev=JSON.parse(localStorage.getItem(CRAM_SAVE_KEY)||'null');
+    const cardOrder=(prev&&prev.folderKey===folderKey&&prev.cardOrder)?prev.cardOrder:null;
+    localStorage.setItem(CRAM_SAVE_KEY,JSON.stringify({
+      folderKey,cardOrder,graduatedIds,savedAt:Date.now()
+    }));
+  }catch(_){}
+}
+function clearCramSave(){try{localStorage.removeItem(CRAM_SAVE_KEY);}catch(_){}}
+
+// 詰め込みモード本体
+function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
+  const T=useT();
+  const lang=React.useContext(LangCtx);
+
+  // 音声オン/オフ（他モードと共有）
+  const[soundOn,setSoundOn]=useState(()=>localStorage.getItem('econ_sound')!=='0');
+  const toggleSound=()=>{
+    const next=!soundOn;
+    _soundEnabled=next;
+    localStorage.setItem('econ_sound',next?'1':'0');
+    setSoundOn(next);
+  };
+
+  const totalCount=allCards.length;
+
+  // 卒業済みID（永続）
+  const graduatedRef=useRef(new Set(initialGraduated||[]));
+  // 未投入プール：まだキューに積んでいない「未卒業」カードのidキュー
+  // 復元時は graduated に含まれないカード全てが未投入プールになる（投入済み未卒業も取りこぼさない）
+  const poolRef=useRef(
+    allCards.filter(c=>!(new Set(initialGraduated||[])).has(c.id)).map(c=>c.id)
+  );
+  // カードごとのセッション内状態：{ [qId]: {seenWrong:bool, streak:int} }
+  const cardStateRef=useRef({});
+  // id → card の索引
+  const byIdRef=useRef((()=>{const m={};allCards.forEach(c=>{m[c.id]=c;});return m;})());
+
+  // 現在のキュー（カードオブジェクトの配列を id で保持）
+  const[queue,setQueue]=useState([]);
+  // このバッチで投入したがまだ卒業していない数の管理用に、卒業総数をstate化（進捗表示）
+  const[gradCount,setGradCount]=useState(()=>(initialGraduated||[]).length);
+
+  const[phase,setPhase]=useState('fill'); // 'fill' | 'feedback'
+  const[inputs,setInputs]=useState([]);
+  const[results,setResults]=useState(null);
+  const[isCorrect,setIsCorrect]=useState(null);
+  const[correctAnim,setCorrectAnim]=useState(false);
+  const[wrongAnim,setWrongAnim]=useState(false);
+  const[justGraduated,setJustGraduated]=useState(false);
+  const inputRefs=useRef([]);
+  const composingRef=useRef(false);
+  const feedbackTsRef=useRef(0);
+
+  // 未投入プールから最大n枚取り出してキューに積む
+  const refillBatch=()=>{
+    const added=[];
+    while(added.length<CRAM_BATCH&&poolRef.current.length>0){
+      const id=poolRef.current.shift();
+      const card=byIdRef.current[id];
+      if(!card)continue;
+      if(!graduatedRef.current.has(id)){
+        added.push(card);
+        cardStateRef.current[id]={seenWrong:false,streak:0};
+      }
+    }
+    return added;
+  };
+
+  // 初期投入
+  useEffect(()=>{
+    const first=refillBatch();
+    setQueue(first);
+    // 初回投入ぶんの進捗を保存
+    saveCramProgress(folderKey,[...graduatedRef.current]);
+    // eslint-disable-next-line
+  },[]);
+
+  const q=queue.length>0?queue[0]:null;
+  const blanks=q?.blanks||[];
+
+  const initCard=()=>{
+    if(!q)return;
+    setPhase('fill');
+    setInputs(new Array(blanks.length).fill(''));
+    setResults(null);setIsCorrect(null);setJustGraduated(false);
+    setTimeout(()=>inputRefs.current[0]?.focus(),80);
+  };
+
+  // BGM
+  useEffect(()=>{
+    KBGM.start();
+    return()=>{KBGM.stop();};
+  },[]);
+
+  // 進捗に応じたBGMレベル
+  useEffect(()=>{
+    const r=totalCount>0?gradCount/totalCount:0;
+    KBGM.setLevel(r>=0.75?3:r>=0.5?2:r>=0.25?1:0);
+  },[gradCount,totalCount]);
+
+  // フィードバック中のEnter → 次へ
+  useEffect(()=>{
+    const onKey=(e)=>{
+      if(e.key==='Enter'&&phase==='feedback'&&!composingRef.current){
+        if(Date.now()-feedbackTsRef.current>400){e.preventDefault();next();}
+      }
+    };
+    window.addEventListener('keyup',onKey);
+    return()=>window.removeEventListener('keyup',onKey);
+  },[phase,isCorrect,queue]);
+
+  useEffect(()=>{
+    if(phase==='feedback') feedbackTsRef.current=Date.now();
+  },[phase]);
+
+  // 効果音・○×マークアニメーション（画面フラッシュはしない）
+  useEffect(()=>{
+    if(phase!=='feedback'||isCorrect===null)return;
+    if(isCorrect){
+      SFX.correct();Hap.impact('Light');
+      setCorrectAnim(true);setTimeout(()=>setCorrectAnim(false),750);
+    }else{
+      SFX.wrong();Hap.impact('Light');
+      setWrongAnim(true);setTimeout(()=>setWrongAnim(false),750);
+    }
+  },[phase,isCorrect]);
+
+  // 問題切り替え時に初期化
+  useEffect(()=>{initCard();},[q?.id,queue.length]);
+
+  // ── 完走（全カード卒業） ─────────────────────────────
+  const allGraduated=queue.length===0&&poolRef.current.length===0
+    &&graduatedRef.current.size>=totalCount;
+
+  if(allGraduated){
+    clearCramSave();
+    return(
+      <div style={{minHeight:'100vh',background:'#0d0d18',display:'flex',
+        flexDirection:'column',alignItems:'center',justifyContent:'center',
+        fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',gap:20,padding:24}}>
+        <div style={{fontSize:52,animation:'bounceIn 0.6s ease'}}>🔥</div>
+        <div style={{fontSize:23,fontWeight:900,color:'#ef8a4c'}}>
+          {lang==='ja'?'詰め込み完走！':'Cram complete!'}
+        </div>
+        <div style={{fontSize:14,color:'#555',marginBottom:8}}>
+          {totalCount}{lang==='ja'?'問すべて卒業':'cards mastered'}
+        </div>
+        <button onClick={onClose}
+          style={{background:'#ef8a4c',border:'none',borderRadius:12,
+            padding:'14px 32px',fontSize:16,fontWeight:800,color:'#0d0d18',
+            cursor:'pointer',fontFamily:'inherit'}}>
+          {lang==='ja'?'ロビーへ戻る':'Back to Lobby'}
+        </button>
+      </div>
+    );
+  }
+
+  // キューが空だがプールが残っている → 次バッチ投入
+  if(queue.length===0&&poolRef.current.length>0){
+    const more=refillBatch();
+    if(more.length>0){
+      setQueue(more);
+      saveCramProgress(folderKey,[...graduatedRef.current]);
+    }
+    return(
+      <div style={{minHeight:'100vh',background:'#0d0d18',display:'flex',
+        alignItems:'center',justifyContent:'center',color:'#555'}}>
+        <div style={{width:32,height:32,border:'3px solid #2a2a42',
+          borderTop:'3px solid #ef8a4c',borderRadius:'50%',
+          animation:'spin 0.8s linear infinite'}}/>
+      </div>
+    );
+  }
+
+  // フォールバック：キューもプールも空だが未卒業が残る宙づり状態
+  // （旧バージョンの壊れた保存データ復元時などに発生しうる）→ 未卒業カードを再収集
+  if(queue.length===0&&poolRef.current.length===0&&graduatedRef.current.size<totalCount){
+    const remaining=allCards.filter(c=>!graduatedRef.current.has(c.id)).map(c=>c.id);
+    if(remaining.length>0){
+      poolRef.current=remaining;
+      const more=refillBatch();
+      if(more.length>0){
+        setQueue(more);
+        saveCramProgress(folderKey,[...graduatedRef.current]);
+      }
+      return(
+        <div style={{minHeight:'100vh',background:'#0d0d18',display:'flex',
+          alignItems:'center',justifyContent:'center',color:'#555'}}>
+          <div style={{width:32,height:32,border:'3px solid #2a2a42',
+            borderTop:'3px solid #ef8a4c',borderRadius:'50%',
+            animation:'spin 0.8s linear infinite'}}/>
+        </div>
+      );
+    }
+  }
+
+  if(!q)return null;
+
+  // ── submit ────────────────────────────────────────────────
+  const submit=()=>{
+    if(phase!=='fill')return;
+    const res=chkFill(blanks,inputs);
+    const ok=res.every(Boolean);
+    setResults(res);setIsCorrect(ok);setPhase('feedback');
+    // 卒業判定用の状態更新（SRS・questionStatsには一切書かない）
+    const st=cardStateRef.current[q.id]||{seenWrong:false,streak:0};
+    if(ok){
+      const newStreak=st.streak+1;
+      // 卒業条件：一度も間違えていない(seenWrong=false)なら即卒業
+      //           誤答経験あり(seenWrong=true)なら連続2回正解で卒業
+      const graduate=(!st.seenWrong)||(newStreak>=2);
+      cardStateRef.current[q.id]={...st,streak:newStreak};
+      setJustGraduated(graduate);
+    }else{
+      cardStateRef.current[q.id]={seenWrong:true,streak:0};
+      setJustGraduated(false);
+    }
+  };
+
+  // ── next ──────────────────────────────────────────────────
+  const next=()=>{
+    const curId=q.id;
+    const st=cardStateRef.current[curId]||{seenWrong:false,streak:0};
+
+    if(isCorrect&&justGraduated){
+      // 卒業 → キューから除去、永続Setに追加
+      graduatedRef.current.add(curId);
+      const newSize=graduatedRef.current.size;
+      setGradCount(newSize);
+      setQueue(prev=>{
+        const rest=prev.slice(1);
+        // バッチが尽きたら（このrestが空なら）進捗保存
+        if(rest.length===0){
+          saveCramProgress(folderKey,[...graduatedRef.current]);
+        }
+        return rest;
+      });
+    }else{
+      // 未卒業（正解だが誤答経験ありで1回目 / または不正解）→ 3〜4問後に再挿入
+      setQueue(prev=>{
+        const rest=prev.slice(1);
+        // 挿入位置：3〜4問後。ただしキュー長でクランプ
+        const span=CRAM_REINSERT_MIN+Math.floor(Math.random()*(CRAM_REINSERT_MAX-CRAM_REINSERT_MIN+1));
+        const pos=Math.min(span,rest.length);
+        const nq=[...rest.slice(0,pos),prev[0],...rest.slice(pos)];
+        return nq;
+      });
+    }
+    setPhase('fill');setInputs([]);setResults(null);setIsCorrect(null);setJustGraduated(false);
+  };
+
+  const handleKey=(i,e)=>{
+    const isTabKey=e.key==="Tab";
+    const isEnterKey=e.key==="Enter"&&!e.isComposing&&!composingRef.current&&e.keyCode!==229;
+    if(!isTabKey&&!isEnterKey)return;
+    if(phase==='feedback')return;
+    if(isTabKey){
+      // Tab / Shift+Tab：空欄間を移動（提出しない）
+      e.preventDefault();
+      if(e.shiftKey){
+        if(i>0){SFX.blankOk();Hap.impact("Light");inputRefs.current[i-1]?.focus();}
+      }else{
+        if(i<blanks.length-1){SFX.blankOk();Hap.impact("Light");inputRefs.current[i+1]?.focus();}
+      }
+      return;
+    }
+    // Enter：複数空欄なら次へ、最後の空欄でのみ提出
+    e.preventDefault();
+    if(i<blanks.length-1){
+      SFX.blankOk();Hap.impact("Light");
+      inputRefs.current[i+1]?.focus();
+    }else{
+      submit();
+    }
+  };
+
+  const renderFullQ=()=>{
+    const parts=(q.q||'').split('___');
+    return parts.map((part,i)=>(
+      <React.Fragment key={i}>
+        <span>{part}</span>
+        {i<parts.length-1&&(()=>{
+          const correctAns=blanks[i]?.ans[0]||'';
+          const userVal=(inputs[i]||'').trim();
+          const ok=results?results[i]:null;
+          const color=ok?'#4ade80':'#f87171';
+          return(
+            <span style={{background:`rgba(${ok?'34,197,94':'239,68,68'},0.15)`,
+              border:`1px solid ${color}`,borderRadius:5,
+              padding:'1px 8px',margin:'0 2px',fontWeight:700,color,whiteSpace:'nowrap'}}>
+              {!ok&&userVal&&<span style={{textDecoration:'line-through',opacity:0.5,marginRight:5,color:'#888'}}>{userVal}</span>}
+              {correctAns}
+            </span>
+          );
+        })()}
+      </React.Fragment>
+    ));
+  };
+
+  // フィードバックのステータス文言（SRSは使わない）
+  const cramLabel=()=>{
+    if(isCorrect){
+      return justGraduated
+        ?(lang==='ja'?'✅ 卒業！':'✅ Mastered!')
+        :(lang==='ja'?'✅ あと1回で卒業':'✅ One more to master');
+    }
+    return lang==='ja'?'❌ もう一度出題されます':'❌ Will appear again';
+  };
+
+  const progress=gradCount;
+  const remainingInQueue=queue.length;
+
+  return(
+    <LangCtx.Provider value={lang}>
+    <div style={{minHeight:'100vh',background:'#0d0d18',
+      fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',
+      display:'flex',flexDirection:'column',alignItems:'center',
+      padding:DK?'28px 16px':'12px 16px'}}>
+
+      {/* ○/× マーク（中央にふわっと出る。画面フラッシュはなし） */}
+      {correctAnim&&(
+        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',
+          justifyContent:'center',pointerEvents:'none',zIndex:60}}>
+          <div style={{fontSize:140,color:'#4ade80',fontWeight:900,
+            textShadow:'0 0 20px rgba(74,222,128,0.5)',
+            animation:'bounceIn 0.5s ease forwards'}}>◯</div>
+        </div>
+      )}
+      {wrongAnim&&(
+        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',
+          justifyContent:'center',pointerEvents:'none',zIndex:60}}>
+          <div style={{fontSize:140,color:'#f87171',fontWeight:900,
+            textShadow:'0 0 20px rgba(248,113,113,0.5)',
+            animation:'bounceIn 0.5s ease forwards'}}>✕</div>
+        </div>
+      )}
+
+      {/* ヘッダー */}
+      <div style={{width:'100%',maxWidth:520,display:'flex',
+        alignItems:'center',justifyContent:'space-between',marginBottom:10,gap:6}}>
+        <button onClick={onClose}
+          style={{background:'none',border:'1px solid #333',borderRadius:8,flexShrink:0,
+            padding:'5px 12px',color:'#888',fontSize:14,cursor:'pointer',fontFamily:'inherit'}}>
+          ← {lang==='ja'?'中断':'Pause'}
+        </button>
+        <div style={{flex:1,minWidth:0,fontSize:14,color:'#666',fontWeight:700,textAlign:'center',lineHeight:1.6}}>
+          🔥 {lang==='ja'?`卒業 ${progress}/${totalCount}問`:`${progress}/${totalCount} mastered`}
+          <div style={{fontSize:11,color:'#555',marginTop:1}}>
+            {lang==='ja'?`このバッチ残り${remainingInQueue}問`:`${remainingInQueue} left in batch`}
+          </div>
+        </div>
+        <button onClick={toggleSound}
+          style={{background:'none',border:'1px solid #555',borderRadius:8,flexShrink:0,
+            padding:'5px 10px',color:'#888',fontSize:15,cursor:'pointer',lineHeight:1}}>
+          {soundOn?'🔊':'🔇'}
+        </button>
+      </div>
+
+      {/* 進捗バー */}
+      <div style={{width:'100%',maxWidth:520,height:6,background:'#1e1e32',
+        borderRadius:4,overflow:'hidden',marginBottom:16}}>
+        <div style={{height:'100%',width:`${totalCount>0?(progress/totalCount*100):0}%`,
+          background:'#ef8a4c',borderRadius:4,transition:'width 0.4s ease'}}/>
+      </div>
+
+      {/* 問題カード */}
+      <div style={{width:'100%',maxWidth:520,background:'#13132a',
+        border:'2px solid #252542',
+        borderRadius:16,padding:DK?'26px 24px':'20px 16px',
+        marginBottom:16}}>
+        <div style={{fontSize:DK?21:18,lineHeight:2.1,color:'#ece8d8'}}>
+          {phase==='feedback'?renderFullQ():(()=>{
+            const parts=(q.q||'').split('___');
+            return parts.map((part,i)=>(
+              <React.Fragment key={i}>
+                <span>{part}</span>
+                {i<parts.length-1&&(
+                  <input
+                    ref={el=>inputRefs.current[i]=el}
+                    value={inputs[i]||''}
+                    onChange={e=>{const ni=[...inputs];ni[i]=e.target.value;setInputs(ni);}}
+                    onCompositionStart={()=>{composingRef.current=true;}}
+                    onCompositionEnd={()=>{setTimeout(()=>{composingRef.current=false;},100);}}
+                    onKeyDown={e=>handleKey(i,e)}
+                    style={{display:'inline-block',
+                      width:`${Math.max(8,(inputs[i]||'').length+2,(blanks[i]?.ans[0]||'').length+2)}ch`,
+                      background:'#0d0d1a',border:'1px solid #3a3a5a',borderRadius:5,
+                      padding:'3px 8px',margin:'0 3px',color:'#ece8d8',fontSize:'inherit',
+                      fontFamily:'inherit',textAlign:'center'}}/>
+                )}
+              </React.Fragment>
+            ));
+          })()}
+        </div>
+      </div>
+
+      {/* フィードバック / 送信 */}
+      {phase==='feedback'?(
+        <div style={{width:'100%',maxWidth:520,display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{textAlign:'center',fontSize:17,fontWeight:800,
+            color:isCorrect?(justGraduated?'#4ade80':'#c9a84c'):'#f87171'}}>
+            {cramLabel()}
+          </div>
+          {/* 正解語の大表示（正解・不正解問わず） */}
+          <div style={{display:'flex',flexWrap:'wrap',justifyContent:'center',gap:10}}>
+            {blanks.map((b,i)=>(
+              <span key={i} style={{fontSize:DK?26:22,fontWeight:900,color:'#4ade80',
+                background:'rgba(74,222,128,0.1)',border:'1.5px solid rgba(74,222,128,0.4)',
+                borderRadius:10,padding:'6px 16px',fontFamily:'inherit'}}>
+                {b.ans[0]}
+              </span>
+            ))}
+          </div>
+          {q.explanation&&(
+            <div style={{background:'#0d0d1a',border:'1px solid #252542',borderRadius:10,
+              padding:'14px 16px',fontSize:DK?16:15,color:'#aaa',lineHeight:1.8,maxHeight:240,overflowY:'auto'}}>
+              {q.explanation}
+            </div>
+          )}
+          <button onClick={next}
+            style={{background:'#ef8a4c',border:'none',borderRadius:12,padding:'14px',
+              fontSize:16,fontWeight:800,color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
+            {lang==='ja'?'次へ →':'Next →'}
+          </button>
+        </div>
+      ):(
+        <button onClick={submit}
+          style={{width:'100%',maxWidth:520,background:'#c9a84c',border:'none',
+            borderRadius:12,padding:'14px',fontSize:16,fontWeight:800,color:'#0d0d18',
+            cursor:'pointer',fontFamily:'inherit'}}>
+          {lang==='ja'?'答え合わせ':'Check'}
+        </button>
+      )}
+    </div>
+    </LangCtx.Provider>
+  );
+}
+
 function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,setKarutaSRS,onMainCorrect,onClose,onPause}){
   const T=useT();
   const lang=React.useContext(LangCtx);
