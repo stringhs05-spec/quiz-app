@@ -4989,6 +4989,8 @@ function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
   const[queue,setQueue]=useState([]);
   // このバッチで投入したがまだ卒業していない数の管理用に、卒業総数をstate化（進捗表示）
   const[gradCount,setGradCount]=useState(()=>(initialGraduated||[]).length);
+  // バッチ完了時に「続ける/保存して終了」を選ばせる画面のフラグ
+  const[batchBreak,setBatchBreak]=useState(false);
 
   const[phase,setPhase]=useState('fill'); // 'fill' | 'feedback'
   const[inputs,setInputs]=useState([]);
@@ -5105,19 +5107,54 @@ function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
     );
   }
 
-  // キューが空だがプールが残っている → 次バッチ投入
-  if(queue.length===0&&poolRef.current.length>0){
-    const more=refillBatch();
-    if(more.length>0){
+  // ── バッチ完了：このまま続けるか、保存して終了するかを選ぶ ──────
+  // （自動では次バッチへ進めない。batchBreak が立っているときだけ表示）
+  if(batchBreak&&queue.length===0&&poolRef.current.length>0){
+    const gradN=graduatedRef.current.size;
+    const remaining=totalCount-gradN;
+    const pct=totalCount>0?Math.round(gradN/totalCount*100):0;
+    const nextN=Math.min(CRAM_BATCH,poolRef.current.length);
+    const goNext=()=>{
+      const more=refillBatch();
+      setBatchBreak(false);
       setQueue(more);
       saveCramProgress(folderKey,[...graduatedRef.current]);
-    }
+    };
+    const saveExit=()=>{
+      saveCramProgress(folderKey,[...graduatedRef.current]);
+      onClose();
+    };
     return(
       <div style={{minHeight:'100vh',background:'#0d0d18',display:'flex',
-        alignItems:'center',justifyContent:'center',color:'#555'}}>
-        <div style={{width:32,height:32,border:'3px solid #2a2a42',
-          borderTop:'3px solid #ef8a4c',borderRadius:'50%',
-          animation:'spin 0.8s linear infinite'}}/>
+        flexDirection:'column',alignItems:'center',justifyContent:'center',
+        fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',gap:14,padding:24}}>
+        <div style={{fontSize:44,animation:'bounceIn 0.6s ease'}}>✅</div>
+        <div style={{fontSize:20,fontWeight:900,color:'#ef8a4c'}}>
+          {lang==='ja'?'バッチ完了！':'Batch done!'}
+        </div>
+        <div style={{fontSize:14,color:'#c9a84c',fontWeight:700}}>
+          {lang==='ja'?`卒業 ${gradN}/${totalCount}問`:`${gradN}/${totalCount} mastered`}
+        </div>
+        <div style={{width:'min(320px,80vw)',height:8,background:'#1a1a2e',
+          borderRadius:99,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${pct}%`,background:'#ef8a4c',
+            borderRadius:99,transition:'width 0.4s ease'}}/>
+        </div>
+        <div style={{fontSize:12,color:'#555',marginBottom:6}}>
+          {lang==='ja'?`残り ${remaining}問 ・ 進捗は保存済み`:`${remaining} left · progress saved`}
+        </div>
+        <button onClick={goNext}
+          style={{background:'#ef8a4c',border:'none',borderRadius:12,
+            padding:'14px 36px',fontSize:16,fontWeight:800,color:'#0d0d18',
+            cursor:'pointer',fontFamily:'inherit'}}>
+          {lang==='ja'?`次の${nextN}問へ →`:`Next ${nextN} →`}
+        </button>
+        <button onClick={saveExit}
+          style={{background:'none',border:'1px solid #3a3a55',borderRadius:12,
+            padding:'12px 32px',fontSize:14,fontWeight:700,color:'#9a94b0',
+            cursor:'pointer',fontFamily:'inherit'}}>
+          {lang==='ja'?'保存して終了':'Save & exit'}
+        </button>
       </div>
     );
   }
@@ -5175,26 +5212,21 @@ function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
     if(isCorrect&&justGraduated){
       // 卒業 → キューから除去、永続Setに追加
       graduatedRef.current.add(curId);
-      const newSize=graduatedRef.current.size;
-      setGradCount(newSize);
-      setQueue(prev=>{
-        const rest=prev.slice(1);
-        // バッチが尽きたら（このrestが空なら）進捗保存
-        if(rest.length===0){
-          saveCramProgress(folderKey,[...graduatedRef.current]);
-        }
-        return rest;
-      });
+      setGradCount(graduatedRef.current.size);
+      const rest=queue.slice(1);
+      setQueue(rest);
+      // バッチが尽きた（restが空）→ 進捗を保存。プールが残っていれば選択画面を出す
+      if(rest.length===0){
+        saveCramProgress(folderKey,[...graduatedRef.current]);
+        if(poolRef.current.length>0)setBatchBreak(true);
+      }
     }else{
       // 未卒業（正解だが誤答経験ありで1回目 / または不正解）→ 3〜4問後に再挿入
-      setQueue(prev=>{
-        const rest=prev.slice(1);
-        // 挿入位置：3〜4問後。ただしキュー長でクランプ
-        const span=CRAM_REINSERT_MIN+Math.floor(Math.random()*(CRAM_REINSERT_MAX-CRAM_REINSERT_MIN+1));
-        const pos=Math.min(span,rest.length);
-        const nq=[...rest.slice(0,pos),prev[0],...rest.slice(pos)];
-        return nq;
-      });
+      const rest=queue.slice(1);
+      // 挿入位置：3〜4問後。ただしキュー長でクランプ
+      const span=CRAM_REINSERT_MIN+Math.floor(Math.random()*(CRAM_REINSERT_MAX-CRAM_REINSERT_MIN+1));
+      const pos=Math.min(span,rest.length);
+      setQueue([...rest.slice(0,pos),queue[0],...rest.slice(pos)]);
     }
     setPhase('fill');setInputs([]);setResults(null);setIsCorrect(null);setJustGraduated(false);
   };
