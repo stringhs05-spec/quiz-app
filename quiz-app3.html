@@ -1195,6 +1195,7 @@ document.addEventListener("keydown",unlockAudio,{passive:true});
 let _soundEnabled=localStorage.getItem('econ_sound')!=='0';
 // AudioContextを完全再生成してアンロック（別アプリ操作後の音切れ復帰用）
 const resetAudioContext=()=>{
+  try{_stopRealtimeBgm();}catch(_){}
   // 旧コンテキストに属するBGMノードを先に切り離す
   try{
     if(typeof _bgmNodes!=='undefined'&&_bgmNodes){
@@ -1223,9 +1224,9 @@ document.addEventListener('visibilitychange',()=>{
 window.addEventListener('focus',()=>{
   if(_actx&&_actx.state==='suspended')_actx.resume().catch(()=>{});
 });
-// ── オフラインレンダリング用ターゲット ────────────────────────
-// _RT が非nullの間、下の音源関数はライブのAudioContextではなく
-// OfflineAudioContext に対してノードを組む（BGMループの事前生成用）。
+// ── BGMレイヤー用ターゲット ────────────────────────────────
+// _RT は事前生成用コンテキスト、またはSafariのライブコンテキストと
+// レイヤー専用GainNodeを指定する。効果音は従来どおり共通バスへ送る。
 let _RT=null;
 const _actxOf=()=>_RT?_RT.c:getCtx();
 const _destOf=(c)=>_RT?_RT.dest:_busOf(c);
@@ -1524,12 +1525,25 @@ const pad=(at=null)=>{
    1Hz程度まで絞るため、200ms先読みでは音が途切れ、復帰時には
    遅延したtickが連打されて音が団子になっていた。
 
-   新実装では OfflineAudioContext で 2小節分を事前レンダリングし、
+   アプリとSafari以外では OfflineAudioContext で 2小節分を事前レンダリングし、
    AudioBufferSourceNode の loop 再生に置き換える。
    ・JSタイマーを一切使わないのでスロットリングの影響を受けない
    ・レイヤーごとにバッファを分け、GainNode のフェードでレベルを切替
    ・ループ末尾を超える余韻は先頭へ折り返して継ぎ目を消す
 ══════════════════════════════════════════════════════════════ */
+// Safariブラウザのみリアルタイム予約。ネイティブアプリは従来方式。
+const _IS_NATIVE_AUDIO_APP=!!(_IS_MAC_APP||(
+  window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&
+  window.Capacitor.isNativePlatform()
+));
+const _UA=navigator.userAgent||'';
+const _IS_SAFARI_BROWSER=!_IS_NATIVE_AUDIO_APP&&/Safari/i.test(_UA)&&
+  !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR|OPiOS|Android)/i.test(_UA);
+let _rtBgmTimer=null,_rtBgmNextTime=0,_rtBgmStep=0;
+const _stopRealtimeBgm=()=>{
+  if(_rtBgmTimer!==null){clearInterval(_rtBgmTimer);_rtBgmTimer=null;}
+  _rtBgmNextTime=0;_rtBgmStep=0;
+};
 const _BARS=2;    // 1ループ＝2小節（乱数成分の繰り返し感を抑える）
 const _TAIL=2.4;  // 折り返す余韻の長さ（秒）
 
@@ -1569,6 +1583,7 @@ let _bgmNodes=null;          // {srcs,gains,master,ctx}
 
 const _stopBgmNodes=(fade=0.12)=>{
   const n=_bgmNodes;_bgmNodes=null;
+  _stopRealtimeBgm();
   if(!n)return;
   try{
     const t=n.ctx.currentTime;
@@ -1578,6 +1593,7 @@ const _stopBgmNodes=(fade=0.12)=>{
     n.srcs.forEach(s=>{try{s.stop(t+fade+0.03);}catch(_){}});
     setTimeout(()=>{
       n.srcs.forEach(s=>{try{s.disconnect();}catch(_){}});
+      n.gains.forEach(g=>{try{g.disconnect();}catch(_){}});
       try{n.master.disconnect();}catch(_){}
     },(fade+0.3)*1000);
   }catch(_){
@@ -1585,14 +1601,54 @@ const _stopBgmNodes=(fade=0.12)=>{
   }
 };
 
-// キャッシュ済みバッファから再生グラフを組む（AudioContext再生成後もこれを呼ぶ）
+// 環境に合わせて再生グラフを組む（AudioContext再生成後もこれを呼ぶ）
 const _buildBgmNodes=()=>{
   if(!_bgmSpec||!_bgmKey)return;
-  const bufs=_bgmCache.get(_bgmKey);
-  if(!bufs)return;
+  const bufs=_IS_SAFARI_BROWSER?null:_bgmCache.get(_bgmKey);
+  if(!_IS_SAFARI_BROWSER&&!bufs)return;
   _stopBgmNodes(0.02);
   try{
     const c=getCtx();
+    if(_IS_SAFARI_BROWSER){
+      const spec=_bgmSpec;
+      if(!Number.isFinite(spec.stepSec)||spec.stepSec<=0)throw new Error('Invalid BGM stepSec');
+      const master=c.createGain();
+      const baseVolume=(spec.volume??1)*0.62;
+      master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:baseVolume;
+      master.connect(_busOf(c));
+      const want=spec.gainsFor(_bgmLv);
+      const gains=spec.layers.map((_,i)=>{
+        const g=c.createGain();g.gain.value=want[i]?1:0.0001;
+        g.connect(master);return g;
+      });
+      const nodes={srcs:[],gains,master,ctx:c,realtime:true,baseVolume};
+      _bgmNodes=nodes;
+      const patternSteps=spec.patternSteps||16;
+      _rtBgmStep=0;_rtBgmNextTime=c.currentTime+0.08;
+      const schedule=()=>{
+        if(_bgmNodes!==nodes||c.state==='closed')return;
+        const now=c.currentTime;
+        // バックグラウンド等で遅れた音をまとめて鳴らさず、拍を進める。
+        if(_rtBgmNextTime<now){
+          const skipped=Math.ceil((now+0.02-_rtBgmNextTime)/spec.stepSec);
+          _rtBgmStep+=skipped;_rtBgmNextTime+=skipped*spec.stepSec;
+        }
+        const horizon=now+0.50;
+        while(_rtBgmNextTime<horizon){
+          const step=_rtBgmStep%patternSteps;
+          spec.layers.forEach((fn,i)=>{
+            const prev=_RT;_RT={c,dest:gains[i]};
+            try{fn(step,_rtBgmNextTime);}
+            catch(e){try{console.warn('[Safari BGM] schedule',e);}catch(_){}}
+            finally{_RT=prev;}
+          });
+          _rtBgmStep++;_rtBgmNextTime+=spec.stepSec;
+        }
+      };
+      schedule();
+      _rtBgmTimer=setInterval(schedule,100);
+      return;
+    }
     const master=c.createGain();
     master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:1;
     master.connect(_busOf(c));
@@ -1605,7 +1661,7 @@ const _buildBgmNodes=()=>{
       src.connect(g);g.connect(master);src.start(t0);
       srcs.push(src);gains.push(g);
     });
-    _bgmNodes={srcs,gains,master,ctx:c};
+    _bgmNodes={srcs,gains,master,ctx:c,realtime:false,baseVolume:1};
   }catch(e){try{console.warn('[BGM] build failed',e);}catch(_){}}
 };
 
@@ -1616,6 +1672,7 @@ const _startSpec=(key,makeSpec,resetLv)=>{
   _bgmKey=key;_bgmSpec=makeSpec();
   if(resetLv)_bgmLv=0;
   const go=()=>{if(gen===_bgmGen)_buildBgmNodes();};
+  if(_IS_SAFARI_BROWSER){go();return;}
   if(_bgmCache.has(key)){go();return;}
   _renderSpec(_bgmSpec).then(bufs=>{_bgmCache.set(key,bufs);go();})
     .catch(e=>{try{console.warn('[BGM] render failed',key,e);}catch(_){}});
@@ -1656,7 +1713,7 @@ const _setMasterMute=(mute,fade)=>{
     const g=_bgmNodes.master.gain;
     g.cancelScheduledValues(t);
     g.setValueAtTime(Math.max(g.value,0.0001),t);
-    g.linearRampToValueAtTime((_bgmMuted||!_soundEnabled)?0.0001:1,t+(fade||0.12));
+    g.linearRampToValueAtTime((_bgmMuted||!_soundEnabled)?0.0001:(_bgmNodes.baseVolume??1),t+(fade||0.12));
   }catch(_){}
 };
 // 音声ON/OFFトグルからマスターゲインへ反映する
@@ -1729,6 +1786,7 @@ const _recoverAudio=async()=>{
 // 呼ばれた時点では即座に再生が始まる。
 let _prewarmStarted=false;
 const _prewarmBgm=()=>{
+  if(_IS_SAFARI_BROWSER)return;
   if(_prewarmStarted)return;
   _prewarmStarted=true;
   const jobs=[];
