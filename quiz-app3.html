@@ -1221,6 +1221,7 @@ const resetAudioContext=()=>{
   // 旧コンテキストに属するBGMノードを先に切り離す
   try{
     if(typeof _bgmNodes!=='undefined'&&_bgmNodes){
+      if(_bgmNodes.timer)clearInterval(_bgmNodes.timer);
       _bgmNodes.srcs.forEach(s=>{try{s.stop();}catch(_){}try{s.disconnect();}catch(_){}});
       try{_bgmNodes.master.disconnect();}catch(_){}
       _bgmNodes=null;
@@ -1593,6 +1594,7 @@ let _bgmNodes=null;          // {srcs,gains,master,ctx}
 const _stopBgmNodes=(fade=0.12)=>{
   const n=_bgmNodes;_bgmNodes=null;
   if(!n)return;
+  if(n.timer){clearInterval(n.timer);n.timer=null;}
   try{
     const t=n.ctx.currentTime;
     n.master.gain.cancelScheduledValues(t);
@@ -1608,9 +1610,77 @@ const _stopBgmNodes=(fade=0.12)=>{
   }
 };
 
+/* ── Safariブラウザ用：ライブ再生モード ────────────────────────
+   Mac/iOS の Safari ブラウザでは、OfflineAudioContext で事前生成した
+   BGMループがザーザー・バリバリと歪む（効果音は正常）。
+   そこで Safari ブラウザに限り事前生成を使わず、効果音と同じ
+   「その場でオシレーターを鳴らす」方式で、少し先の音を先読み予約しながら
+   BGMを鳴らす。アプリ（WKWebView/Capacitor）や Chrome は従来通り。
+   localStorage 'bgm_live' を '1'/'0' にすると強制的に切り替えられる。 */
+const _BGM_LIVE=(()=>{
+  try{
+    const o=localStorage.getItem('bgm_live');
+    if(o==='1')return true;
+    if(o==='0')return false;
+  }catch(_){}
+  if(window.Capacitor)return false;
+  const ua=navigator.userAgent||'';
+  return /Version\/[\d.]+.*Safari\//.test(ua)&&!/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\//.test(ua);
+})();
+try{console.log('[BGM] mode',_BGM_LIVE?'live (Safari)':'prerendered');}catch(_){}
+
+const _LIVE_TICK_MS=25;     // 予約処理の間隔
+const _LIVE_AHEAD=0.30;     // 何秒先まで予約しておくか
+const _buildLiveBgm=()=>{
+  const spec=_bgmSpec;
+  _stopBgmNodes(0.02);
+  try{
+    const c=getCtx();
+    const master=c.createGain();
+    master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:1;
+    master.connect(_busOf(c));
+    const vol=c.createGain();vol.gain.value=spec.volume??1;
+    vol.connect(master);
+    const want=spec.gainsFor(_bgmLv);
+    const gains=spec.layers.map((_,i)=>{
+      const g=c.createGain();g.gain.value=want[i]?1:0.0001;
+      g.connect(vol);return g;
+    });
+    const total=spec.totalSteps||16*_BARS;
+    const pat=spec.patternSteps||16;
+    const t0=c.currentTime+0.1;
+    let k=0;
+    const node={srcs:[],gains,master,ctx:c,timer:null};
+    const pump=()=>{
+      if(_bgmNodes!==node)return;
+      const limit=c.currentTime+_LIVE_AHEAD;
+      let guard=0;
+      while(t0+k*spec.stepSec<limit&&guard++<64){
+        const at=t0+k*spec.stepSec;
+        const idx=(k%total)%pat;
+        // 予約が遅れて過去の時刻になったステップは鳴らさずに飛ばす
+        // （復帰直後に音が団子になるのを防ぐ）
+        if(at>=c.currentTime-0.02){
+          const cur=spec.gainsFor(_bgmLv);  // レベル変更に追従
+          spec.layers.forEach((fn,i)=>{
+            if(!cur[i])return;
+            const prev=_RT;_RT={c,dest:gains[i]};
+            try{fn(idx,at);}catch(_){}finally{_RT=prev;}
+          });
+        }
+        k++;
+      }
+    };
+    node.timer=setInterval(pump,_LIVE_TICK_MS);
+    _bgmNodes=node;
+    pump();
+  }catch(e){try{console.warn('[BGM] live build failed',e);}catch(_){}}
+};
+
 // キャッシュ済みバッファから再生グラフを組む（AudioContext再生成後もこれを呼ぶ）
 const _buildBgmNodes=()=>{
   if(!_bgmSpec||!_bgmKey)return;
+  if(_BGM_LIVE){_buildLiveBgm();return;}
   const bufs=_bgmCache.get(_bgmKey);
   if(!bufs)return;
   _stopBgmNodes(0.02);
@@ -1639,7 +1709,7 @@ const _startSpec=(key,makeSpec,resetLv)=>{
   _bgmKey=key;_bgmSpec=makeSpec();
   if(resetLv)_bgmLv=0;
   const go=()=>{if(gen===_bgmGen)_buildBgmNodes();};
-  if(_bgmCache.has(key)){go();return;}
+  if(_BGM_LIVE||_bgmCache.has(key)){go();return;}
   _renderSpec(_bgmSpec).then(bufs=>{_bgmCache.set(key,bufs);go();})
     .catch(e=>{try{console.warn('[BGM] render failed',key,e);}catch(_){}});
 };
@@ -1752,6 +1822,7 @@ const _recoverAudio=async()=>{
 // 呼ばれた時点では即座に再生が始まる。
 let _prewarmStarted=false;
 const _prewarmBgm=()=>{
+  if(_BGM_LIVE)return;
   if(_prewarmStarted)return;
   _prewarmStarted=true;
   const jobs=[];
