@@ -1146,11 +1146,34 @@ const Hap={
    AUDIO
 ══════════════════════════════════════════════════════════════ */
 let _actx=null;
-// Safariブラウザ対策：latencyHint:'playback' で出力バッファを大きめに取り、
-// メインスレッドが重いとき（Babel変換・React描画中）の音飛び・ブツブツを防ぐ
+/* ── Safari のサンプルレート食い違い対策 ─────────────────────
+   Safari（特に iPhone/iPad）では、AudioContext が報告するサンプルレートと
+   実際の出力ハードウェアのレートが食い違ったまま生成されることがあり、
+   その状態で鳴らすと全ての音が激しく割れる（WebKitの既知の不具合）。
+   ネイティブアプリ版はオーディオセッションをOS側で確定させているため
+   この問題が起きない。
+   対策：生成したコンテキストのレートで無音を1回鳴らしてハードウェアを
+   そのレートに合わせてから閉じ、作り直す。レートが一致するまで最大3回。 */
 const _AC=window.AudioContext||window.webkitAudioContext;
+const _primeAndClose=(c)=>{
+  try{
+    const b=c.createBuffer(1,1,c.sampleRate);
+    const s=c.createBufferSource();s.buffer=b;
+    s.connect(c.destination);s.start(0);s.disconnect();
+  }catch(_){}
+  try{c.close().catch(()=>{});}catch(_){}
+};
 const _newCtx=()=>{
-  try{return new _AC({latencyHint:'playback'});}catch(_){return new _AC();}
+  let c=new _AC();
+  for(let i=0;i<3;i++){
+    const rate=c.sampleRate;
+    _primeAndClose(c);
+    c=new _AC();
+    if(c.sampleRate===rate)break;
+    try{console.warn('[AUDIO] sampleRate mismatch',rate,'->',c.sampleRate,'retry');}catch(_){}
+  }
+  try{console.log('[AUDIO] context sampleRate',c.sampleRate);}catch(_){}
+  return c;
 };
 const getCtx=()=>{
   if(!_actx)_actx=_newCtx();
@@ -1180,7 +1203,7 @@ const unlockAudio=()=>{
     if(c.state==="suspended"){
       c.resume().catch(()=>{});
       // 無音バッファで強制アンロック
-      const buf=c.createBuffer(1,1,22050);
+      const buf=c.createBuffer(1,1,c.sampleRate);
       const src=c.createBufferSource();
       src.buffer=buf;src.connect(c.destination);src.start(0);
     }
@@ -1208,7 +1231,7 @@ const resetAudioContext=()=>{
   try{
     const c=getCtx();
     // 無音バッファで強制アンロック
-    const buf=c.createBuffer(1,1,22050);
+    const buf=c.createBuffer(1,1,c.sampleRate);
     const src=c.createBufferSource();
     src.buffer=buf;src.connect(c.destination);src.start(0);
   }catch(_){}
