@@ -1146,10 +1146,29 @@ const Hap={
    AUDIO
 ══════════════════════════════════════════════════════════════ */
 let _actx=null;
+// Safariブラウザ対策：latencyHint:'playback' で出力バッファを大きめに取り、
+// メインスレッドが重いとき（Babel変換・React描画中）の音飛び・ブツブツを防ぐ
+const _AC=window.AudioContext||window.webkitAudioContext;
+const _newCtx=()=>{
+  try{return new _AC({latencyHint:'playback'});}catch(_){return new _AC();}
+};
 const getCtx=()=>{
-  if(!_actx)_actx=new(window.AudioContext||window.webkitAudioContext)();
+  if(!_actx)_actx=_newCtx();
   if(_actx.state==="suspended")_actx.resume().catch(()=>{});
   return _actx;
+};
+// 全ての音をこのバスに通す。コンプレッサーをリミッターとして使い、
+// BGMの複数レイヤー＋効果音が重なって振幅が1.0を超えたときの
+// デジタルクリップ（Safariでは激しい音割れになる）を防ぐ。
+const _busOf=(c)=>{
+  if(c._bus)return c._bus;
+  const input=c.createGain();input.gain.value=0.7;
+  const lim=c.createDynamicsCompressor();
+  lim.threshold.value=-6;lim.knee.value=4;lim.ratio.value=20;
+  lim.attack.value=0.003;lim.release.value=0.15;
+  input.connect(lim);lim.connect(c.destination);
+  c._bus=input;
+  return input;
 };
 
 // iOS サイレントスイッチ対策：最初のタッチで無音バッファを再生してアンロック
@@ -1209,7 +1228,7 @@ window.addEventListener('focus',()=>{
 // OfflineAudioContext に対してノードを組む（BGMループの事前生成用）。
 let _RT=null;
 const _actxOf=()=>_RT?_RT.c:getCtx();
-const _destOf=(c)=>_RT?_RT.dest:c.destination;
+const _destOf=(c)=>_RT?_RT.dest:_busOf(c);
 
 const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25,at=null}={})=>{
   if(!_soundEnabled&&!_RT)return;
@@ -1576,7 +1595,7 @@ const _buildBgmNodes=()=>{
     const c=getCtx();
     const master=c.createGain();
     master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:1;
-    master.connect(c.destination);
+    master.connect(_busOf(c));
     const t0=c.currentTime+0.08;
     const want=_bgmSpec.gainsFor(_bgmLv);
     const srcs=[],gains=[];
@@ -2214,7 +2233,7 @@ const charTick=(ch)=>{
     const c=getCtx();const t=c.currentTime;
     const freq=900+Math.random()*400;
     const o=c.createOscillator(),g=c.createGain();
-    o.connect(g);g.connect(c.destination);
+    o.connect(g);g.connect(_busOf(c));
     o.type="sine";o.frequency.value=freq;
     g.gain.setValueAtTime(0.028,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.022);
