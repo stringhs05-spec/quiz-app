@@ -12,7 +12,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%;background:#0d0d18;overflow-y:auto;-webkit-overflow-scrolling:touch;}#root{min-height:100%;background:#0d0d18;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
 button:hover:not(:disabled){filter:brightness(1.14);cursor:pointer}
-input:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0 0 0 2px rgba(201,168,76,0.2) !important}
+input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0 0 0 2px rgba(201,168,76,0.2) !important}
 .flashFade{animation:flashFade 3s ease forwards}
 @keyframes flashFade{0%{opacity:1}100%{opacity:0}}
 @keyframes timerPulse{0%,100%{opacity:1}50%{opacity:0.3}}
@@ -589,20 +589,132 @@ function saveSRS(srs){try{localStorage.setItem(SRS_KEY,JSON.stringify(srs));}cat
 
 // NextDNS 報酬チェック（穴埋り・百人一首共通）
 const _ND_URL='https://nd-timer.stringhs05.workers.dev';
-const _ND_THRESH=15,_ND_MIN=2;
+/* ── 解除しきい値 ────────────────────────────────────────────
+   Mac版とiPhone版は同じHTMLを使うため、実行時に判定して切り替える。
+   macOSラッパー(QuizUnlockApp)だけが quizBridge を登録しているので、
+   その有無で判別する。Capacitor が登録するのは bridge であって
+   quizBridge ではないため、iPhone版ではここが false になる。
+
+   iPhone : すべて5問で保留が1つ積まれる
+   Mac    : 従来どおり（穴埋め15問・新問挑戦10回・百人一首8問）
+
+   受け取り方は両者共通で、ロビーの🐦から本人が押したときだけ解除が走る。
+   解除の実行経路だけが環境で分かれる（Mac=quizBridge / iPhone=Worker）。 */
+const _IS_MAC_APP=!!(typeof window!=='undefined'&&window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.quizBridge);
+const _ND_THRESH     = _IS_MAC_APP?15:5;  // 穴埋め通常モード（正解数）
+const _ND_THRESH_ATT = _IS_MAC_APP?10:5;  // 新問挑戦モード（解答回数）
+const _ND_KARUTA_PTS = _IS_MAC_APP? 2:1;  // 百人一首の1正解あたりの加点
+// 解放時間（分）。以前iPhoneは1分に短縮していたが、原因はラグではなく
+// 機内モード/Wi-Fi操作をしていなかったことだったため、2分に統一。
+const _ND_MIN=2;
+
+/* ── 解除リクエストの記録 ────────────────────────────────────
+   これまで解除の失敗は全て catch で握りつぶされていたため、
+   動かなくなっても画面上は何も起きなかった。直近20件を残す。 */
+const ND_LOG_KEY='nd_log';
+function ndLog(entry){
+  try{
+    const arr=JSON.parse(localStorage.getItem(ND_LOG_KEY)||'[]');
+    // 表示時刻がJSTとずれると照合しづらいのでローカル時刻で記録する
+    const d=new Date();
+    const p=n=>String(n).padStart(2,'0');
+    const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    arr.unshift(Object.assign({t:stamp},entry));
+    localStorage.setItem(ND_LOG_KEY,JSON.stringify(arr.slice(0,20)));
+  }catch(_){}
+}
+function ndGetLog(){
+  try{return JSON.parse(localStorage.getItem(ND_LOG_KEY)||'[]');}catch(_){return[];}
+}
+function ndGetConfig(){
+  try{return JSON.parse(localStorage.getItem('nd_config')||'null');}catch(_){return null;}
+}
+
+/* ── 報酬の保留カウント ──────────────────────────────────────
+   しきい値に達した瞬間に解除リクエストを送ると、その瞬間が
+   ちょうど通信の切れているタイミング（機内モード操作中など）と
+   重なった場合に静かに失敗する。ユーザーが気づく手段もなかった。
+   そこで、しきい値到達時は保留を1つ積むだけにし、実際の
+   リクエストはロビーの設定画面で本人が任意のタイミングで
+   ボタンを押したときに送る。
+
+   真偽値ではなく個数で持つ。受け取る前に何度しきい値を跨いでも、
+   その回数ぶんが積み上がって取りこぼしが出ない。            */
+const ND_PENDING_KEY='nd_pending';
+function ndPendingCount(){
+  try{
+    const v=parseInt(localStorage.getItem(ND_PENDING_KEY)||'0');
+    return isNaN(v)||v<0?0:v;
+  }catch(_){return 0;}
+}
+function ndMarkPending(){
+  try{localStorage.setItem(ND_PENDING_KEY,String(ndPendingCount()+1));}catch(_){}
+  ndLog({ev:'pending',n:ndPendingCount()});
+}
+function ndIsPending(){
+  return ndPendingCount()>0;
+}
+// 受け取り成功時に1つだけ消費する。残りは次回に持ち越す。
+function ndConsumePending(){
+  const n=ndPendingCount();
+  try{
+    if(n<=1)localStorage.removeItem(ND_PENDING_KEY);
+    else localStorage.setItem(ND_PENDING_KEY,String(n-1));
+  }catch(_){}
+}
+function ndClearPending(){
+  try{localStorage.removeItem(ND_PENDING_KEY);}catch(_){}
+}
+
+/* ── 解除リクエスト本体 ──────────────────────────────────────
+   Capacitor の WKWebView ではページの origin が capacitor://localhost に
+   なる。Content-Type: application/json の POST はプリフライト(OPTIONS)を
+   発生させるため、Worker 側がこの origin を許可していないと通信自体が
+   失敗する。そこで通常のリクエストが例外になった場合は、プリフライトの
+   起きない単純リクエスト(text/plain) + no-cors で投げ直す。
+   no-cors では応答を読めないが、Worker には確実に届く。            */
+async function ndUnlockRequest(minutes,why){
+  const cfg=ndGetConfig();
+  if(!cfg||!cfg.apiKey||!cfg.profileId){
+    ndLog({ev:'skip',why:'設定なし',from:why||''});
+    return {ok:false,reason:'設定なし'};
+  }
+  const body=JSON.stringify({apiKey:cfg.apiKey,profileId:cfg.profileId,minutes:minutes});
+  const url=_ND_URL+'/start';
+  try{
+    const r=await fetch(url,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:body});
+    let txt='';try{txt=await r.text();}catch(_){}
+    ndLog({ev:r.ok?'ok':'ng',mode:'cors',status:r.status,from:why||'',resp:String(txt).slice(0,100)});
+    if(r.ok){
+      localStorage.setItem('nd_reward_until',String(Date.now()+minutes*60*1000));
+      return {ok:true,mode:'cors',status:r.status};
+    }
+    return {ok:false,reason:'HTTP '+r.status,status:r.status};
+  }catch(e){
+    const first=String((e&&e.message)||e);
+    try{
+      await fetch(url,{method:'POST',mode:'no-cors',
+        headers:{'Content-Type':'text/plain;charset=UTF-8'},body:body});
+      ndLog({ev:'ok',mode:'no-cors',from:why||'',note:'CORS回避で送信',first:first});
+      localStorage.setItem('nd_reward_until',String(Date.now()+minutes*60*1000));
+      return {ok:true,mode:'no-cors'};
+    }catch(e2){
+      const second=String((e2&&e2.message)||e2);
+      ndLog({ev:'fail',from:why||'',err:second,first:first});
+      return {ok:false,reason:second};
+    }
+  }
+}
+
 async function checkNdReward(added=1){
   try{
     const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
     const newTotal=oldTotal+added;
     localStorage.setItem('nd_total_correct',String(newTotal));
     if(Math.floor(newTotal/_ND_THRESH)<=Math.floor(oldTotal/_ND_THRESH))return false;
-    const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
-    if(!cfg?.apiKey||!cfg?.profileId)return false;
-    await fetch(`${_ND_URL}/start`,{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({apiKey:cfg.apiKey,profileId:cfg.profileId,minutes:_ND_MIN})});
-    localStorage.setItem('nd_reward_until',String(Date.now()+_ND_MIN*60*1000));
-    return true; // 解放された
+    ndMarkPending();
+    return true;
   }catch(_){return false;}
 }
 
@@ -680,18 +792,21 @@ let _syncCooldownTs=0;
 const SYNC_COOLDOWN_MS=30000;
 
 async function syncSave(url,srs,karutaSrs,stats,{force=false,history=null}={}){
-  if(!url)return false;
+  if(!url){console.log("[SYNC] syncSave: url未設定");return false;}
   const now=Date.now();
-  if(!force&&now-_syncCooldownTs<SYNC_COOLDOWN_MS)return false;
+  if(!force&&now-_syncCooldownTs<SYNC_COOLDOWN_MS){console.log("[SYNC] syncSave: クールダウン中でスキップ");return false;}
   _syncCooldownTs=now;
   try{
     const exportedAt=new Date().toISOString();
     const payload={_type:"econ_progress",version:3,exportedAt,srs,karutaSrs,stats};
     if(history)payload.history=history;
+    console.log("[SYNC] syncSave: POST開始 url="+url);
+    const t0=Date.now();
     const res=await fetch(url,{method:"POST",body:JSON.stringify(payload)});
+    console.log("[SYNC] syncSave: 応答受信 status="+res.status+" ok="+res.ok+" "+(Date.now()-t0)+"ms");
     if(res.ok){localStorage.setItem(SYNC_TS_KEY,exportedAt);return true;}
     return false;
-  }catch{return false;}
+  }catch(e){console.error("[SYNC] syncSave error: "+e.message+" name="+e.name);return false;}
 }
 function syncSaveBeacon(url,srs,karutaSrs,stats){
   if(!url||!navigator.sendBeacon)return;
@@ -702,13 +817,17 @@ function syncSaveBeacon(url,srs,karutaSrs,stats){
   localStorage.setItem(SYNC_TS_KEY,exportedAt);
 }
 async function syncLoad(url){
-  if(!url)return null;
+  if(!url){console.log("[SYNC] syncLoad: url未設定");return null;}
   try{
+    console.log("[SYNC] syncLoad: GET開始 url="+url);
+    const t0=Date.now();
     const res=await fetch(url);
+    console.log("[SYNC] syncLoad: 応答受信 status="+res.status+" ok="+res.ok+" "+(Date.now()-t0)+"ms");
     if(!res.ok)return null;
     const data=await res.json();
+    console.log("[SYNC] syncLoad: JSON解析成功 _type="+(data&&data._type));
     return(data&&data._type==="econ_progress")?data:null;
-  }catch{return null;}
+  }catch(e){console.error("[SYNC] syncLoad error: "+e.message+" name="+e.name);return null;}
 }
 
 // 今日のISO日付（YYYY-MM-DD）
@@ -866,9 +985,29 @@ function buildReviewDeck(decks,srs,limit=15,qStats={}){
   return[...s0,...s1p,...revSorted.slice(0,revCount)];
 }
 // 新問挑戦：全デッキの「一度も正解していない」カード（未見 or 中断でSRSエントリだけ出来た既出問題、最大15枚）
-function buildNewDeck(decks,srs,limit=15){
+const NEW_PRACTICE_KEY='econ_new_practice';
+// 新問挑戦の1回あたり問題数（設定画面で選択）
+const NEW_PRACTICE_COUNTS=[3,6,10,15];
+const NEW_PRACTICE_DEFAULT_COUNT=6;
+// 新問挑戦で同時に抱える未正解カードの上限（ワーキングセット）
+const NEW_PRACTICE_WORKING_SET=3;
+function loadNewPractice(){
+  try{
+    const value=JSON.parse(localStorage.getItem(NEW_PRACTICE_KEY)||'null');
+    const count=NEW_PRACTICE_COUNTS.includes(value?.count)?value.count:NEW_PRACTICE_DEFAULT_COUNT;
+    return {folder:typeof value?.folder==='string'?value.folder:null,order:value?.order==='ordered'?'ordered':'random',count};
+  }catch{return {folder:null,order:'random',count:NEW_PRACTICE_DEFAULT_COUNT};}
+}
+function newPracticeDecks(decks,folder=null){
+  return decks.filter(dk=>folder===null||(dk.folder||'')===folder).sort((a,b)=>{
+    const af=a.folder||'',bf=b.folder||'';
+    if(af!==bf)return af===''?1:bf===''?-1:natCompare(af,bf);
+    return natCompare(a.name,b.name);
+  });
+}
+function buildNewDeck(decks,srs,limit=15,options={}){
   const seen=new Set();const newCards=[];
-  decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
+  newPracticeDecks(decks,options.folder??null).forEach(dk=>(dk.questions||[]).forEach(q=>{
     if(seen.has(q.id))return;seen.add(q.id);
     const sr=srs[q.id];
     // reps>0 は「一度でも正解して卒業/前進した」ことを意味する。
@@ -876,7 +1015,7 @@ function buildNewDeck(decks,srs,limit=15){
     // エントリが出来た未正解カード）はどちらも「新問」として再出題対象にする。
     if(!sr||!sr.reps)newCards.push(q);
   }));
-  return shuffle(newCards).slice(0,limit);
+  return (options.order==='ordered'?newCards:shuffle(newCards)).slice(0,limit);
 }
 
 // SRS習得状況を6カテゴリで集計
@@ -972,6 +1111,19 @@ function readJSONFile(file){
     r.readAsText(file);
   });
 }
+function resolveImagePool(qs,pool){
+  if(!pool||Object.keys(pool).length===0)return qs;
+  return qs.map(q=>{
+    const r={...q};
+    if(q.image&&pool[q.image])r.image=pool[q.image];
+    if(q.explanationImage&&pool[q.explanationImage])r.explanationImage=pool[q.explanationImage];
+    if(q.explanationImages)r.explanationImages=q.explanationImages.map(img=>
+      img.url&&pool[img.url]?{...img,url:pool[img.url]}:img);
+    if(q.images)r.images=q.images.map(img=>
+      img.url&&pool[img.url]?{...img,url:pool[img.url]}:img);
+    return r;
+  });
+}
 function validateQS(qs){
   if(!Array.isArray(qs)||qs.length===0)return"No questions";
   for(const q of qs){
@@ -1004,6 +1156,8 @@ const getCtx=()=>{
 const unlockAudio=()=>{
   try{
     const c=getCtx();
+    try{_prewarmBgm();}catch(_){}
+    try{_startKeepAlive();}catch(_){}
     if(c.state==="suspended"){
       c.resume().catch(()=>{});
       // 無音バッファで強制アンロック
@@ -1022,6 +1176,14 @@ document.addEventListener("keydown",unlockAudio,{passive:true});
 let _soundEnabled=localStorage.getItem('econ_sound')!=='0';
 // AudioContextを完全再生成してアンロック（別アプリ操作後の音切れ復帰用）
 const resetAudioContext=()=>{
+  // 旧コンテキストに属するBGMノードを先に切り離す
+  try{
+    if(typeof _bgmNodes!=='undefined'&&_bgmNodes){
+      _bgmNodes.srcs.forEach(s=>{try{s.stop();}catch(_){}try{s.disconnect();}catch(_){}});
+      try{_bgmNodes.master.disconnect();}catch(_){}
+      _bgmNodes=null;
+    }
+  }catch(_){}
   try{if(_actx)_actx.close().catch(()=>{});}catch(_){}
   _actx=null;
   try{
@@ -1031,6 +1193,9 @@ const resetAudioContext=()=>{
     const src=c.createBufferSource();
     src.buffer=buf;src.connect(c.destination);src.start(0);
   }catch(_){}
+  // 再生中だったBGMとキープアライブを新しいコンテキストで組み直す
+  try{if(typeof _kaNode!=='undefined'){_kaNode=null;_startKeepAlive();}}catch(_){}
+  try{if(typeof _bgmSpec!=='undefined'&&_bgmSpec)_buildBgmNodes();}catch(_){}
 };
 // ウィンドウがフォーカスを取り戻したら自動でresume試行
 document.addEventListener('visibilitychange',()=>{
@@ -1039,17 +1204,26 @@ document.addEventListener('visibilitychange',()=>{
 window.addEventListener('focus',()=>{
   if(_actx&&_actx.state==='suspended')_actx.resume().catch(()=>{});
 });
+// ── オフラインレンダリング用ターゲット ────────────────────────
+// _RT が非nullの間、下の音源関数はライブのAudioContextではなく
+// OfflineAudioContext に対してノードを組む（BGMループの事前生成用）。
+let _RT=null;
+const _actxOf=()=>_RT?_RT.c:getCtx();
+const _destOf=(c)=>_RT?_RT.dest:c.destination;
+
 const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25,at=null}={})=>{
-  if(!_soundEnabled)return;
+  if(!_soundEnabled&&!_RT)return;
   try{
-    const c=getCtx();
-    if(c.state==="suspended"){c.resume().catch(()=>{});return;}
+    const c=_actxOf();
+    // suspended でも早期returnせず、resumeを試みたうえで予約まで行う。
+    // （復帰直後の最初の1音が無音で消える問題への対策）
+    if(!_RT&&c.state==="suspended")c.resume().catch(()=>{});
     const base=at!==null?at:c.currentTime;
     freqs.forEach((f,i)=>{
       if(!f)return;
       const t=base+i*gap/1000;
       const o=c.createOscillator(),g=c.createGain();
-      o.connect(g);g.connect(c.destination);
+      o.connect(g);g.connect(_destOf(c));
       o.type=type;o.frequency.value=f;
       g.gain.setValueAtTime(vol,t);
       g.gain.exponentialRampToValueAtTime(0.001,t+dur);
@@ -1063,7 +1237,7 @@ const SFX={
   combo3: ()=>tone([523,659,784,1047],{vol:0.32,gap:65}),
   combo5: ()=>tone([784,988,1175,988,1175,1568],{vol:0.36,gap:58}),
   tick:   ()=>tone([1100],{type:"square",vol:0.07,gap:0,dur:0.06}),
-  typeKey:()=>tone([1200+Math.random()*600],{type:"sine",vol:0.13,gap:0,dur:0.035}),
+  typeKey:(vol=0.13)=>tone([1200+Math.random()*600],{type:"sine",vol,gap:0,dur:0.035}),
   blankOk:()=>tone([660,880],{type:"sine",vol:0.20,gap:70,dur:0.1}),
   newCard:()=>tone([523,659,784],{type:"sine",vol:0.16,gap:120,dur:0.35}),
   start:  ()=>tone([392,523,659,784],{vol:0.28,gap:80}),
@@ -1074,11 +1248,11 @@ const SFX={
   },
   win:()=>{
     const n=[261,329,392,523,659,784,1047,1319,1568];
-    n.forEach((f,i)=>setTimeout(()=>tone([f],{vol:0.28,dur:0.55}),i*82));
+    n.forEach((f,i)=>setTimeout(()=>tone([f],{vol:0.07,dur:0.55}),i*82));
     const d=n.length*82;
-    setTimeout(()=>tone([523,659,784,1047],{type:"triangle",vol:0.18,gap:0,dur:2.8}),d+80);
-    setTimeout(()=>tone([2093,2637],{type:"sine",vol:0.14,gap:260,dur:2.2}),d+350);
-    setTimeout(()=>tone([523,659,784,1047,1319],{type:"triangle",vol:0.1,gap:0,dur:3}),d+1200);
+    setTimeout(()=>tone([523,659,784,1047],{type:"triangle",vol:0.045,gap:0,dur:2.8}),d+80);
+    setTimeout(()=>tone([2093,2637],{type:"sine",vol:0.035,gap:260,dur:2.2}),d+350);
+    setTimeout(()=>tone([523,659,784,1047,1319],{type:"triangle",vol:0.025,gap:0,dur:3}),d+1200);
   },
   lose:()=>tone([523,494,440,392,349,294],{type:"triangle",vol:0.18,gap:115,dur:0.35}),
 };
@@ -1092,7 +1266,7 @@ const karutaTakeSound=()=>{
   }catch(_){}
 };
 
-// ── BGM：3テーマからランダム選択、各4段階進化 ────────────────
+// ── BGM：6テーマからランダム選択、各4段階進化 ────────────────
 
 const _KICK     = new Set([0,8]);
 const _SNARE    = new Set([4,12]);
@@ -1140,7 +1314,107 @@ const _F={
        [659.3,.09],null,[587.3,.07],[659.3,.08],
        [740,.10],null,[659.3,.08],null],
 };
-const _THEMES=[_A,_C,_F];
+// New themes use eight-bar phrases and additive layers, including at level zero.
+const _QUIET={id:"quiet",name:"静かな探究",style:"quiet",stepMs:60000/84/2};
+const _WALK={id:"walk",name:"軽快な散歩",style:"walk",stepMs:60000/112/2};
+const _BOUNCE={id:"bounce",name:"はずむステップ",style:"bounce",stepMs:60000/132/2};
+const _THEMES=[_A,_C,_F,_QUIET,_WALK,_BOUNCE];
+
+// Soft synthesized keys / wooden mallet: rounded attack avoids clicks.
+const _softNote=(midi,vol,dur,at,wood=false)=>{
+  const c=_actxOf(),f=440*Math.pow(2,(midi-69)/12);
+  [[1,1],[wood?3:2,wood?.16:.12]].forEach(([ratio,weight])=>{
+    const o=c.createOscillator(),g=c.createGain();
+    o.type='sine';o.frequency.value=f*ratio;
+    o.connect(g);g.connect(_destOf(c));
+    g.gain.setValueAtTime(0,at);
+    g.gain.linearRampToValueAtTime(vol*weight,at+(wood?.005:.018));
+    g.gain.exponentialRampToValueAtTime(.0001,at+dur);
+    g.gain.linearRampToValueAtTime(0,at+dur+.02);
+    o.start(at);o.stop(at+dur+.025);
+  });
+};
+// 「はずむステップ」: syncopated keys, moving bass, light percussion, 132 BPM.
+const _bounceSpec=(th)=>{
+  const chords=[[60,64,67],[57,60,64],[53,57,60],[55,59,62]];
+  const melody=[
+    [76,null,79,76,null,74,72,null,74,76,null,79,81,null,79,null],
+    [76,null,72,69,null,72,76,null,79,76,null,72,74,null,72,null],
+    [77,null,76,72,null,69,72,null,74,76,null,77,76,null,72,null],
+    [74,null,71,67,null,71,74,null,79,77,null,74,72,null,null,null]
+  ];
+  return {stepSec:th.stepMs/1000,totalSteps:64,patternSteps:64,
+    gainsFor:lv=>[1,lv>=1?1:0,lv>=2?1:0,lv>=3?1:0],
+    layers:[
+      (st,at)=>{
+        const c=chords[Math.floor(st/16)],n=st%16;
+        // Offbeat chord stabs give the opening layer a clear bounce.
+        if(n%4===2||n===7||n===15)c.forEach(note=>_softNote(note+12,.024,.15,at,true));
+        if(n%4===0)_taiko(95,38,.105,.14,at);
+      },
+      (st,at)=>{
+        const c=chords[Math.floor(st/16)],n=st%16;
+        const line=[c[0]-12,null,c[2]-12,null,c[0]-12,null,null,c[1]-12,
+          c[0]-12,null,c[2]-12,null,c[0],null,c[2]-12,null];
+        if(line[n]!==null)_softNote(line[n],.105,.22,at);
+        if(n%8===4){_softNote(50,.043,.065,at,true);hihat(.009,at);}
+      },
+      (st,at)=>{
+        const m=melody[Math.floor(st/16)][st%16];
+        if(m!==null)_softNote(m,.078,.26,at,true);
+        if(st%2===1)hihat(.008,at);
+      },
+      (st,at)=>{
+        const c=chords[Math.floor(st/16)],n=st%16;
+        if(n===3||n===7||n===11||n===14)_softNote(c[Math.floor(n/4)%3]+24,.023,.16,at,true);
+        if(n===6||n===14)_taiko(70,32,.045,.10,at);
+      }
+    ]};
+};
+const _gentleSpec=(th)=>{
+  const quiet=th.style==='quiet';
+  // Cmaj7 – Am7 – Fmaj7 – G6 / G – Em – C – D7.
+  const chords=quiet?[[60,64,67,71],[57,60,64,67],[53,57,60,64],[55,59,62,64]]:
+    [[55,59,62,67],[52,55,59,64],[48,52,55,60],[50,54,57,60]];
+  const melodies=quiet?[
+    [76,null,null,null,74,null,71,null,72,null,null,null,67,null,null,null],
+    [72,null,null,null,71,null,69,null,67,null,null,null,64,null,null,null],
+    [69,null,null,null,72,null,76,null,74,null,null,null,72,null,null,null],
+    [71,null,null,null,69,null,67,null,74,null,71,null,72,null,null,null]
+  ]:[
+    [71,null,74,76,null,74,71,null,69,null,67,null,69,71,null,null],
+    [67,null,71,74,null,71,67,null,66,null,64,null,66,67,null,null],
+    [64,null,67,72,null,71,69,null,67,null,64,null,67,69,null,null],
+    [66,null,69,74,null,72,69,null,66,null,69,null,67,null,null,null]
+  ];
+  return {stepSec:th.stepMs/1000,totalSteps:64,patternSteps:64,
+    gainsFor:lv=>[1,lv>=1?1:0,lv>=2?1:0,lv>=3?1:0],
+    layers:[
+      (st,at)=>{
+        const c=chords[Math.floor(st/16)],n=st%16;
+        if(quiet){
+          if(n===0||n===8)c.forEach(note=>_softNote(note,.025,1.9,at));
+          if(n===4||n===12)_softNote(c[n===4?2:1]+12,.038,1.1,at);
+        }else if(n%2===0)_softNote(c[(n/2)%4]+12,.048,.24,at,true);
+      },
+      (st,at)=>{
+        const c=chords[Math.floor(st/16)],n=st%16;
+        if(n%(quiet?8:4)===0)_softNote(c[0]-12+(n===12?7:0),quiet?.09:.12,quiet?1.2:.30,at);
+        if(!quiet&&n%8===0)_taiko(85,36,.12,.16,at);
+        if(!quiet&&n%8===4)_softNote(46,.035,.065,at,true);
+      },
+      (st,at)=>{
+        const n=melodies[Math.floor(st/16)][st%16];
+        if(n!==null)_softNote(n,quiet?.065:.085,quiet?1.0:.32,at,!quiet);
+      },
+      (st,at)=>{
+        const c=chords[Math.floor(st/16)],n=st%16;
+        if(quiet&&(n===6||n===14))_softNote(c[n===6?1:2]+12,.035,.85,at);
+        if(!quiet&&n%4===3)_softNote(c[Math.floor(n/4)]+12,.035,.18,at,true);
+        if(!quiet&&n%4===2)hihat(.007,at);
+      }
+    ]};
+};
 
 /* ══ 和風ラスボスBGM（カルタ専用）陰音階 / 185BPM ══
    陰音階 in A: A, B♭, D, E, F（宮城道雄スケール）
@@ -1170,89 +1444,13 @@ const _K_ARP=[
   [440,.09],[349.2,.07],[392,.08],[523.3,.07],
   [587.3,.08],[440,.07],[523.3,.08],[392,.07],
 ];
-let _kOn=false,_kStep=0,_kTid=null,_kLevel=0,_kNextBeat=null;
-const _kTick=()=>{
-  if(!_kOn)return;
-  const c=getCtx();
-  if(_kNextBeat===null||_kNextBeat<c.currentTime-_K_STEP_MS/500){
-    _kNextBeat=c.currentTime+_LOOKAHEAD;
-  }
-  const at=_kNextBeat;
-  if(!_soundEnabled){
-    _kNextBeat+=_K_STEP_MS/1000;
-    const delay=Math.max(1,(_kNextBeat-_LOOKAHEAD-c.currentTime)*1000);
-    _kStep++;_kTid=setTimeout(_kTick,delay);return;
-  }
-  try{
-    if(c.state==='running'){
-      const st=_kStep%16;
-      const lv=_kLevel;
-
-      // ── Lv0: 琴アルペジオのみ（とても静か） ────────────
-      const a=_K_ARP[st];
-      if(a)tone([a[0]],{type:'triangle',vol:a[1]*0.75,gap:0,dur:0.20,at});
-
-      // ── Lv1（25%）: ベース＋ソフト太鼓 ─────────────────
-      if(lv>=1){
-        const b=_K_BAS[st];
-        if(b)tone([b[0]],{type:'sine',vol:b[1],gap:0,dur:0.38,at});
-        // 拍頭だけ柔らかい太鼓（低音バースト）
-        if(st===0||st===8){
-          try{
-            const t=at;
-            const o=c.createOscillator(),g=c.createGain();
-            o.connect(g);g.connect(c.destination);
-            o.type='sine';o.frequency.setValueAtTime(90,t);
-            o.frequency.exponentialRampToValueAtTime(38,t+0.18);
-            g.gain.setValueAtTime(0.22,t);
-            g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
-            o.start(t);o.stop(t+0.24);
-          }catch(_){}
-        }
-      }
-
-      // ── Lv2（50%）: 尺八メロディ＋裏拍にそっとhihat ────
-      if(lv>=2){
-        const m=_K_MEL[st];
-        if(m)tone([m[0]],{type:'sine',vol:m[1],gap:0,dur:0.42,at});
-        if(st%4===2)hihat(0.015,at); // 裏拍のみ・非常に控えめ
-      }
-
-      // ── Lv3（75%）: ハーモニー＋裏拍太鼓＋賑やかhihat ──
-      if(lv>=3){
-        const m2=_K_MEL[st];
-        if(m2)tone([m2[0]*1.498],{type:'sine',vol:m2[1]*0.40,gap:0,dur:0.35,at});
-        if(st===4||st===12){
-          try{
-            const t=at;
-            const o=c.createOscillator(),g=c.createGain();
-            o.connect(g);g.connect(c.destination);
-            o.type='sine';o.frequency.setValueAtTime(70,t);
-            o.frequency.exponentialRampToValueAtTime(30,t+0.14);
-            g.gain.setValueAtTime(0.16,t);
-            g.gain.exponentialRampToValueAtTime(0.001,t+0.18);
-            o.start(t);o.stop(t+0.2);
-          }catch(_){}
-        }
-        if(st%2===1)hihat(0.012,at); // 控えめな全打ち
-      }
-    }
-  }catch(_){}
-  _kNextBeat+=_K_STEP_MS/1000;
-  const delay=Math.max(1,(_kNextBeat-_LOOKAHEAD-c.currentTime)*1000);
-  _kStep++;_kTid=setTimeout(_kTick,delay);
-};
-const KBGM={
-  start:()=>{if(_kOn)return;_kOn=true;_kStep=0;_kLevel=0;_kNextBeat=null;_kTick();},
-  stop: ()=>{_kOn=false;clearTimeout(_kTid);_kNextBeat=null;_kLevel=0;},
-  setLevel:(lv)=>{_kLevel=Math.max(0,Math.min(3,lv));},
-};
+// KBGM の本体は、下の「BGMループエンジン」節でループバッファとして定義する。
 
 const kick=(loud,at=null)=>{
   try{
-    const c=getCtx();const t=at!==null?at:c.currentTime;
+    const c=_actxOf();const t=at!==null?at:c.currentTime;
     const o=c.createOscillator(),g=c.createGain();
-    o.connect(g);g.connect(c.destination);
+    o.connect(g);g.connect(_destOf(c));
     o.type="sine";o.frequency.setValueAtTime(loud?180:150,t);
     o.frequency.exponentialRampToValueAtTime(35,t+0.09);
     g.gain.setValueAtTime(loud?.80:.55,t);
@@ -1262,10 +1460,10 @@ const kick=(loud,at=null)=>{
 };
 const snare=(at=null)=>{
   try{
-    const c=getCtx();const t=at!==null?at:c.currentTime;
+    const c=_actxOf();const t=at!==null?at:c.currentTime;
     [200,310,440].forEach(f=>{
       const o=c.createOscillator(),g=c.createGain();
-      o.connect(g);g.connect(c.destination);
+      o.connect(g);g.connect(_destOf(c));
       o.type="sawtooth";o.frequency.value=f*(1+(Math.random()-.5)*.12);
       g.gain.setValueAtTime(0.13,t);
       g.gain.exponentialRampToValueAtTime(0.001,t+0.13);
@@ -1275,9 +1473,9 @@ const snare=(at=null)=>{
 };
 const hihat=(vol=0.048,at=null)=>{
   try{
-    const c=getCtx();const t=at!==null?at:c.currentTime;
+    const c=_actxOf();const t=at!==null?at:c.currentTime;
     const o=c.createOscillator(),g=c.createGain();
-    o.connect(g);g.connect(c.destination);
+    o.connect(g);g.connect(_destOf(c));
     o.type="square";o.frequency.value=7000+Math.random()*3000;
     g.gain.setValueAtTime(vol,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.04);
@@ -1286,10 +1484,10 @@ const hihat=(vol=0.048,at=null)=>{
 };
 const pad=(at=null)=>{
   try{
-    const c=getCtx();const t=at!==null?at:c.currentTime;
+    const c=_actxOf();const t=at!==null?at:c.currentTime;
     [55,110].forEach((f,i)=>{
       const o=c.createOscillator(),g=c.createGain();
-      o.connect(g);g.connect(c.destination);
+      o.connect(g);g.connect(_destOf(c));
       o.type="sine";o.frequency.value=f;
       g.gain.setValueAtTime(0,t);
       g.gain.linearRampToValueAtTime(i===0?.10:.06,t+0.3);
@@ -1299,59 +1497,339 @@ const pad=(at=null)=>{
   }catch(_){}
 };
 
-const _LOOKAHEAD=0.2; // 200ms先読み：バックグラウンドthrottle対策
-let _bgmOn=false,_bgmStep=0,_bgmTid=null,_bgmLevel=0,_bgmTheme=null,_bgmNextBeat=null;
-const _bgmTick=()=>{
-  if(!_bgmOn)return;
-  const th=_bgmTheme;
-  const c=getCtx();
-  // nextBeat初期化（初回または大幅遅延後）
-  if(_bgmNextBeat===null||_bgmNextBeat<c.currentTime-th.stepMs/500){
-    _bgmNextBeat=c.currentTime+_LOOKAHEAD;
+/* ══════════════════════════════════════════════════════════════
+   BGMループエンジン
+   ─────────────────────────────────────────────────────────────
+   旧実装は setTimeout でステップを刻む自作シーケンサだった。
+   WKWebView はウィンドウが隠れるとページを非表示扱いにしてタイマーを
+   1Hz程度まで絞るため、200ms先読みでは音が途切れ、復帰時には
+   遅延したtickが連打されて音が団子になっていた。
+
+   新実装では OfflineAudioContext で 2小節分を事前レンダリングし、
+   AudioBufferSourceNode の loop 再生に置き換える。
+   ・JSタイマーを一切使わないのでスロットリングの影響を受けない
+   ・レイヤーごとにバッファを分け、GainNode のフェードでレベルを切替
+   ・ループ末尾を超える余韻は先頭へ折り返して継ぎ目を消す
+══════════════════════════════════════════════════════════════ */
+const _BARS=2;    // 1ループ＝2小節（乱数成分の繰り返し感を抑える）
+const _TAIL=2.4;  // 折り返す余韻の長さ（秒）
+
+// レンダリング結果の末尾（ループ長を超えた余韻）を先頭に加算して畳み込む
+const _wrapTail=(oc,rendered,loopLen)=>{
+  const out=oc.createBuffer(rendered.numberOfChannels,loopLen,rendered.sampleRate);
+  for(let ch=0;ch<rendered.numberOfChannels;ch++){
+    const src=rendered.getChannelData(ch),dst=out.getChannelData(ch);
+    for(let i=0;i<rendered.length;i++)dst[i%loopLen]+=src[i];
   }
-  const at=_bgmNextBeat;
-  if(_soundEnabled&&c.state==="running"){
-    const st=_bgmStep%16;
-    const lv=_bgmLevel;
-    if(lv===0){
-      if(_KICK.has(st)) kick(false,at);
-      if(th.lv0==="pad"){
-        if(_PAD_STEPS.has(st)) pad(at);
-      }else{
-        if(_SNARE.has(st)) snare(at);
-        if(th.hatSteps.has(st)) hihat(0.012,at);
+  return out;
+};
+
+// spec = {stepSec, layers:[fn(step,at)], gainsFor:(lv)=>[0|1,...]}
+const _renderSpec=async(spec)=>{
+  const sr=getCtx().sampleRate;
+  const total=spec.totalSteps||16*_BARS;
+  const loopLen=Math.round(spec.stepSec*total*sr);
+  const OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+  const bufs=[];
+  for(const fn of spec.layers){
+    const oc=new OAC(2,loopLen+Math.ceil(_TAIL*sr),sr);
+    const output=oc.createGain();output.gain.value=spec.volume??1;
+    output.connect(oc.destination);
+    const prev=_RT;_RT={c:oc,dest:output};
+    try{ for(let i=0;i<total;i++)fn(i%(spec.patternSteps||16),i*spec.stepSec); }
+    finally{ _RT=prev; }
+    const r=await oc.startRendering();
+    bufs.push(_wrapTail(oc,r,loopLen));
+  }
+  return bufs;
+};
+
+const _bgmCache=new Map();   // key -> AudioBuffer[]
+let _bgmSpec=null,_bgmKey=null,_bgmLv=0,_bgmGen=0;
+let _bgmNodes=null;          // {srcs,gains,master,ctx}
+
+const _stopBgmNodes=(fade=0.12)=>{
+  const n=_bgmNodes;_bgmNodes=null;
+  if(!n)return;
+  try{
+    const t=n.ctx.currentTime;
+    n.master.gain.cancelScheduledValues(t);
+    n.master.gain.setValueAtTime(Math.max(n.master.gain.value,0.0001),t);
+    n.master.gain.linearRampToValueAtTime(0.0001,t+fade);
+    n.srcs.forEach(s=>{try{s.stop(t+fade+0.03);}catch(_){}});
+    setTimeout(()=>{
+      n.srcs.forEach(s=>{try{s.disconnect();}catch(_){}});
+      try{n.master.disconnect();}catch(_){}
+    },(fade+0.3)*1000);
+  }catch(_){
+    n.srcs.forEach(s=>{try{s.stop();}catch(_){}try{s.disconnect();}catch(_){}});
+  }
+};
+
+// キャッシュ済みバッファから再生グラフを組む（AudioContext再生成後もこれを呼ぶ）
+const _buildBgmNodes=()=>{
+  if(!_bgmSpec||!_bgmKey)return;
+  const bufs=_bgmCache.get(_bgmKey);
+  if(!bufs)return;
+  _stopBgmNodes(0.02);
+  try{
+    const c=getCtx();
+    const master=c.createGain();
+    master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:1;
+    master.connect(c.destination);
+    const t0=c.currentTime+0.08;
+    const want=_bgmSpec.gainsFor(_bgmLv);
+    const srcs=[],gains=[];
+    bufs.forEach((b,i)=>{
+      const src=c.createBufferSource();src.buffer=b;src.loop=true;
+      const g=c.createGain();g.gain.value=want[i]?1:0.0001;
+      src.connect(g);g.connect(master);src.start(t0);
+      srcs.push(src);gains.push(g);
+    });
+    _bgmNodes={srcs,gains,master,ctx:c};
+  }catch(e){try{console.warn('[BGM] build failed',e);}catch(_){}}
+};
+
+const _startSpec=(key,makeSpec,resetLv)=>{
+  if(_bgmKey===key&&_bgmNodes)return;
+  const gen=++_bgmGen;
+  _stopBgmNodes(0.08);
+  _bgmKey=key;_bgmSpec=makeSpec();
+  if(resetLv)_bgmLv=0;
+  const go=()=>{if(gen===_bgmGen)_buildBgmNodes();};
+  if(_bgmCache.has(key)){go();return;}
+  _renderSpec(_bgmSpec).then(bufs=>{_bgmCache.set(key,bufs);go();})
+    .catch(e=>{try{console.warn('[BGM] render failed',key,e);}catch(_){}});
+};
+
+// prefix が現在再生中のものと一致するときだけ止める。
+// （BGM.start() の直後に VBGM.stop() が呼ばれても取り消されないようにする）
+const _stopSpec=(prefix)=>{
+  if(prefix&&(!_bgmKey||_bgmKey.indexOf(prefix)!==0))return;
+  _bgmGen++;_bgmKey=null;_bgmSpec=null;_stopBgmNodes(0.15);
+};
+
+const _setSpecLevel=(lv)=>{
+  lv=Math.max(0,Math.min(3,lv));
+  if(lv===_bgmLv)return;
+  _bgmLv=lv;
+  if(!_bgmNodes||!_bgmSpec)return;
+  try{
+    const want=_bgmSpec.gainsFor(lv);
+    const t=_bgmNodes.ctx.currentTime;
+    _bgmNodes.gains.forEach((g,i)=>{
+      g.gain.cancelScheduledValues(t);
+      g.gain.setValueAtTime(Math.max(g.gain.value,0.0001),t);
+      g.gain.linearRampToValueAtTime(want[i]?1:0.0001,t+0.45);
+    });
+  }catch(_){}
+};
+
+// バックグラウンド中のミュート状態。
+// ノードは止めずにゲインだけ落とすことで、ページを可聴のまま維持し、
+// WebKit によるプロセスのスロットリングと CoreAudio の出力停止を避ける。
+let _bgmMuted=false;
+const _setMasterMute=(mute,fade)=>{
+  _bgmMuted=!!mute;
+  if(!_bgmNodes)return;
+  try{
+    const t=_bgmNodes.ctx.currentTime;
+    const g=_bgmNodes.master.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(Math.max(g.value,0.0001),t);
+    g.linearRampToValueAtTime((_bgmMuted||!_soundEnabled)?0.0001:1,t+(fade||0.12));
+  }catch(_){}
+};
+// 音声ON/OFFトグルからマスターゲインへ反映する
+const _syncSoundGain=()=>_setMasterMute(_bgmMuted,0.12);
+
+/* ── 無音キープアライブ ──────────────────────────────────────
+   BGMを鳴らしていない画面でもAudioContextを可聴状態に保つための
+   極小振幅(約-80dBFS)のループ。完全な無音だとWebKitに非可聴と
+   判定され、プロセスごと眠らされて復帰が遅くなる。            */
+let _kaNode=null;
+const _startKeepAlive=()=>{
+  if(_kaNode)return;
+  try{
+    const c=getCtx();
+    const len=Math.max(1,Math.round(c.sampleRate*0.5));
+    const buf=c.createBuffer(1,len,c.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++)d[i]=Math.sin(i*0.02)*1e-4;
+    const src=c.createBufferSource();src.buffer=buf;src.loop=true;
+    const g=c.createGain();g.gain.value=1;
+    src.connect(g);g.connect(c.destination);src.start();
+    _kaNode={src,g,ctx:c};
+  }catch(_){}
+};
+const _stopKeepAlive=()=>{
+  const n=_kaNode;_kaNode=null;
+  if(!n)return;
+  try{n.src.stop();}catch(_){}
+  try{n.src.disconnect();n.g.disconnect();}catch(_){}
+};
+
+/* ── 復帰時の健全性チェック ──────────────────────────────────
+   WKWebView は state が "running" でも実際には音が出ていないことが
+   ある。state ではなく currentTime が実際に進んでいるかで判定する。 */
+const _ctxAdvancing=(ms)=>new Promise(res=>{
+  const c=_actx;
+  if(!c){res(false);return;}
+  if(c.state!=="running"){try{c.resume().catch(()=>{});}catch(_){}}
+  const t0=c.currentTime;
+  setTimeout(()=>{
+    let ok=false;
+    try{ok=(c.state==="running"&&c.currentTime>t0+0.005);}catch(_){}
+    res(ok);
+  },ms||220);
+});
+
+let _recovering=false;
+// 時計が進んでいなければコンテキストを作り直す。最大3回まで。
+const _recoverAudio=async()=>{
+  if(_recovering)return true;
+  _recovering=true;
+  try{
+    for(let i=0;i<3;i++){
+      if(await _ctxAdvancing(220)){
+        if(_bgmSpec&&!_bgmNodes)_buildBgmNodes();
+        _startKeepAlive();
+        return true;
       }
-    }else{
-      if(_KICK.has(st)) kick(true,at);
-      const b=th.bas[st];
-      if(b) tone([b[0]],{type:th.bassWave||"sawtooth",vol:b[1],gap:0,dur:th.bassDur||0.20,at});
-      if(!th.noSnare&&_SNARE.has(st)) snare(at);
-      if(lv>=2){
-        if(th.hatSteps.has(st)) hihat(th.hatVol||0.032,at);
-        const m=th.mel[st];
-        if(m) tone([m[0]],{type:th.melWave||"triangle",vol:m[1],gap:0,dur:th.melDur||0.24,at});
-      }
-      if(lv>=3){
-        const a=th.arp[st];
-        if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:th.arpDur||0.20,at});
-      }
+      try{console.warn('[AUDIO] clock stalled, rebuilding ('+(i+1)+')');}catch(_){}
+      resetAudioContext();
+      await new Promise(r=>setTimeout(r,180));
     }
-  }else if(c.state==="suspended"){
-    c.resume().catch(()=>{});
-  }
-  _bgmNextBeat+=th.stepMs/1000;
-  const delay=Math.max(1,(_bgmNextBeat-_LOOKAHEAD-c.currentTime)*1000);
-  _bgmStep++;_bgmTid=setTimeout(_bgmTick,delay);
+    return false;
+  }finally{_recovering=false;}
 };
+
+// ── 事前生成 ────────────────────────────────────────────────
+// 初回の操作(=AudioContextのアンロック)後、空き時間に全ループを
+// レンダリングしてキャッシュしておく。実際に BGM.start() が
+// 呼ばれた時点では即座に再生が始まる。
+let _prewarmStarted=false;
+const _prewarmBgm=()=>{
+  if(_prewarmStarted)return;
+  _prewarmStarted=true;
+  const jobs=[];
+  _THEMES.forEach(th=>jobs.push(["bgm_"+th.id,()=>_themeSpec(th)]));
+  jobs.push(["vbgm",()=>_vbgmSpec()]);
+  jobs.push(["vbgm_calm",()=>_calmVictorySpec()]);
+  jobs.push(["vbgm_bright",()=>_brightVictorySpec()]);
+  jobs.push(["kbgm",()=>_kbgmSpec()]);
+  let i=0;
+  const next=()=>{
+    if(i>=jobs.length)return;
+    const job=jobs[i++];
+    if(_bgmCache.has(job[0])){setTimeout(next,0);return;}
+    _renderSpec(job[1]())
+      .then(b=>{_bgmCache.set(job[0],b);})
+      .catch(()=>{})
+      .then(()=>setTimeout(next,400));
+  };
+  setTimeout(next,1200);
+};
+
+// ── 通常BGM：テーマ4レイヤー ────────────────────────────────
+// L0 = レベル0専用パターン / L1 = コア / L2 = hihat+旋律 / L3 = アルペジオ
+const _themeSpec=(th)=>th.style==='bounce'?_bounceSpec(th):th.style?_gentleSpec(th):({
+  stepSec:th.stepMs/1000,
+  gainsFor:(lv)=>lv===0?[1,0,0,0]:[0,1,lv>=2?1:0,lv>=3?1:0],
+  layers:[
+    (st,at)=>{
+      if(_KICK.has(st))kick(false,at);
+      if(th.lv0==="pad"){ if(_PAD_STEPS.has(st))pad(at); }
+      else{ if(_SNARE.has(st))snare(at); if(th.hatSteps.has(st))hihat(0.012,at); }
+    },
+    (st,at)=>{
+      if(_KICK.has(st))kick(true,at);
+      const b=th.bas[st];
+      if(b)tone([b[0]],{type:th.bassWave||"sawtooth",vol:b[1],gap:0,dur:th.bassDur||0.20,at});
+      if(!th.noSnare&&_SNARE.has(st))snare(at);
+    },
+    (st,at)=>{
+      if(th.hatSteps.has(st))hihat(th.hatVol||0.032,at);
+      const m=th.mel[st];
+      if(m)tone([m[0]],{type:th.melWave||"triangle",vol:m[1],gap:0,dur:th.melDur||0.24,at});
+    },
+    (st,at)=>{
+      const a=th.arp[st];
+      if(a)tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:th.arpDur||0.20,at});
+    },
+  ],
+});
+
+// 曲の設定は次の学習にも引き継ぎ、実際の曲IDは中断データに保存する。
+const BGM_PREFERENCE_KEY='econ_bgm_theme';
+const themeExists=id=>_THEMES.some(th=>th.id===id);
+function loadBgmPreference(){
+  try{const id=localStorage.getItem(BGM_PREFERENCE_KEY);return themeExists(id)?id:'random';}
+  catch{return 'random';}
+}
+function chooseBgmTheme(preference=loadBgmPreference()){
+  return themeExists(preference)?preference:_THEMES[Math.floor(Math.random()*_THEMES.length)].id;
+}
+const themeLabel=(id,lang)=>({
+  A:lang==='en'?'Cool sprint':'クールな疾走',
+  C:lang==='en'?'Upbeat groove':'ノリノリのリズム',
+  F:lang==='en'?'Another sprint':'もうひとつの疾走',
+  quiet:lang==='en'?'Quiet exploration':'静かな探究',
+  walk:lang==='en'?'Lighthearted walk':'軽快な散歩',
+  bounce:lang==='en'?'Bouncy steps':'はずむステップ',
+})[id]||id;
+let _lastLearningThemeId=null;
 const BGM={
-  start:()=>{
-    if(_bgmOn)return;
-    _bgmTheme=_THEMES[Math.floor(Math.random()*_THEMES.length)];
-    _bgmOn=true;_bgmStep=0;_bgmNextBeat=null;_bgmTick();
+  start:(themeId)=>{
+    const id=themeExists(themeId)?themeId:(_lastLearningThemeId||chooseBgmTheme());
+    if(_bgmKey==='bgm_'+id)return;
+    const th=_THEMES.find(th=>th.id===id);
+    _lastLearningThemeId=id;
+    _startSpec('bgm_'+id,()=>_themeSpec(th),false);
   },
-  stop: ()=>{_bgmOn=false;clearTimeout(_bgmTid);_bgmNextBeat=null;},
-  setLevel:(lv)=>{_bgmLevel=lv;},
+  stop: ()=>_stopSpec('bgm_'),
+  setLevel:(lv)=>{if(_bgmKey&&_bgmKey.indexOf('bgm_')===0)_setSpecLevel(lv);},
 };
+function BgmPicker({lang,currentTheme,onChangeTheme,compact=false}){
+  const[preference,setPreference]=useState(loadBgmPreference);
+  const dialogRef=useRef(null);
+  const content=<div onKeyDown={e=>e.stopPropagation()} style={{fontSize:12,color:'#aaa',padding:'8px 0'}}> 
+    <label style={{display:'flex',alignItems:'center',gap:8}}>
+      <span style={{flexShrink:0}}>♫ {lang==='en'?'Study BGM':'学習BGM'}</span>
+      <select aria-label={lang==='en'?'Study BGM':'学習BGM'} value={preference}
+        onChange={e=>{
+          const value=e.target.value;setPreference(value);
+          try{localStorage.setItem(BGM_PREFERENCE_KEY,value);}catch{}
+          if(onChangeTheme)onChangeTheme(chooseBgmTheme(value));
+        }}
+        style={{minWidth:0,flex:1,background:'#1c1c30',color:'#e8dcc8',border:'1px solid #45405a',borderRadius:8,padding:8,fontFamily:'inherit',fontSize:12}}>
+        <option value="random">{lang==='en'?'Random each session':'おまかせ（学習ごと）'}</option>
+        {_THEMES.map(th=><option key={th.id} value={th.id}>{themeLabel(th.id,lang)}</option>)}
+      </select>
+    </label>
+    <div style={{fontSize:11,marginTop:5,color:'#92909d'}}>
+      {currentTheme?(lang==='en'?'Current: ':'今回の曲：')+themeLabel(currentTheme,lang)
+        :(lang==='en'?'Resuming keeps the saved song.':'中断からの再開時は、保存した曲を引き継ぎます。')}
+    </div>
+  </div>;
+  if(!compact)return content;
+  return <div onKeyDown={e=>e.stopPropagation()} style={{display:'inline-flex'}}>
+    <button type="button" aria-label={lang==='en'?'Change BGM':'BGMを変更'} aria-haspopup="dialog"
+      title={(lang==='en'?'Change BGM: ':'BGMを変更：')+themeLabel(currentTheme,lang)}
+      onClick={()=>dialogRef.current?.showModal()}
+      style={{background:'none',border:'1px solid #555',borderRadius:7,padding:DK?'4px 8px':'3px 7px',fontSize:DK?14:12,color:'#c9a84c',cursor:'pointer',fontFamily:'inherit',lineHeight:1}}>♫</button>
+    <style>{`.bgm-picker-dialog::backdrop{background:rgba(0,0,0,0.78)}`}</style>
+    <dialog ref={dialogRef} className="bgm-picker-dialog" aria-label={lang==='en'?'Study BGM':'学習BGM'}
+      onClick={e=>{if(e.target===e.currentTarget)dialogRef.current?.close();}}
+      style={{padding:0,border:'1px solid #353044',borderRadius:14,background:'#13132a',color:'#e8dcc8',width:'calc(100% - 32px)',maxWidth:340,fontFamily:'inherit'}}>
+      <div style={{padding:18}}>
+        {content}
+        <button type="button" onClick={()=>dialogRef.current?.close()}
+          style={{width:'100%',marginTop:10,padding:8,background:'#c9a84c',color:'#13132a',border:'none',borderRadius:8,fontFamily:'inherit',cursor:'pointer'}}>{lang==='en'?'Done':'完了'}</button>
+      </div>
+    </dialog>
+  </div>;
+}
 
 // ── ビクトリーBGM：Cメジャー / 168BPM / 全レイヤー常時オン ──
 const _VS = Math.round(60000/168/2); // ≈ 178ms
@@ -1373,32 +1851,162 @@ const _VARP=[
   [1047,.12],[1175,.11],[1047,.10],[880,.09],
   [1047,.12],null,[784,.10],[659.3,.09],
 ];
-let _vOn=false,_vStep=0,_vTid=null,_vNextBeat=null;
-const _vTick=()=>{
-  if(!_vOn)return;
-  const c=getCtx();
-  if(_vNextBeat===null||_vNextBeat<c.currentTime-_VS/500){
-    _vNextBeat=c.currentTime+_LOOKAHEAD;
-  }
-  const at=_vNextBeat;
-  try{
-    if(c.state==="running"){
-      const st=_vStep%16;
-      if(_KICK.has(st))  kick(true,at);
-      if(_SNARE.has(st)) snare(at);
-      if(_HAT_STD.has(st)) hihat(0.04,at);
-      const b=_VBAS[st]; if(b) tone([b[0]],{type:"sawtooth",vol:b[1],gap:0,dur:0.18,at});
-      const m=_VMEL[st]; if(m) tone([m[0]],{type:"triangle",vol:m[1],gap:0,dur:0.22,at});
-      const a=_VARP[st]; if(a) tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:0.16,at});
-    }
-  }catch(_){}
-  _vNextBeat+=_VS/1000;
-  const delay=Math.max(1,(_vNextBeat-_LOOKAHEAD-c.currentTime)*1000);
-  _vStep++;_vTid=setTimeout(_vTick,delay);
+const _vbgmSpec=()=>({
+  volume:0.22, // Keep the results music close to the quieter learning themes.
+  stepSec:_VS/1000,
+  gainsFor:()=>[1],
+  layers:[(st,at)=>{
+    if(_KICK.has(st))  kick(true,at);
+    if(_SNARE.has(st)) snare(at);
+    if(_HAT_STD.has(st))hihat(0.04,at);
+    const b=_VBAS[st]; if(b)tone([b[0]],{type:"sawtooth",vol:b[1],gap:0,dur:0.18,at});
+    const m=_VMEL[st]; if(m)tone([m[0]],{type:"triangle",vol:m[1],gap:0,dur:0.22,at});
+    const a=_VARP[st]; if(a)tone([a[0]],{type:"sine",vol:a[1],gap:0,dur:0.16,at});
+  }],
+});
+// 「ひと息の達成」: 80 BPM, eight bars, soft keys with a C-major cadence.
+// A distinct result melody, without drums or bright victory arpeggios.
+const _calmVictorySpec=()=>{
+  const chords=[[60,64,67,71],[53,57,60,64],[55,59,62,65],[60,64,67,72]];
+  const melody=[
+    [72,null,null,null,76,null,79,null,76,null,null,null,74,null,null,null],
+    [72,null,null,null,69,null,72,null,76,null,null,null,72,null,null,null],
+    [71,null,null,null,74,null,77,null,76,null,null,null,74,null,71,null],
+    [72,null,null,null,76,null,74,null,72,null,null,null,null,null,null,null]
+  ];
+  return {stepSec:60/80/2,totalSteps:64,patternSteps:64,gainsFor:()=>[1],
+    layers:[(st,at)=>{
+      const bar=Math.floor(st/16),n=st%16,c=chords[bar];
+      if(n===0||n===8){
+        c.forEach(note=>_softNote(note,.023,1.8,at));
+        _softNote(c[0]-12,.065,1.4,at);
+      }
+      const m=melody[bar][n];
+      if(m!==null)_softNote(m,.063,1.1,at);
+      if(n===6||n===14)_softNote(c[n===6?2:1]+12,.022,.75,at);
+    }]};
+};
+// 「軽やかなゴール」: 116 BPM, eight bars, bouncing mallets and soft bass.
+const _brightVictorySpec=()=>{
+  const chords=[[60,64,67],[57,60,64],[53,57,60],[55,59,62]];
+  const melody=[
+    [76,null,79,76,null,74,72,null,74,null,76,null,79,76,null,null],
+    [76,null,72,69,null,72,76,null,74,null,72,null,69,72,null,null],
+    [72,null,77,76,null,72,69,null,72,null,74,null,76,72,null,null],
+    [71,null,74,79,null,77,74,null,76,null,74,null,72,null,null,null]
+  ];
+  return {stepSec:60/116/2,totalSteps:64,patternSteps:64,gainsFor:()=>[1],
+    layers:[(st,at)=>{
+      const bar=Math.floor(st/16),n=st%16,c=chords[bar];
+      if(n%4===0)_softNote(c[0]-12+(n===12?7:0),.085,.32,at);
+      if(n%4===2)c.forEach(note=>_softNote(note,.018,.20,at,true));
+      const m=melody[bar][n];
+      if(m!==null)_softNote(m,.068,.34,at,true);
+      if(n===3||n===11)_softNote(c[2]+12,.024,.19,at,true);
+      if(n===0||n===8)_taiko(75,36,.07,.13,at);
+    }]};
 };
 const VBGM={
-  start:()=>{if(_vOn)return;_vOn=true;_vStep=0;_vNextBeat=null;_vTick();},
-  stop: ()=>{_vOn=false;clearTimeout(_vTid);_vNextBeat=null;},
+  start:()=>{
+    const kind=_lastLearningThemeId;
+    if(kind==='quiet')_startSpec("vbgm_calm",_calmVictorySpec,true);
+    else if(kind==='walk'||kind==='bounce')_startSpec("vbgm_bright",_brightVictorySpec,true);
+    else _startSpec("vbgm",_vbgmSpec,true);
+  },
+  stop: ()=>_stopSpec("vbgm"),
+};
+
+// ── 和風ラスボスBGM（カルタ専用）：4レイヤー加算式 ──────────────
+const _taiko=(f0,f1,vol,dur,at)=>{
+  try{
+    const c=_actxOf();const t=at;
+    const o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(_destOf(c));
+    o.type='sine';o.frequency.setValueAtTime(f0,t);
+    o.frequency.exponentialRampToValueAtTime(f1,t+dur*0.8);
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.start(t);o.stop(t+dur+0.03);
+  }catch(_){}
+};
+const _kbgmSpec=()=>({
+  stepSec:_K_STEP_MS/1000,
+  gainsFor:(lv)=>[1,lv>=1?1:0,lv>=2?1:0,lv>=3?1:0],
+  layers:[
+    // Lv0: 琴アルペジオのみ
+    (st,at)=>{
+      const a=_K_ARP[st];
+      if(a)tone([a[0]],{type:'triangle',vol:a[1]*0.75,gap:0,dur:0.20,at});
+    },
+    // Lv1: ベース＋ソフト太鼓
+    (st,at)=>{
+      const b=_K_BAS[st];
+      if(b)tone([b[0]],{type:'sine',vol:b[1],gap:0,dur:0.38,at});
+      if(st===0||st===8)_taiko(90,38,0.22,0.22,at);
+    },
+    // Lv2: 尺八メロディ＋裏拍hihat
+    (st,at)=>{
+      const m=_K_MEL[st];
+      if(m)tone([m[0]],{type:'sine',vol:m[1],gap:0,dur:0.42,at});
+      if(st%4===2)hihat(0.015,at);
+    },
+    // Lv3: ハーモニー＋裏拍太鼓＋控えめな全打ちhihat
+    (st,at)=>{
+      const m=_K_MEL[st];
+      if(m)tone([m[0]*1.498],{type:'sine',vol:m[1]*0.40,gap:0,dur:0.35,at});
+      if(st===4||st===12)_taiko(70,30,0.16,0.18,at);
+      if(st%2===1)hihat(0.012,at);
+    },
+  ],
+});
+const KBGM={
+  start:()=>_startSpec("kbgm",_kbgmSpec,true),
+  stop: ()=>_stopSpec("kbgm"),
+  setLevel:(lv)=>{ if(_bgmKey==="kbgm")_setSpecLevel(lv); },
+};
+
+/* ══════════════════════════════════════════════════════════════
+   ネイティブ（Swift）から呼ぶ復帰フック
+   ・suspend: ウィンドウが隠れた／アプリが非アクティブになったとき
+   ・resume : 戻ってきたとき。AudioContextを作り直してBGMを組み直す
+══════════════════════════════════════════════════════════════ */
+window.__ndAudio={
+  // 隠れたとき：ノードは止めず消音するだけ。
+  // これでページは可聴のまま保たれ、オーディオユニットが停止しない。
+  suspend:()=>{
+    try{_setMasterMute(true,0.08);}catch(_){}
+    return 'ok';
+  },
+  // 戻ったとき：まず消音を解除するだけで済ませる。
+  // 時計が進んでいなければ、そこで初めてコンテキストを作り直す。
+  resume:()=>{
+    try{
+      getCtx();
+      _setMasterMute(false,0.12);
+      if(_bgmSpec&&!_bgmNodes)_buildBgmNodes();
+      _startKeepAlive();
+      _recoverAudio();
+    }catch(_){}
+    return 'ok';
+  },
+  status:()=>{
+    let ct=null,bl=null,ol=null;
+    try{ct=_actx?Math.round(_actx.currentTime*1000)/1000:null;}catch(_){}
+    try{bl=_actx?_actx.baseLatency:null;}catch(_){}
+    try{ol=_actx?_actx.outputLatency:null;}catch(_){}
+    return JSON.stringify({
+      ctx:_actx?_actx.state:'none', currentTime:ct,
+      baseLatency:bl, outputLatency:ol,
+      muted:_bgmMuted, keepAlive:!!_kaNode,
+      key:_bgmKey, lv:_bgmLv, nodes:!!_bgmNodes,
+      cached:Array.from(_bgmCache.keys()),
+    });
+  },
+  // 手動確認用：現在の状態と、時計が進んでいるかを返す
+  check:async()=>{
+    const adv=await _ctxAdvancing(250);
+    return JSON.stringify({advancing:adv,state:_actx?_actx.state:'none'});
+  },
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -1425,7 +2033,7 @@ const bar=(v,color)=>(
    REDUCER
 ══════════════════════════════════════════════════════════════ */
 function makeInit(QS){
-  return{phase:"start",queue:QS.map((_,i)=>i),
+  return{phase:"start",bgmThemeId:chooseBgmTheme(),queue:QS.map((_,i)=>i),
     pendingQueue:[],newCardIds:[],rewardNewIds:[],viewedNewCount:0,
     answeredCorrectly:[],attemptedIds:[],wrongCounts:{},questionKey:0,
     score:0,combo:0,maxCombo:0,firstTryCorrectCount:0,
@@ -1441,6 +2049,15 @@ function reducer(s,a){
       // rewardNewIds: 報酬カウント用（null=全試行カウント、配列=指定IDのみカウント）
       const rids=a.rewardNewIds!==undefined?a.rewardNewIds:[];
       // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
+      // workingSet: 未正解カードを同時にこの枚数までに抑える（新問挑戦）。残りはreserveに控え、正解で1枚ずつ補充
+      if(a.workingSet&&a.workingSet<a.QS.length){
+        return{...base,phase:"question",newCardIds:nids,rewardNewIds:rids,
+               queue:a.QS.slice(0,a.workingSet).map((_,i)=>i),
+               reserve:a.QS.slice(a.workingSet).map((_,i)=>a.workingSet+i),
+               inputs:emptyInputs(q),
+               shuffled:q.type==="mc"?shuffleMC(q):null,
+               timeLeft:qTimer(q),questionKey:1};
+      }
       if(a.pendingStart!=null&&a.pendingStart<a.QS.length){
         return{...base,phase:"question",newCardIds:nids,rewardNewIds:rids,
                queue:a.QS.slice(0,a.pendingStart).map((_,i)=>i),
@@ -1470,7 +2087,9 @@ function reducer(s,a){
       }
       if(correct){
         const nc=s.combo+1;
-        return{...s,phase:"feedback",queue:s.queue.slice(1),
+        const refill=s.reserve&&s.reserve.length>0?[s.reserve[0]]:[];
+        return{...s,phase:"feedback",queue:[...s.queue.slice(1),...refill],
+               reserve:s.reserve?s.reserve.slice(1):s.reserve,
                answeredCorrectly:[...s.answeredCorrectly,cq.id],
                attemptedIds:isFirst?[...s.attemptedIds,cq.id]:s.attemptedIds,
                score:isFirst?s.score+cq.pts:s.score,
@@ -1508,6 +2127,7 @@ function reducer(s,a){
              questionKey:s.questionKey+1,
              shuffled:nq.type==="mc"?shuffleMC(nq):null};
     }
+    case"SET_BGM_THEME":return themeExists(a.themeId)?{...s,bgmThemeId:a.themeId}:s;
     case"CLEAR_NEW_PHASE":return{...s,newPhaseStart:false};
     case"INPUT":{const ni=[...s.inputs];ni[a.idx]=a.v;return{...s,inputs:ni};}
     case"HINT":return{...s,showHint:true};
@@ -1516,6 +2136,7 @@ function reducer(s,a){
       // セーブデータから復元。その問題のタイマーを全リセット
       const q=a.QS[a.state.queue[0]];
       return{...a.state,
+             bgmThemeId:themeExists(a.state.bgmThemeId)?a.state.bgmThemeId:chooseBgmTheme(),
              phase:"question",
              inputs:emptyInputs(q),
              shuffled:q.type==="mc"?shuffleMC(q):null,
@@ -1634,7 +2255,82 @@ function TypewriterText({text,qkey,style,onDone}){
 /* ══════════════════════════════════════════════════════════════
    穴埋めコンポーネント（文末で一時停止・Enter で続き）
 ══════════════════════════════════════════════════════════════ */
+// Sentence boundary for the opening pause (commas are not boundaries).
+// Keep a real editable control focused from the user's start/next tap.
+// iOS will not open its keyboard from the later typewriter timer alone.
+function focusPreviewKeyboard(){
+  if(!window.matchMedia("(pointer: coarse)").matches)return;
+  let el=document.getElementById("preview-keyboard-input");
+  if(!el){
+    el=document.createElement("textarea");
+    el.id="preview-keyboard-input";
+    el.tabIndex=-1;
+    el.inputMode="text";
+    el.enterKeyHint="next";
+    el.setAttribute("aria-label","Continue with Enter / Enterで続きを表示");
+    el.setAttribute("autocapitalize","off");
+    el.setAttribute("autocomplete","off");
+    el.style.cssText="position:fixed;left:0;bottom:0;width:1px;height:1px;padding:0;border:0;opacity:0.01;font-size:16px;pointer-events:none;overflow:hidden;";
+    el.addEventListener("input",()=>{el.value="";});
+    // Some software keyboards report a line break rather than keydown.
+    el.addEventListener("beforeinput",e=>{
+      if(e.isComposing||!["insertLineBreak","insertParagraph"].includes(e.inputType))return;
+      e.preventDefault();
+      el.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true,cancelable:true}));
+    });
+    document.body.appendChild(el);
+  }
+  el.value="";
+  el.focus({preventScroll:true});
+}
+
+
+function firstSentenceEnd(text){
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(!/[。．.!?！？]/.test(ch))continue;
+    if(ch==="."){
+      if(/\d/.test(text[i-1]||"")&&/\d/.test(text[i+1]||""))continue;
+      if(/[A-Za-z]/.test(text[i+1]||""))continue;
+      const prefix=text.slice(0,i+1);
+      if(/\b(?:Mr|Mrs|Ms|Dr|Prof|St|Jr|Sr|vs|etc|e\.g|i\.e)\.$/i.test(prefix))continue;
+      if(/\b[A-Z]\.$/.test(prefix)&&/^\s+[A-Z][a-z]/.test(text.slice(i+1)))continue;
+    }
+    let end=i+1;
+    while(end<text.length&&/[。．.!?！？”’"'」』）)\]]/.test(text[end]))end++;
+    return end;
+  }
+  return text.length;
+}
+
+// Grow vertically as well as horizontally, including after a viewport resize.
+function WrappingAnswer({inputRef,style,...props}){
+  const fieldRef=useRef(null);
+  const fit=()=>{
+    const el=fieldRef.current;
+    if(!el)return;
+    el.style.height="auto";
+    el.style.height=(el.scrollHeight+2*el.clientTop)+"px";
+  };
+  React.useLayoutEffect(fit,[props.value]);
+  useEffect(()=>{
+    const el=fieldRef.current;
+    let previousWidth=-1;
+    const observer=new ResizeObserver(()=>{
+      if(el&&el.clientWidth!==previousWidth){previousWidth=el.clientWidth;fit();}
+    });
+    if(el)observer.observe(el);
+    return()=>observer.disconnect();
+  },[]);
+  return <textarea {...props} enterKeyHint="next" rows={1} ref={el=>{fieldRef.current=el;inputRef(el);}}
+    style={{...style,resize:"none",overflow:"hidden",whiteSpace:"pre-wrap",
+      overflowWrap:"anywhere",wordBreak:"normal",lineHeight:1.5}}/>;
+}
+
 function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,ghostingRef,onDone}){
+  const lang=React.useContext(LangCtx);
+  const[introPaused,setIntroPaused]=useState(false);
+  const introPassedRef=useRef(false);
   const[shown,setShown]=useState(0);
   const[paused,setPaused]=useState(false);
   const[activeBlank,setActiveBlank]=useState(null);
@@ -1642,12 +2338,13 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   const[ghosting,setGhosting]=useState(false);
   const[ghostedBlanks,setGhostedBlanks]=useState(new Set());
   const[waitingResume,setWaitingResume]=useState(false);
-  const[pendingSubmitAfterText,setPendingSubmitAfterText]=useState(false);
+  const previewSubmittedRef=useRef(false);
   const ghostedBlanksRef=useRef(new Set());
   const tidRef=useRef(null);
   const ghostTid=useRef(null);
   const isComposingRef=useRef(false); // IME変換中フラグ
   const fullText=q.q;
+  const introEnd=useMemo(()=>firstSentenceEnd(fullText),[fullText]);
 
   // IME composition イベントで確実にフラグ管理
   useEffect(()=>{
@@ -1671,22 +2368,53 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   useEffect(()=>{
     setShown(0);setPaused(false);setActiveBlank(null);setPoppingBlank(null);setGhosting(false);
+    setIntroPaused(false);introPassedRef.current=false;
     const emptySet=new Set();
-    setGhostedBlanks(emptySet);setWaitingResume(false);setPendingSubmitAfterText(false);ghostedBlanksRef.current=emptySet;
+    setGhostedBlanks(emptySet);setWaitingResume(false);previewSubmittedRef.current=false;ghostedBlanksRef.current=emptySet;
     clearTimeout(ghostTid.current);
   },[qkey]);
 
-  // 全文表示完了 → onDone通知 / pendingSubmitAfterTextなら自動送信
+  // Text completion never submits preview automatically.
   useEffect(()=>{
-    if(shown>=fullText.length){
-      if(pendingSubmitAfterText){
-        setPendingSubmitAfterText(false);
-        ghostTid.current=setTimeout(()=>onSubmit(),600);
-      }else if(onDone){
-        onDone();
-      }
-    }
+    if(shown>=fullText.length&&onDone)onDone();
   },[shown]);
+
+  const previewReady=isNew&&!isFB&&!ghosting&&
+    ghostedBlanks.size>=q.blanks.length&&shown>=fullText.length;
+  const confirmPreview=()=>{
+    if(!previewReady||previewSubmittedRef.current)return;
+    previewSubmittedRef.current=true;
+    onSubmit();
+  };
+  useEffect(()=>{
+    if(!isNew||isFB||ghostedBlanks.size<q.blanks.length)return;
+    const handler=e=>{
+      if(e.key!=="Enter"||e.isComposing||isComposingRef.current||e.keyCode===229)return;
+      e.preventDefault();e.stopImmediatePropagation();
+      // Ignore Enter during the remaining text, and ignore key-repeat.
+      if(!e.repeat)confirmPreview();
+    };
+    window.addEventListener("keydown",handler,true);
+    return()=>window.removeEventListener("keydown",handler,true);
+  },[isNew,isFB,previewReady,ghostedBlanks,shown]);
+
+  const resumeIntro=()=>{
+    focusPreviewKeyboard();
+    setIntroPaused(false);
+    const firstBlank=fullText.indexOf("___");
+    // If the opening contains a blank, keep it paused for the usual reveal action.
+    if(firstBlank<0||firstBlank>=shown)setPaused(false);
+  };
+  useEffect(()=>{
+    if(!introPaused||isFB)return;
+    const handler=e=>{
+      if(e.key!=="Enter"||e.isComposing||isComposingRef.current||e.keyCode===229)return;
+      e.preventDefault();e.stopImmediatePropagation();
+      if(!e.repeat)resumeIntro();
+    };
+    window.addEventListener("keydown",handler,true);
+    return()=>window.removeEventListener("keydown",handler,true);
+  },[introPaused,isFB,shown,fullText]);
 
   // isNew Previewモード：1空欄ずつ手動トリガーで自動タイプ
   const ghostOneBlank=(blankIdx)=>{
@@ -1697,9 +2425,9 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
     const typeNext=()=>{
       if(charIdx<=ans.length){
         dispatch({type:"INPUT",idx:blankIdx,v:ans.slice(0,charIdx)});
-        if(charIdx<ans.length)SFX.typeKey();
+        if(charIdx<ans.length)SFX.typeKey(0.025);
         charIdx++;
-        ghostTid.current=setTimeout(typeNext,80);
+        if(charIdx<=ans.length)ghostTid.current=setTimeout(typeNext,80);
       }
       if(charIdx>ans.length){
         const newGhosted=new Set([...ghostedBlanksRef.current,blankIdx]);
@@ -1707,17 +2435,10 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         setGhostedBlanks(newGhosted);
         setGhosting(false);
         if(newGhosted.size>=q.blanks.length){
-          // 全空欄タイプ完了
-          if(shown>=fullText.length){
-            // 全文も表示済み → 即送信
-            ghostTid.current=setTimeout(()=>onSubmit(),700);
-          }else{
-            // 後続テキストが残っている → 続きを表示してから送信
-            setPendingSubmitAfterText(true);
-            setWaitingResume(false);
-            setActiveBlank(null);
-            setPaused(false);
-          }
+          // Reveal the remaining text, then wait for a fresh Enter.
+          setWaitingResume(false);
+          setActiveBlank(null);
+          if(shown<fullText.length)setPaused(false);
         }else{
           // まだ次の空欄がある → Enter待ち（テキスト続きへ）
           setWaitingResume(true);
@@ -1740,7 +2461,12 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
           const ch=fullText[next];
           width+=charDisplayWidth(ch);
           next++;
-          if(SENT_END.test(ch)&&next<fullText.length){
+          if(isNew&&!introPassedRef.current&&next>=introEnd&&introEnd<fullText.length){
+            introPassedRef.current=true;
+            clearInterval(tidRef.current);setIntroPaused(true);setPaused(true);
+            shouldPause=true;break;
+          }
+          if(SENT_END.test(ch)&&next<fullText.length&&(!isNew||introPassedRef.current)){
             const parts=fullText.split("___");
             let cur=0;
             const anyBlankVisible=parts.some((part,i)=>{
@@ -1761,7 +2487,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   // 一時停止時：該当の空欄に自動フォーカス
   useEffect(()=>{
-    if(!paused||isFB)return;
+    if(!paused||isFB||introPaused)return;
     if(isNew&&waitingResume)return; // Previewモード：自動入力完了後はフォーカス不要
     const parts=fullText.split("___");
     let cur=0;
@@ -1788,10 +2514,11 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       // Previewモード：全空欄入力済みで再停止 → 自動再開
       setTimeout(()=>setPaused(false),150);
     }
-  },[paused]);
+  },[paused,introPaused]);
 
   // タップ時：即座にタイプ停止＋音＋pop
   const activateBlank=(blankIdx)=>{
+    if(introPaused)return;
     clearInterval(tidRef.current); // 即座にインターバル停止
     setPaused(true);               // タイプ一時停止（再レンダリング止まる）
     SFX.blankOk();
@@ -1809,6 +2536,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
     // ── Previewモード（isNew）────────────────────────────────────
     if(isNew){
       e.preventDefault();
+      if(introPaused){resumeIntro();return;}
       if(ghosting)return; // 自動タイプ中は無視
       if(waitingResume){
         // 同じ一時停止内に未入力の空欄がまだあるか確認
@@ -1903,8 +2631,9 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   const hasMore=paused&&shown<fullText.length;
 
   return(
-    <div style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
-      color:"#ece8d8",marginBottom:12,wordBreak:"break-all"}}>
+    <div onClick={e=>{if(introPaused&&!e.target.closest("button,textarea"))focusPreviewKeyboard();}}
+      style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
+      color:"#ece8d8",marginBottom:12,minWidth:0,maxWidth:"100%",wordBreak:"normal",overflowWrap:"anywhere"}}> 
       {segments.map(({text,showBlank,blankIdx},segIdx)=>{
         const isLastSeg=segIdx===segments.length-1;
         const blank=q.blanks[blankIdx];
@@ -1914,13 +2643,13 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
         const isActive=activeBlank===blankIdx;
         const isPopping=poppingBlank===blankIdx;
         // wobble: 表示済み・未アクティブ・一時停止中
-        const isWobbling=showBlank&&!isActive&&paused&&!isFB&&br==null;
+        const isWobbling=showBlank&&!isActive&&paused&&!introPaused&&!isFB&&br==null;
         const anim=isPopping?"blankPop 0.35s ease":isWobbling?"blankWobble 0.55s ease infinite":"none";
         return(
           <span key={blankIdx}>
             <span>{text}</span>
             {/* 一時停止中・この空欄がアクティブ・後続テキストあり → 続きインジケーター */}
-            {hasMore&&showBlank&&!ghostedBlanks.has(blankIdx)&&blankIdx===(activeBlank??0)&&(
+            {!introPaused&&hasMore&&showBlank&&!ghostedBlanks.has(blankIdx)&&blankIdx===(activeBlank??0)&&(
               <span style={{
                 display:"inline-block",verticalAlign:"middle",
                 marginLeft:4,fontSize:DK?12:10,color:"#c9a84c",
@@ -1938,11 +2667,11 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
             {blank&&showBlank&&(
               <span style={{
                 display:"inline-block",verticalAlign:"middle",
-                margin:"0 3px",
+                margin:"0 3px",width:w,maxWidth:"calc(100% - 6px)",minWidth:0,
                 animation:isPopping?"blankPop 0.35s ease":isWobbling?"blankWobble 0.5s ease infinite":"none",
                 transformOrigin:"center",
               }}>
-                <input ref={el=>refs.current[blankIdx]=el}
+                <WrappingAnswer inputRef={el=>refs.current[blankIdx]=el}
                   key={`blank-${blankIdx}-${qkey}`}
                   style={{
                     display:"block",
@@ -1951,7 +2680,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
                     borderRadius:7,padding:"2px 8px",
                     color:(ghostedBlanks.has(blankIdx)||ghosting)?"#4ade80":"#ece8d8",fontSize:20,
                     fontFamily:"inherit",
-                    width:w,minWidth:80,
+                    width:"100%",minWidth:0,maxWidth:"100%",boxSizing:"border-box",
                     textAlign:"center",
                     transition:"background 0.2s, border-color 0.2s",
                     cursor:"pointer",
@@ -1963,6 +2692,8 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
                   onKeyDown={e=>handleKeyDown(blankIdx,e)}
                   onClick={()=>activateBlank(blankIdx)}
                   disabled={isFB}
+                  readOnly={introPaused}
+                  aria-label={`${lang==="en"?"Answer":"解答"} ${blankIdx+1}`}
                   placeholder={`(${blankIdx+1})`}
                   autoComplete="new-password"
                   autoCorrect="off"
@@ -1976,6 +2707,24 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
           </span>
         );
       })}
+      {previewReady&&(
+        <div style={{marginTop:12}}>
+          <button type="button" onClick={confirmPreview}
+            style={{padding:"8px 16px",border:"1px solid #c9a84c",borderRadius:8,
+              color:"#c9a84c",background:"#1e1e3a",fontSize:16}}>
+            {lang==="en"?"Show answers and explanation · Enter":"正答・解説を表示 · Enter"}
+          </button>
+        </div>
+      )}
+      {introPaused&&!isFB&&(
+        <div style={{marginTop:12}}>
+          <button type="button" onClick={resumeIntro}
+            style={{padding:"8px 16px",border:"1px solid #c9a84c",borderRadius:8,
+              color:"#c9a84c",background:"#1e1e3a",fontSize:16}}>
+            {lang==="en"?"Continue · Enter":"続きを表示 · Enter"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2785,7 +3534,7 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
     for(const file of files){
       try{
         const data=await readJSONFile(file);
-        const qs=data.questions||data;
+        const qs=resolveImagePool(data.questions||data,data.imagePool||{});
         const err=validateQS(qs);if(err){errors.push(file.name+": "+err);continue;}
         const name=data.session||file.name.replace(/\.json$/,"");
         const id="dk_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
@@ -3118,6 +3867,45 @@ function DeckManagerPanel({decks,setDecks,QS,onClose}){
 /* ══════════════════════════════════════════════════════════════
    ロビー画面
 ══════════════════════════════════════════════════════════════ */
+// ロビーの主指標：既存の「14日以上定着」分類と同じ集計を使用。
+// 月初時点の履歴がないため、月間増分は推測しない。
+function KnowledgeSummary({srs,gSt,lang}){
+  const T=useT();
+  const count=srsCategories(srs).long;
+  const rank=gSt?getRank(gSt.totalXP):null;
+  return(
+    <section aria-label={lang==="en"?"Long-term knowledge":"長期定着知識"}
+      style={{background:"linear-gradient(145deg,#19241f,#13132a)",border:"1px solid #3a5746",borderRadius:16,padding:DK?"24px":"20px 18px"}}>
+      <div style={{fontSize:15,fontWeight:800,color:"#b8d8bd",letterSpacing:1}}>
+        {lang==="en"?"Long-term knowledge":"長期定着知識"}
+      </div>
+      <div style={{display:"flex",alignItems:"baseline",flexWrap:"wrap",gap:8,margin:"6px 0"}}>
+        <span data-knowledge-count style={{fontSize:DK?60:50,fontWeight:900,lineHeight:1.2,color:"#e4f1dc",fontVariantNumeric:"tabular-nums",overflowWrap:"anywhere",minWidth:0}}>
+          {count.toLocaleString(lang==="en"?"en-US":"ja-JP")}
+        </span>
+        <span style={{fontSize:17,color:"#b8d8bd"}}>{lang==="en"?"items":"個"}</span>
+      </div>
+      <div style={{fontSize:11,color:"#9bab9f",lineHeight:1.7}}>
+        {lang==="en"?"Cards in the 14+ day SRS category":"SRSで「14日以上定着」に分類されているカード数"}
+      </div>
+      {gSt&&rank&&(
+        <details style={{marginTop:16,borderTop:"1px solid #324139",paddingTop:12}}>
+          <summary style={{fontSize:12,color:"#a5aaa9",cursor:"pointer",lineHeight:1.8}}>
+            {rank.icon} {rName(rank,lang)} · {gSt.totalXP.toLocaleString(lang==="en"?"en-US":"ja-JP")} XP
+          </summary>
+          <div style={{marginTop:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6,fontSize:11,color:"#999",marginBottom:8}}>
+              <span>{T.plays(gSt.plays)}</span>
+              <span>{T.bestScore} {gSt.bestScore}pt</span>
+            </div>
+            <XpBar totalXP={gSt.totalXP} compact/>
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
 function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCount,karutaSave,onResumeKaruta,onClearKarutaSave,onPlayToday,onPlayReview,onPlayNew,onPlayRandom,onPlayWeak,onPlayCram,cramHasSave,onManageDecks,onSettings,savedGame,onResume,onClearSave,lang,onToggleLang,soundOn,onToggleSound}){
   const T=useT();
   const[openFolders,setOpenFolders]=useState(()=>{
@@ -3143,7 +3931,6 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
     if(a!==''&&b==='')return -1;
     return natCompare(a,b);
   });
-  const rank=gSt?getRank(gSt.totalXP):null;
   const[randomFolder,setRandomFolder]=useState(()=>{
     try{const v=localStorage.getItem('econ_random_folder');return v!==null?v:null;}
     catch{return null;}
@@ -3154,7 +3941,19 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
   const reviewCount=buildReviewDeck(decks,freshSRSForLobby,15,gSt?.questionStats||{}).length;
-  const newCount=buildNewDeck(decks,freshSRSForLobby).length;
+  const newPracticeDialogRef=useRef(null);
+  const[newPractice,setNewPractice]=useState(loadNewPractice);
+  const changeNewPractice=patch=>{
+    const next={...newPractice,...patch};
+    setNewPractice(next);
+    try{localStorage.setItem(NEW_PRACTICE_KEY,JSON.stringify(next));}catch{}
+  };
+  const newCandidates=buildNewDeck(decks,freshSRSForLobby,Infinity,{...newPractice,order:'ordered'});
+  const newCount=Math.min(newPractice.count||NEW_PRACTICE_DEFAULT_COUNT,newCandidates.length);
+  const newDecks=newPracticeDecks(decks,newPractice.folder);
+  const nextNewCard=newCandidates[0];
+  const nextNewDeck=nextNewCard?newDecks.find(dk=>(dk.questions||[]).some(q=>q.id===nextNewCard.id)):null;
+  const newFolderMissing=newPractice.folder!==null&&!folderNames.includes(newPractice.folder);
   const[deckDialog,setDeckDialog]=useState(null); // 選択中デッキ
   return(
     <div style={{minHeight:"100vh",background:"#0d0d18",
@@ -3184,23 +3983,9 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
           <h1 style={{fontSize:DK?28:22,fontWeight:900,color:"#ece8d8",marginTop:8}}>{T.appTitle}</h1>
         </div>
 
-        {/* ランク・XPバー */}
-        {gSt&&rank&&(
-          <div style={{background:"#13132a",border:"1px solid #252542",borderRadius:14,padding:"14px 16px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-              <span style={{fontSize:24}}>{rank.icon}</span>
-              <div>
-                <div style={{fontSize:16,fontWeight:800,color:rank.color}}>{rName(rank,lang)}</div>
-                <div style={{fontSize:11,color:"#555"}}>{T.plays(gSt.plays)}</div>
-              </div>
-              <div style={{marginLeft:"auto",textAlign:"right"}}>
-                <div style={{fontSize:11,color:"#666"}}>{T.bestScore}</div>
-                <div style={{fontSize:14,fontWeight:700,color:"#c9a84c"}}>{gSt.bestScore}pt</div>
-              </div>
-            </div>
-            <XpBar totalXP={gSt.totalXP} compact/>
-          </div>
-        )}
+        {/* 主指標はSRSの長期定着数。XPと称号は補助情報として保持。 */}
+        <KnowledgeSummary srs={freshSRSForLobby} gSt={gSt} lang={lang}/>
+        <BgmPicker lang={lang}/>
 
         {/* 一発復習 / 新問挑戦 / 百人一首 / ランダム出題 — 2×2グリッド */}
         {(()=>{
@@ -3217,17 +4002,18 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
               {label:T.reviewAllDue,sub:reviewCount>0?T.todayDue(reviewCount):T.reviewNone,
                count:reviewCount,icon:"🔁",color:"#22c55e",onClick:onPlayReview},
               {label:T.tryNewCards,sub:newCount>0?T.todayDue(newCount):T.newCardsNone,
-               count:newCount,icon:"✨",color:"#c9a84c",onClick:onPlayNew},
-            ].map(({label,sub,count,icon,color,onClick})=>(
-              <button key={label} onClick={onClick} disabled={count===0}
-                style={{flex:1,background:count>0?`rgba(${color==="#22c55e"?"34,197,94":"201,168,76"},0.08)`:"#111120",
+               count:newCount,icon:"✨",color:"#c9a84c",onClick:()=>onPlayNew(newPractice),editable:true},
+            ].map(({label,sub,count,icon,color,onClick,editable})=>(
+              <div key={label} style={{flex:1,minWidth:0,position:"relative"}}>
+              <button onClick={onClick} disabled={count===0}
+                style={{width:"100%",height:"100%",background:count>0?`rgba(${color==="#22c55e"?"34,197,94":"201,168,76"},0.08)`:"#111120",
                   border:`2px solid ${count>0?color:"#2a2a44"}`,
                   borderRadius:16,padding:"14px 12px",cursor:count>0?"pointer":"default",
                   fontFamily:"inherit",textAlign:"left",transition:"all 0.2s"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                   <span style={{fontSize:22}}>{icon}</span>
                   {count>0&&<div style={{background:color,color:"#0d0d18",
-                    borderRadius:20,padding:"2px 9px",fontSize:13,fontWeight:800,marginLeft:"auto"}}>
+                    borderRadius:20,padding:"2px 9px",fontSize:13,fontWeight:800,marginLeft:"auto",marginRight:editable?30:0}}>
                     {count}
                   </div>}
                 </div>
@@ -3235,8 +4021,61 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
                   color:count>0?color:"#555"}}>{label}</div>
                 <div style={{fontSize:11,color:count>0?"#888":"#444",marginTop:2}}>{sub}</div>
               </button>
+              {editable&&<button type="button" aria-label={lang==='en'?'Edit new card settings':'新問挑戦の設定を変更'}
+                title={lang==='en'?'New card settings':'新問挑戦の設定'} aria-haspopup="dialog"
+                onClick={()=>newPracticeDialogRef.current?.showModal()}
+                style={{position:'absolute',top:9,right:9,background:'rgba(201,168,76,0.14)',border:'1px solid rgba(201,168,76,0.4)',
+                  borderRadius:6,padding:'2px 7px',fontSize:14,color:'#c9a84c',cursor:'pointer',lineHeight:1.5,fontFamily:'inherit'}}>✎</button>}
+              </div>
             ))}
           </div>
+          <style>{`.new-practice-dialog::backdrop{background:rgba(0,0,0,0.78)}`}</style>
+          <dialog ref={newPracticeDialogRef} className="new-practice-dialog" aria-label={lang==='en'?'New card settings':'新問挑戦の設定'}
+            onClick={e=>{if(e.target===e.currentTarget)newPracticeDialogRef.current?.close();}}
+            style={{padding:0,border:'none',borderRadius:16,background:'#13132a',color:'#e8dcc8',
+              width:'calc(100% - 32px)',maxWidth:360,maxHeight:'calc(100dvh - 48px)',overflowY:'auto',fontFamily:'inherit'}}>
+          <section aria-label={lang==='en'?'New card settings':'新問挑戦の設定'}
+            style={{background:'#13132a',border:'1px solid #353044',borderRadius:16,padding:'20px',fontSize:12}}>
+            <div style={{color:'#c9a84c',fontWeight:800,marginBottom:10}}>{lang==='en'?'✨ New card settings':'✨ 新問挑戦の設定'}</div>
+            <label style={{display:'flex',alignItems:'center',gap:10}}>
+              <span style={{flexShrink:0,color:'#aaa'}}>{lang==='en'?'Scope':'対象'}</span>
+              <select value={JSON.stringify(newPractice.folder)} onChange={e=>changeNewPractice({folder:JSON.parse(e.target.value)})}
+                style={{flex:1,minWidth:0,width:'100%',background:'#1c1c30',color:'#e8dcc8',border:'1px solid #45405a',borderRadius:8,padding:8,fontFamily:'inherit',fontSize:12}}>
+                <option value="null">{lang==='en'?'All decks':'全デッキ'} ({decks.length})</option>
+                {folderNames.map(fn=><option key={fn} value={JSON.stringify(fn)}>{fn||(lang==='en'?'No folder':'フォルダなし')} ({folderGroups[fn].length})</option>)}
+                {newFolderMissing&&<option value={JSON.stringify(newPractice.folder)}>{newPractice.folder||'フォルダなし'} — {lang==='en'?'not found':'見つかりません'}</option>}
+              </select>
+            </label>
+            <div role="group" aria-label={lang==='en'?'New card order':'新問の出題順'} style={{display:'flex',gap:8,marginTop:10}}>
+              {[['ordered',lang==='en'?'In order':'順番に'],['random',lang==='en'?'Random':'ランダム']].map(([value,label])=>(
+                <button key={value} type="button" aria-pressed={newPractice.order===value} onClick={()=>changeNewPractice({order:value})}
+                  style={{flex:1,padding:'8px 10px',borderRadius:8,border:`1px solid ${newPractice.order===value?'#c9a84c':'#45405a'}`,background:newPractice.order===value?'#302b20':'#1c1c30',color:newPractice.order===value?'#e7c86c':'#aaa',fontFamily:'inherit',cursor:'pointer'}}>{label}</button>
+              ))}
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:10,marginTop:10}}>
+              <span style={{flexShrink:0,color:'#aaa'}}>{lang==='en'?'Cards':'問題数'}</span>
+              <div role="group" aria-label={lang==='en'?'Cards per session':'1回の問題数'} style={{display:'flex',gap:6,flex:1}}>
+                {NEW_PRACTICE_COUNTS.map(n=>{const on=(newPractice.count||NEW_PRACTICE_DEFAULT_COUNT)===n;return(
+                  <button key={n} type="button" aria-pressed={on} onClick={()=>changeNewPractice({count:n})}
+                    style={{flex:1,padding:'8px 0',borderRadius:8,border:`1px solid ${on?'#c9a84c':'#45405a'}`,background:on?'#302b20':'#1c1c30',color:on?'#e7c86c':'#aaa',fontFamily:'inherit',cursor:'pointer'}}>{n}</button>
+                );})}
+              </div>
+            </div>
+            <div style={{marginTop:9,color:'#aaa',lineHeight:1.7,overflowWrap:'anywhere'}}>
+              {lang==='en'?`${newCandidates.length.toLocaleString('en-US')} new cards remaining · up to ${newPractice.count||NEW_PRACTICE_DEFAULT_COUNT} per session`:`未学習 ${newCandidates.length.toLocaleString('ja-JP')}問 · 1回最大${newPractice.count||NEW_PRACTICE_DEFAULT_COUNT}問`}
+              {newPractice.order==='ordered'&&nextNewDeck&&<div style={{color:'#d8ceb7'}}>
+                {lang==='en'?'Next: ':'続き：'}{nextNewDeck.name} · {lang==='en'?'Card ':''}{nextNewDeck.questions.findIndex(q=>q.id===nextNewCard.id)+1}{lang==='en'?'':'問目から'}
+              </div>}
+              <div style={{fontSize:11,color:'#92909d'}}>{newPractice.order==='ordered'
+                ?(lang==='en'?'Deck list order, then card order. Resume from cards not yet learned.':'デッキ一覧の順 → カード順。次回は未学習の続きから。')
+                :(lang==='en'?'Mix new cards within the selected scope.':'選んだ対象の未学習カードを混ぜて出題します。')}</div>
+            </div>
+            <button type="button" onClick={()=>newPracticeDialogRef.current?.close()}
+              style={{width:'100%',marginTop:16,padding:'10px',background:'#c9a84c',color:'#13132a',border:'none',borderRadius:8,fontFamily:'inherit',fontWeight:800,cursor:'pointer'}}>
+              {lang==='en'?'Done':'完了'}
+            </button>
+          </section>
+          </dialog>
           {/* 🎴 カルタ セーブバナー */}
           {karutaSave&&(
             <div style={{background:'rgba(201,168,76,0.1)',border:'1px solid #c9a84c',
@@ -3417,6 +4256,27 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
           </>);
         })()}
 
+        {/* 続きから再開（百人一首・テスト対策の下、デッキ一覧の上） */}
+        {savedGame&&(
+          <div style={{background:"#0a1a0a",border:"1px solid #22c55e",borderRadius:12,padding:"12px 14px"}}>
+            <div style={{fontSize:12,color:"#4ade80",fontWeight:700,marginBottom:4}}>{T.savedBanner}</div>
+            <div style={{fontSize:11,color:"#666",marginBottom:8}}>
+              {new Date(savedGame.savedAt).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} 中断
+              · {savedGame.state.answeredCorrectly?.length||0}/{savedGame.QS?.length||0}問 · {savedGame.state.score}pt
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onResume}
+                style={{flex:1,background:"#22c55e",border:"none",borderRadius:8,
+                  padding:"8px 0",fontSize:13,fontWeight:800,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>
+                {T.savedResume}
+              </button>
+              <button onClick={onClearSave}
+                style={{background:"none",border:"1px solid #333",borderRadius:8,padding:"8px 12px",
+                  fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            </div>
+          </div>
+        )}
+
         {/* デッキ一覧 */}
         <div style={{fontSize:11,color:"#555",letterSpacing:1,paddingLeft:4}}>{T.myDecks}</div>
         {decks.length===0&&(
@@ -3538,26 +4398,6 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
           );
         })}
 
-        {/* 続きから再開 */}
-        {savedGame&&(
-          <div style={{background:"#0a1a0a",border:"1px solid #22c55e",borderRadius:12,padding:"12px 14px"}}>
-            <div style={{fontSize:12,color:"#4ade80",fontWeight:700,marginBottom:4}}>{T.savedBanner}</div>
-            <div style={{fontSize:11,color:"#666",marginBottom:8}}>
-              {new Date(savedGame.savedAt).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} 中断
-              · {savedGame.state.answeredCorrectly?.length||0}/{savedGame.QS?.length||0}問 · {savedGame.state.score}pt
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={onResume}
-                style={{flex:1,background:"#22c55e",border:"none",borderRadius:8,
-                  padding:"8px 0",fontSize:13,fontWeight:800,color:"#0d0d18",cursor:"pointer",fontFamily:"inherit"}}>
-                {T.savedResume}
-              </button>
-              <button onClick={onClearSave}
-                style={{background:"none",border:"1px solid #333",borderRadius:8,padding:"8px 12px",
-                  fontSize:12,color:"#555",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
-            </div>
-          </div>
-        )}
         {/* ボタン行 */}
         <div style={{display:"flex",gap:8,marginTop:4}}>
           <button onClick={onManageDecks}
@@ -3609,6 +4449,7 @@ function QuizApp(){
   const toggleSound=()=>{
     const next=!soundOn;
     _soundEnabled=next;
+    try{_syncSoundGain();}catch(_){}
     localStorage.setItem('econ_sound',next?'1':'0');
     setSoundOn(next);
     if(next){
@@ -3627,14 +4468,14 @@ function QuizApp(){
   // 新問挑戦中（rewardNewIds===null）の全SUBMIT（再試行含む）をnd_attempt_countに反映するdispatchラッパー
   const dispatch=(action)=>{
     if(action.type==="SUBMIT"&&s.rewardNewIds===null){
-      // 10回SUBMIT = 10カウント = Chrome開放 + iPhone(NextDNS)解放
+      // _ND_THRESH_ATT回SUBMIT = Chrome開放 + iPhone(NextDNS)解放
       const old=parseInt(localStorage.getItem('nd_attempt_count')||'0');
       const nw=old+1;
       localStorage.setItem('nd_attempt_count',String(nw));
-      // 10の倍数でiPhone側NextDNSも解放
-      if(Math.floor(nw/10)>Math.floor(old/10)){
-        const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
-        if(cfg?.apiKey&&cfg?.profileId) triggerReward(cfg);
+      // しきい値の倍数で保留フラグを立てる（実際の解除はロビーで本人が受け取る）
+      if(Math.floor(nw/_ND_THRESH_ATT)>Math.floor(old/_ND_THRESH_ATT)){
+        ndMarkPending();
+        setNdPending(ndPendingCount());
       }
     }
     rawDispatch(action);
@@ -3662,8 +4503,8 @@ function QuizApp(){
 
   /* ── NextDNS 報酬タイマー ── */
   const[ndConfig,setNdConfig]=useState(()=>{try{return JSON.parse(localStorage.getItem('nd_config'))||null;}catch{return null;}});
-  const[rewardProgress,setRewardProgress]=useState(()=>parseInt(localStorage.getItem('nd_session_count')||'0'));
   const[showNdSettings,setShowNdSettings]=useState(false);
+  const[ndPending,setNdPending]=useState(()=>ndPendingCount());
   const[ndApiKey,setNdApiKey]=useState('');
   const[ndProfileId,setNdProfileId]=useState('');
   const[rewardActive,setRewardActive]=useState(false);
@@ -3673,7 +4514,23 @@ function QuizApp(){
   const prevCorrectLenRef=useRef(0);
   const prevAttemptedLenRef=useRef(0);   // 新問試行カウント用
   const ND_DOMAINS=['twitter.com','x.com','t.co','abs.twimg.com'];
-  const ND_MINUTES=2;
+  const ND_MINUTES=_ND_MIN;
+
+  // 次の解除までの残り問題数。
+  // かつては macOS 版だけ Swift 注入JS が更新する nd_session_count を
+  // 優先して読んでいたが、その注入は廃止した。読み手だけ残ると
+  // 古い値を返し続けてカウンタが止まるため、両環境とも実際に保留を
+  // 駆動しているカウンタから計算する。
+  const ndRemain=(()=>{
+    try{
+      if(rewardNewIds===null){
+        const a=parseInt(localStorage.getItem('nd_attempt_count')||'0');
+        return _ND_THRESH_ATT-(a%_ND_THRESH_ATT);
+      }
+      const c=parseInt(localStorage.getItem('nd_total_correct')||'0');
+      return _ND_THRESH-(c%_ND_THRESH);
+    }catch(_){return 10;}
+  })();
 
   useEffect(()=>{
     const curr=answeredCorrectly.length;
@@ -3687,10 +4544,11 @@ function QuizApp(){
         const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
         const newTotal=oldTotal+added;
         localStorage.setItem('nd_total_correct',String(newTotal));
-        // Swift注入JSがnd_session_countをorigSetItemで更新した直後なので同期的に読める
-        setRewardProgress(parseInt(localStorage.getItem('nd_session_count')||'0'));
-        const cfg=JSON.parse(localStorage.getItem('nd_config')||'null');
-        if(cfg?.apiKey&&cfg?.profileId&&Math.floor(newTotal/15)>Math.floor(oldTotal/15)) triggerReward(cfg);
+        // しきい値到達で保留フラグを立てる（実際の解除はロビーで本人が受け取る）
+        if(Math.floor(newTotal/_ND_THRESH)>Math.floor(oldTotal/_ND_THRESH)){
+          ndMarkPending();
+          setNdPending(ndPendingCount());
+        }
       }
     }
     prevCorrectLenRef.current=curr;
@@ -3707,12 +4565,26 @@ function QuizApp(){
 
   const ND_WORKER_URL='https://nd-timer.stringhs05.workers.dev';
 
-  const ndPCUnlock=async(cfg)=>{
-    await fetch(`${ND_WORKER_URL}/start`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({apiKey:cfg.apiKey,profileId:cfg.profileId,minutes:ND_MINUTES})
-    });
+  // 解除の実行。環境によって経路が違う。
+  //   Mac版   : quizBridge に 'unlock' を投げる。Swift が HostsBlocker で
+  //             フラグを書き、デーモンが nbf_unblock.sh を走らせて
+  //             hosts解除・Chrome復帰・Xタブ選択までを行う。
+  //   iPhone版: NextDNS の Worker に解除リクエストを送る。
+  const ndPCUnlock=async(_cfg)=>{
+    if(_IS_MAC_APP){
+      try{
+        window.webkit.messageHandlers.quizBridge.postMessage('unlock');
+        ndLog({ev:'ok',mode:'bridge',from:'claim'});
+        localStorage.setItem('nd_reward_until',String(Date.now()+ND_MINUTES*60*1000));
+        return;
+      }catch(e){
+        const msg=String((e&&e.message)||e);
+        ndLog({ev:'fail',mode:'bridge',from:'claim',err:msg});
+        throw new Error(msg);
+      }
+    }
+    const r=await ndUnlockRequest(ND_MINUTES,'claim');
+    if(!r.ok) throw new Error(r.reason||'unlock failed');
   };
   const ndPCLock=async(_cfg)=>{
     // 再ブロックはWorker側のアラームが自動で行うため何もしない
@@ -3738,17 +4610,22 @@ function QuizApp(){
     },1000);
   };
 
-  // 新規報酬：APIで解除してタイマー開始
-  const triggerReward=async(cfg)=>{
-    // バナー表示なし（サイレント解除）
+  // 保留中の報酬を受け取る。設定モーダルのボタンから呼ばれる。
+  // 本人が任意のタイミングで押すので、通信が安定しているのを確かめてから
+  // 受け取れる（機内モードの自動化と衝突しない）。
+  const claimReward=async()=>{
+    const cfg=ndGetConfig();
     try{
       await ndPCUnlock(cfg);
     }catch(e){
-      return; // エラーバナーも表示しない
+      return {ok:false,reason:String((e&&e.message)||e)};
     }
+    ndConsumePending();
+    setNdPending(ndPendingCount());
     const until=Date.now()+ND_MINUTES*60*1000;
     localStorage.setItem('nd_reward_until',String(until));
     startRewardTimer(cfg,ND_MINUTES*60);
+    return {ok:true};
   };
 
   // 正解フィードバック時にSRS・成績を即座に保存（中断対策）
@@ -3940,6 +4817,7 @@ function QuizApp(){
     setKarutaCards(cards);
   };
   const playDeck=(dk,introMode=false,randomMode=false)=>{
+    if(introMode&&dk.questions.some(q=>q.type==="fill"))focusPreviewKeyboard();
     const freshSRS=loadSRS();
     // introMode=true のときはデッキ全問を自動入力対象にする（SRSデータの有無に関わらず）
     // introMode=false のときは自動入力なし
@@ -3968,15 +4846,15 @@ function QuizApp(){
     dispatch({type:"START",QS:cards,pendingStart:cards.length,newCardIds:[]});
   };
   // 新問挑戦
-  const playNew=()=>{
+  const playNew=(options=loadNewPractice())=>{
     const freshSRS=loadSRS();
-    const cards=buildNewDeck(decks,freshSRS);
+    const cards=buildNewDeck(decks,freshSRS,options.count||NEW_PRACTICE_DEFAULT_COUNT,options);
     if(cards.length===0)return;
     setSRS(freshSRS);setQS(cards);setIsToday(true);
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:cards,newCardIds:[],rewardNewIds:null});
+    dispatch({type:"START",QS:cards,newCardIds:[],rewardNewIds:null,workingSet:NEW_PRACTICE_WORKING_SET});
   };
   // ランダム出題
   const playRandom=(folderName)=>{
@@ -4117,14 +4995,11 @@ function QuizApp(){
     setSRS(newSRS);saveSRS(newSRS);
     if(newRank.name!==oldRank.name){
       setRankUp({from:oldRank,to:newRank});
-      setTimeout(SFX.rankUp,900);
+      // Results use one BGM only; retain the visual rank-up celebration.
       // ランクバーストアニメ
       setTimeout(()=>{setRankBurst(newRank);setTimeout(()=>setRankBurst(null),1200);},800);
     }
-    // 新規カードのみのデッキ（Previewモード）は勝利音
-    const allNew=Array.isArray(newCardIds)&&newCardIds.length>0&&QS.every(q=>newCardIds.includes(q.id));
-    const previewDone=(viewedNewCount||0)>=QS.length&&QS.length>0&&allNew;
-    setTimeout(()=>(allNew||previewDone||score>=MAX_SCORE*0.7)?SFX.win():SFX.lose(),500);
+    // The results BGM provides the celebration without overlapping fanfares.
   },[phase]);
 
   const q=phase==="feedback"&&feedback?QS.find(qq=>qq.id===feedback.qId):(queue.length>0?QS[queue[0]]:null);
@@ -4178,11 +5053,11 @@ function QuizApp(){
   },[phase,feedback]);
   // 自動進行なし：全フィードバック画面でユーザー操作待ち
   useEffect(()=>{
-    if(phase==="question"||phase==="feedback")BGM.start();
+    if(phase==="question"||phase==="feedback")BGM.start(s.bgmThemeId);
     else BGM.stop();
     if(phase==="complete") VBGM.start();
     else VBGM.stop();
-  },[phase]);
+  },[phase,s.bgmThemeId]);
   useEffect(()=>()=>{BGM.stop();VBGM.stop();},[]);
 
 
@@ -4198,18 +5073,29 @@ function QuizApp(){
     const ratio=QS.length>0?seen/QS.length:0;
     const lv=ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0;
     BGM.setLevel(lv);
-  },[questionKey,answeredCorrectly.length,viewedNewCount]);
+  },[phase,questionKey,answeredCorrectly.length,viewedNewCount]);
   // フィードバック画面でEnterキー → 次へ（question中は別ハンドラが担当）
   useEffect(()=>{
     if(phase!=="feedback"||!isFB||!feedback)return;
     const handler=(e)=>{
       if(e.key!=="Enter"||e.isComposing||e.keyCode===229)return;
       e.preventDefault(); // prevent focused button (e.g. ⏸) from activating
-      if(feedbackReadyKeyRef.current===questionKey) dispatch({type:"NEXT",QS});
+      if(feedbackReadyKeyRef.current===questionKey) advanceQuestion();
     };
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
   },[phase,isFB,feedback]);
+  function advanceQuestion(){
+    if(isNew)focusPreviewKeyboard();
+    dispatch({type:"NEXT",QS});
+  }
+  // Close the preview keyboard on leaving the quiz screens.
+  useEffect(()=>{
+    if(phase!=="question"&&phase!=="feedback"){
+      const el=document.getElementById("preview-keyboard-input");
+      if(el&&document.activeElement===el)el.blur();
+    }
+  },[phase]);
   // 穴埋め問題中、どの空欄にもフォーカスしていない時にEnterで1つ目にフォーカス
   useEffect(()=>{
     if(phase!=="question"||isFB||q?.type!=="fill")return;
@@ -4236,6 +5122,7 @@ function QuizApp(){
   const submitFill=()=>{
     if(phase!=="question"||!q)return;
     const r=chkFill(q.blanks,inputs);
+    if(isNew)focusPreviewKeyboard();
     dispatch({type:"SUBMIT",correct:r.every(Boolean),blankResults:r,QS});
   };
   const submitMC=(idx)=>{
@@ -4252,6 +5139,7 @@ function QuizApp(){
   };
   const doResume=()=>{
     if(!savedGame)return;
+    if(savedGame.state.newCardIds?.length)focusPreviewKeyboard();
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();setRankUp(null);setXpInfo(null);
     // prev系refをセーブデータの現在値に合わせる（useEffectの誤発火防止）
@@ -4351,6 +5239,8 @@ function QuizApp(){
         {/* NextDNS 設定モーダル */}
         {showNdSettings&&<NdSettingsModal
           initKey={ndConfig?.apiKey||''} initId={ndConfig?.profileId||''}
+          pending={ndPending}
+          claimReward={claimReward}
           onClose={()=>setShowNdSettings(false)}
           onSave={(k,p)=>{const cfg={apiKey:k,profileId:p};localStorage.setItem('nd_config',JSON.stringify(cfg));setNdConfig(cfg);setShowNdSettings(false);}}
         />}
@@ -4362,9 +5252,10 @@ function QuizApp(){
           syncUrl={syncUrl} setSyncUrl={setSyncUrl}
           onClose={()=>setShowIO(false)}/>}
         {showQManage&&<QManagePanel QS={QS} setQS={setQS} onClose={()=>setShowQManage(false)}/>}
-        {/* 🐦 設定ボタン（ロビー固定） */}
+        {/* 🐦 設定ボタン（ロビー固定）。保留中の報酬があれば右上にドットを出す */}
         <button onClick={()=>setShowNdSettings(true)} title="報酬タイマー設定" style={{position:'fixed',bottom:20,right:20,zIndex:9000,background:ndConfig?'rgba(29,161,242,0.18)':'rgba(40,40,70,0.9)',border:`1px solid ${ndConfig?'rgba(29,161,242,0.5)':'#2a2a42'}`,borderRadius:12,padding:'8px 11px',cursor:'pointer',fontSize:16,lineHeight:1}}>
           🐦
+          {ndPending>0&&<span style={{position:'absolute',top:-3,right:-3,minWidth:12,height:12,padding:ndPending>1?'0 3px':0,borderRadius:8,background:'#4ade80',border:'2px solid #0d0d18',fontSize:9,fontWeight:900,color:'#0d0d18',lineHeight:'12px',textAlign:'center'}}>{ndPending>1?ndPending:''}</span>}
         </button>
         <Lobby
           decks={decks} srs={srs} gSt={gSt}
@@ -4544,8 +5435,9 @@ function QuizApp(){
           <span style={S.qnum}>✓{answeredCorrectly.length}<span style={{color:"#444",fontSize:10}}>/{QS.length}</span></span>
           {combo>0&&<span className="comboPop" style={S.comboTag}>{"🔥".repeat(Math.min(combo,5))} ×{combo}</span>}
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {ndConfig&&<span style={{fontSize:11,color:'#c9a84c',background:'rgba(201,168,76,0.1)',border:'1px solid rgba(201,168,76,0.25)',borderRadius:6,padding:'2px 6px',lineHeight:1.4,whiteSpace:'nowrap'}}>🎁{10-rewardProgress}問</span>}
+            {ndConfig&&<span style={{fontSize:11,color:'#c9a84c',background:'rgba(201,168,76,0.1)',border:'1px solid rgba(201,168,76,0.25)',borderRadius:6,padding:'2px 6px',lineHeight:1.4,whiteSpace:'nowrap'}}>🎁{ndRemain}問</span>}
             <span style={S.scorePill}>{score}<span style={{color:"#444",fontSize:10}}>pt</span></span>
+            <BgmPicker compact lang={lang} currentTheme={s.bgmThemeId} onChangeTheme={themeId=>dispatch({type:"SET_BGM_THEME",themeId})}/>
             <button onClick={toggleSound}
               style={{background:"none",border:`1px solid ${soundOn?"#c9a84c":"#555"}`,borderRadius:7,
                 padding:DK?"4px 8px":"3px 7px",fontSize:DK?14:12,
@@ -4644,7 +5536,7 @@ function QuizApp(){
               ))}
             </div>
             {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
-            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),advanceQuestion())}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
@@ -4672,7 +5564,7 @@ function QuizApp(){
               ))}
             </div>
             {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
-            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),advanceQuestion())}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
@@ -4698,7 +5590,7 @@ function QuizApp(){
             </div>
             {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
             <div style={S.retryMsg}>{T.retryMsg}</div>
-            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),dispatch({type:"NEXT",QS}))}
+            <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),advanceQuestion())}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
                 cursor:"pointer",fontFamily:"inherit",width:"100%",
@@ -4793,27 +5685,62 @@ function RewardOverlay({rewardStatus,rewardSecs,fmtSecs,onClose}){
 }
 
 /* ── NextDNS 設定モーダル ── */
-function NdSettingsModal({onClose,onSave,initKey,initId}){
+function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
   const[k,setK]=useState(initKey||'');
   const[p,setP]=useState(initId||'');
   const[device,setDevice]=useState(localStorage.getItem('nd_reward_device')||'quest');
   const total=parseInt(localStorage.getItem('nd_total_correct')||'0');
-  const next=total%15===0?15:15-(total%15);
+  const next=total%_ND_THRESH===0?_ND_THRESH:_ND_THRESH-(total%_ND_THRESH);
+  const attempts=parseInt(localStorage.getItem('nd_attempt_count')||'0');
+  const until=parseInt(localStorage.getItem('nd_reward_until')||'0');
+  const log=ndGetLog();
+  const[claiming,setClaiming]=useState(false);
+  const[claimResult,setClaimResult]=useState(null);
+  const[pendingN,setPendingN]=useState(pending||0);
+  // 保留中の報酬を1つ受け取る。残りがあればボタンは残り、
+  // 続けて受け取れる。失敗時もボタンを残して再試行できるようにする。
+  const handleClaim=async()=>{
+    setClaiming(true);setClaimResult(null);
+    const r=await claimReward();
+    setClaimResult(r);setClaiming(false);
+    if(r.ok)setPendingN(ndPendingCount());
+  };
   const handleSave=()=>{
     localStorage.setItem('nd_reward_device',device);
     onSave(k.trim(),p.trim());
   };
+  const lbl={display:'flex',justifyContent:'space-between',gap:8,padding:'2px 0'};
+  const val={color:'#9aa',fontFamily:'ui-monospace,monospace',wordBreak:'break-all',textAlign:'right'};
   return(
     <div style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{background:'#13132a',border:'1px solid #2a2a48',borderRadius:20,padding:24,width:'100%',maxWidth:400}}>
         <div style={{fontWeight:900,fontSize:16,color:'#c9a84c',marginBottom:4}}>🐦 報酬タイマー設定</div>
-        <div style={{fontSize:12,color:'#666',marginBottom:18}}>15問正解ごとに Twitter が {5} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next === 30 ? 30 : next}問</span></div>
+        <div style={{fontSize:12,color:'#666',marginBottom:18}}>{_IS_MAC_APP?'Mac版':'iPhone版'}：{_ND_THRESH}問正解ごとに Twitter が {_ND_MIN} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next}問</span></div>
+        {/* ── 保留中の報酬を受け取る ── */}
+        {pendingN>0&&(
+          <>
+            <button onClick={handleClaim} disabled={claiming}
+              style={{width:'100%',marginBottom:16,background:claiming?'#1a1a32':'rgba(74,222,128,0.16)',
+                border:`1px solid ${claiming?'#2a2a42':'rgba(74,222,128,0.5)'}`,
+                borderRadius:10,padding:'12px',color:claiming?'#555':'#4ade80',
+                fontSize:14,fontWeight:700,fontFamily:'inherit',cursor:claiming?'default':'pointer'}}>
+              {claiming?'送信中…':`🎁 報酬を受け取る（Xを${_ND_MIN}分間解放）${pendingN>1?` · 残り${pendingN}回分`:''}`}
+            </button>
+            {claimResult&&!claimResult.ok&&(
+              <div style={{marginTop:-8,marginBottom:16,padding:'8px 10px',borderRadius:8,fontSize:12,lineHeight:1.6,
+                background:'rgba(248,113,113,0.1)',border:'1px solid rgba(248,113,113,0.35)',color:'#f87171'}}>
+                ❌ 失敗: {claimResult.reason}（もう一度押すと再試行します）
+              </div>
+            )}
+          </>
+        )}
         {/* 報酬デバイス選択 */}
         <div style={{marginBottom:16}}>
-          <div style={{fontSize:12,color:'#888',marginBottom:8}}>報酬を開くデバイス</div>
+          <div style={{fontSize:12,color:'#888',marginBottom:8}}>条件達成時のアクション</div>
           <div style={{display:'flex',gap:8}}>
             {[{id:'quest',label:'🥽 Meta Quest',sub:'QuestブラウザでXを開く'},
-              {id:'mac',  label:'💻 MacBook',   sub:'MacのブラウザでXを開く'}].map(opt=>(
+              {id:'mac',  label:'💻 MacBook',   sub:'MacのブラウザでXを開く'},
+              {id:'none', label:'🚫 なし',      sub:'何も起動しない（記録のみ）'}].map(opt=>(
               <button key={opt.id} onClick={()=>setDevice(opt.id)}
                 style={{flex:1,background:device===opt.id?'rgba(201,168,76,0.15)':'#0d0d1a',
                   border:`1px solid ${device===opt.id?'#c9a84c':'#2a2a42'}`,
@@ -4836,8 +5763,33 @@ function NdSettingsModal({onClose,onSave,initKey,initId}){
           <button onClick={onClose} style={{flex:1,background:'#1a1a32',border:'1px solid #2a2a42',borderRadius:10,padding:'10px',color:'#888',fontSize:13,cursor:'pointer'}}>キャンセル</button>
           <button onClick={handleSave} disabled={!k.trim()||!p.trim()} style={{flex:2,background:k.trim()&&p.trim()?'#1d9bf0':'#1a1a32',border:'none',borderRadius:10,padding:'10px',color:k.trim()&&p.trim()?'#fff':'#444',fontSize:13,fontWeight:700,cursor:k.trim()&&p.trim()?'pointer':'default'}}>保存</button>
         </div>
-        <div style={{marginTop:14,padding:'10px 12px',background:'rgba(29,161,242,0.07)',border:'1px solid rgba(29,161,242,0.2)',borderRadius:8,fontSize:11,color:'#666',lineHeight:1.7}}>
-          ⚠️ CORS制限で失敗する場合: SafariよりもChrome系ブラウザで開くと動作しやすい場合があります。それでも失敗する場合はAPIキーを確認してください。
+        {/* ── 状態 ── */}
+        <div style={{marginTop:12,padding:'10px 12px',background:'#0d0d1a',border:'1px solid #2a2a42',borderRadius:8,fontSize:11,color:'#777',lineHeight:1.6}}>
+          <div style={{color:'#888',fontWeight:700,marginBottom:6}}>状態</div>
+          <div style={lbl}><span>origin</span><span style={val}>{(typeof location!=='undefined'&&location.origin)||'?'}</span></div>
+          <div style={lbl}><span>環境</span><span style={val}>{_IS_MAC_APP?'Mac (quizBridge あり)':'iPhone / ブラウザ'}</span></div>
+          <div style={lbl}><span>しきい値</span><span style={val}>{`通常${_ND_THRESH} / 新問${_ND_THRESH_ATT} / 百人一首${_ND_THRESH/_ND_KARUTA_PTS}`}</span></div>
+          <div style={lbl}><span>設定</span><span style={val}>{ndGetConfig()?'保存済み':'未保存'}</span></div>
+          <div style={lbl}><span>nd_total_correct</span><span style={val}>{total}</span></div>
+          <div style={lbl}><span>nd_attempt_count</span><span style={val}>{attempts}</span></div>
+          <div style={lbl}><span>解放期限</span><span style={val}>{until?(until>Date.now()?`残り ${Math.max(0,Math.floor((until-Date.now())/1000))}秒`:'期限切れ'):'なし'}</span></div>
+        </div>
+
+        {/* ── 直近の履歴 ── */}
+        {log.length>0&&(
+          <div style={{marginTop:10,padding:'10px 12px',background:'#0d0d1a',border:'1px solid #2a2a42',borderRadius:8,fontSize:10,color:'#666',lineHeight:1.6,maxHeight:150,overflowY:'auto'}}>
+            <div style={{color:'#888',fontWeight:700,marginBottom:6,fontSize:11}}>直近の解除リクエスト</div>
+            {log.slice(0,6).map((e,i)=>(
+              <div key={i} style={{fontFamily:'ui-monospace,monospace',wordBreak:'break-all',marginBottom:3,
+                color:e.ev==='ok'?'#4ade80':(e.ev==='fail'||e.ev==='ng')?'#f87171':'#777'}}>
+                {String(e.t||'').slice(11,19)} {e.ev} {e.mode||''} {e.status!==undefined?e.status:''} {e.from||''} {e.why||e.err||e.note||''}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{marginTop:12,padding:'10px 12px',background:'rgba(29,161,242,0.07)',border:'1px solid rgba(29,161,242,0.2)',borderRadius:8,fontSize:11,color:'#666',lineHeight:1.7}}>
+          ⚠️ 履歴の見かた。<b>ok cors 200</b> なら正常。<b>ng</b> は Worker がエラーを返した状態でキーの確認が必要。<b>fail</b> は Worker まで届いていないので通信と origin を確認。<b>skip</b> は設定が未保存です。<b>ok no-cors</b> は CORS を回避して送信した状態で、届いてはいるものの応答は読めていません。
         </div>
       </div>
     </div>
@@ -4967,6 +5919,7 @@ function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
   const toggleSound=()=>{
     const next=!soundOn;
     _soundEnabled=next;
+    try{_syncSoundGain();}catch(_){}
     localStorage.setItem('econ_sound',next?'1':'0');
     setSoundOn(next);
   };
@@ -5422,18 +6375,22 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
   const T=useT();
   const lang=React.useContext(LangCtx);
 
-  // 報酬進捗（Swift WKWebView内のみ有効）
-  const KARUTA_REWARD_REQUIRED=8;
-  const inApp=!!(window.webkit?.messageHandlers?.quizBridge);
-  const[rewardCount,setRewardCount]=useState(()=>
-    inApp?parseInt(localStorage.getItem('nd_karuta_count')||'0'):0
-  );
+  // 報酬進捗。以前は Mac 版だけ Swift 注入JS が更新する nd_karuta_count を
+  // 読んでいたが、その注入は廃止した。両環境とも nd_total_correct から算出する。
+  // 百人一首は1正解あたり _ND_KARUTA_PTS 点入るので、残り「問数」に直す。
+  const KARUTA_REWARD_REQUIRED=Math.ceil(_ND_THRESH/_ND_KARUTA_PTS);
+  const ndKarutaCount=()=>{
+    const pts=parseInt(localStorage.getItem('nd_total_correct')||'0')%_ND_THRESH;
+    return Math.floor(pts/_ND_KARUTA_PTS);
+  };
+  const[rewardCount,setRewardCount]=useState(ndKarutaCount);
 
   // 音声オン/オフ（穴埋りモードと共有）
   const[soundOn,setSoundOn]=useState(()=>localStorage.getItem('econ_sound')!=='0');
   const toggleSound=()=>{
     const next=!soundOn;
     _soundEnabled=next;
+    try{_syncSoundGain();}catch(_){}
     localStorage.setItem('econ_sound',next?'1':'0');
     setSoundOn(next);
   };
@@ -5505,10 +6462,10 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
       KBGM.setLevel(ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0);
       // 穴埋りSRSにもボーナス記録
       if(onMainCorrect&&q)onMainCorrect(q.id);
-      // NextDNS報酬カウント（百人一首は難易度が高いため1正解=+2）
-      checkNdReward(2).then(unlocked=>{
+      // NextDNS報酬カウント（Mac:1正解=+2で8問 / iPhone:1正解=+1で5問）
+      checkNdReward(_ND_KARUTA_PTS).then(unlocked=>{
         if(unlocked){setNdUnlocked(true);setTimeout(()=>setNdUnlocked(false),4000);}
-        if(inApp) setRewardCount(parseInt(localStorage.getItem('nd_karuta_count')||'0'));
+        setRewardCount(ndKarutaCount());
       });
       karutaTakeSound();SFX.correct();
       Hap.impact('Light');
@@ -5660,7 +6617,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
           animation:'slideDown 0.3s ease',whiteSpace:'nowrap'}}>
           <span style={{fontSize:21}}>🎉</span>
           <span style={{fontSize:14,fontWeight:700,color:'#4ade80'}}>
-            {lang==='ja'?`X が ${_ND_MIN}分間解放されました！`:`X unlocked for ${_ND_MIN} min!`}
+            {lang==='ja'?'報酬がたまりました！ロビーの🐦から受け取れます':'Reward earned! Claim it via 🐦 in the lobby'}
           </span>
         </div>
       )}
@@ -5675,7 +6632,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
         </button>
         <div style={{flex:1,minWidth:0,fontSize:14,color:'#666',fontWeight:700,textAlign:'center',lineHeight:1.6}}>
           🎴 {lang==='ja'?`正解 ${progress}/${cards.length}枚 · 残り${remaining}`:`${progress}/${cards.length} · ${remaining} left`}
-          {ndConfig&&inApp&&<div style={{fontSize:13,color:'#c9a84c',marginTop:1}}>
+          {ndConfig&&<div style={{fontSize:13,color:'#c9a84c',marginTop:1}}>
             🎁 {lang==='ja'?`報酬まであと${KARUTA_REWARD_REQUIRED-rewardCount}問`:`${KARUTA_REWARD_REQUIRED-rewardCount} more for reward`}
           </div>}
         </div>
