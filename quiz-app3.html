@@ -595,7 +595,7 @@ const _ND_URL='https://nd-timer.stringhs05.workers.dev';
    その有無で判別する。Capacitor が登録するのは bridge であって
    quizBridge ではないため、iPhone版ではここが false になる。
 
-   iPhone : すべて5問で保留が1つ積まれる
+   iPhone : 未使用報酬が2回未満なら5問正解、2回以上なら15問正解
    Mac    : 従来どおり（穴埋め15問・新問挑戦10回・百人一首8問）
 
    受け取り方は両者共通で、ロビーの🐦から本人が押したときだけ解除が走る。
@@ -607,6 +607,21 @@ const _ND_KARUTA_PTS = _IS_MAC_APP? 2:1;  // 百人一首の1正解あたりの�
 // 解放時間（分）。以前iPhoneは1分に短縮していたが、原因はラグではなく
 // 機内モード/Wi-Fi操作をしていなかったことだったため、2分に統一。
 const _ND_MIN=2;
+// iPhoneネイティブ版のみ、未使用の報酬数に応じて必要正解数を切り替える。
+const _ND_ADAPTIVE=!_IS_MAC_APP&&!!(window.Capacitor&&
+  typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform());
+const ND_PROGRESS_KEY='nd_correct_progress_v2';
+function ndRequired(){return _ND_ADAPTIVE?(ndPendingCount()<2?5:15):_ND_THRESH;}
+function ndProgress(){
+  const saved=localStorage.getItem(ND_PROGRESS_KEY);
+  // 旧版の未達成分だけ引き継ぐ。過去の累計から報酬を再発行しない。
+  const value=saved===null?(parseInt(localStorage.getItem('nd_total_correct')||'0')%5):parseInt(saved);
+  return Number.isFinite(value)?Math.max(0,value):0;
+}
+function ndRemaining(){
+  return _ND_ADAPTIVE?Math.max(1,ndRequired()-ndProgress()):
+    _ND_THRESH-(parseInt(localStorage.getItem('nd_total_correct')||'0')%_ND_THRESH);
+}
 
 /* ── 解除リクエストの記録 ────────────────────────────────────
    これまで解除の失敗は全て catch で握りつぶされていたため、
@@ -710,8 +725,18 @@ async function ndUnlockRequest(minutes,why){
 async function checkNdReward(added=1){
   try{
     const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
+    const progress=_ND_ADAPTIVE?ndProgress():0;
     const newTotal=oldTotal+added;
     localStorage.setItem('nd_total_correct',String(newTotal));
+    if(_ND_ADAPTIVE){
+      let remaining=progress+added,earned=false;
+      // 残数が2回に達したら、その場で15問へ切り替える。
+      while(remaining>=ndRequired()){
+        remaining-=ndRequired();ndMarkPending();earned=true;
+      }
+      localStorage.setItem(ND_PROGRESS_KEY,String(remaining));
+      return earned;
+    }
     if(Math.floor(newTotal/_ND_THRESH)<=Math.floor(oldTotal/_ND_THRESH))return false;
     ndMarkPending();
     return true;
@@ -4549,7 +4574,7 @@ function QuizApp(){
   const[s,rawDispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
   // 新問挑戦中（rewardNewIds===null）の全SUBMIT（再試行含む）をnd_attempt_countに反映するdispatchラッパー
   const dispatch=(action)=>{
-    if(action.type==="SUBMIT"&&s.rewardNewIds===null){
+    if(!_ND_ADAPTIVE&&action.type==="SUBMIT"&&s.rewardNewIds===null){
       // _ND_THRESH_ATT回SUBMIT = Chrome開放 + iPhone(NextDNS)解放
       const old=parseInt(localStorage.getItem('nd_attempt_count')||'0');
       const nw=old+1;
@@ -4593,6 +4618,7 @@ function QuizApp(){
   const[rewardSecs,setRewardSecs]=useState(300);
   const[rewardStatus,setRewardStatus]=useState('');
   const rewardTimerRef=useRef(null);
+  const[,refreshRewardProgress]=useState(0);
   const prevCorrectLenRef=useRef(0);
   const prevAttemptedLenRef=useRef(0);   // 新問試行カウント用
   const ND_DOMAINS=['twitter.com','x.com','t.co','abs.twimg.com'];
@@ -4605,6 +4631,7 @@ function QuizApp(){
   // 駆動しているカウンタから計算する。
   const ndRemain=(()=>{
     try{
+      if(_ND_ADAPTIVE)return ndRemaining();
       if(rewardNewIds===null){
         const a=parseInt(localStorage.getItem('nd_attempt_count')||'0');
         return _ND_THRESH_ATT-(a%_ND_THRESH_ATT);
@@ -4621,16 +4648,9 @@ function QuizApp(){
     if(curr<prev){prevCorrectLenRef.current=curr;return;}
     if(curr>prev){
       const added=curr-prev;
-      // 新問挑戦モード（rewardNewIds===null）はnd_attempt_count側で追跡するのでnd_total_correctは更新しない
-      if(rewardNewIds!==null){
-        const oldTotal=parseInt(localStorage.getItem('nd_total_correct')||'0');
-        const newTotal=oldTotal+added;
-        localStorage.setItem('nd_total_correct',String(newTotal));
-        // しきい値到達で保留フラグを立てる（実際の解除はロビーで本人が受け取る）
-        if(Math.floor(newTotal/_ND_THRESH)>Math.floor(oldTotal/_ND_THRESH)){
-          ndMarkPending();
-          setNdPending(ndPendingCount());
-        }
+      // iPhoneは新問挑戦も正解数で加算。他環境は従来の解答回数方式を維持。
+      if(_ND_ADAPTIVE||rewardNewIds!==null){
+        checkNdReward(added).then(()=>{setNdPending(ndPendingCount());refreshRewardProgress(v=>v+1);});
       }
     }
     prevCorrectLenRef.current=curr;
@@ -5617,7 +5637,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            <ReviewExplanation q={q}/>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),advanceQuestion())}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -5645,7 +5665,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            <ReviewExplanation q={q}/>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),advanceQuestion())}
               style={{marginTop:8,background:"#1e1e36",border:"1px solid #3a3a58",
                 borderRadius:9,padding:"8px 20px",fontSize:DK?14:12,color:"#aaa",
@@ -5670,7 +5690,7 @@ function QuizApp(){
                 </div>
               ))}
             </div>
-            {(q.explanation||q.explanationImage)&&<div style={S.explanationBox}>{q.explanation}{q.explanationImage&&<ZoomableImage src={q.explanationImage} alt={q.explanationImageCaption||""} style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,marginTop:10,background:"#111"}}/>}{q.explanationImageCaption&&q.explanationImage&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{q.explanationImageCaption}</p>}{q.explanationImages&&q.explanationImages.map((img,i)=>React.createElement("div",{key:i,style:{marginTop:8}},React.createElement("img",{src:img.url,alt:img.caption||"",style:{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:8,background:"#111"}}),img.caption&&React.createElement("p",{style:{fontSize:11,color:"#888",textAlign:"center",marginTop:4}},img.caption)))}</div>}
+            <ReviewExplanation q={q}/>
             <div style={S.retryMsg}>{T.retryMsg}</div>
             <button onClick={()=>feedbackReadyKey===questionKey&&(Hap.impact("Light"),advanceQuestion())}
               style={{marginTop:10,background:"#1e1e36",border:"1px solid #3a3a58",
@@ -5772,7 +5792,7 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
   const[p,setP]=useState(initId||'');
   const[device,setDevice]=useState(localStorage.getItem('nd_reward_device')||'quest');
   const total=parseInt(localStorage.getItem('nd_total_correct')||'0');
-  const next=total%_ND_THRESH===0?_ND_THRESH:_ND_THRESH-(total%_ND_THRESH);
+  const next=ndRemaining();
   const attempts=parseInt(localStorage.getItem('nd_attempt_count')||'0');
   const until=parseInt(localStorage.getItem('nd_reward_until')||'0');
   const log=ndGetLog();
@@ -5797,7 +5817,7 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
     <div style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{background:'#13132a',border:'1px solid #2a2a48',borderRadius:20,padding:24,width:'100%',maxWidth:400}}>
         <div style={{fontWeight:900,fontSize:16,color:'#c9a84c',marginBottom:4}}>🐦 報酬タイマー設定</div>
-        <div style={{fontSize:12,color:'#666',marginBottom:18}}>{_IS_MAC_APP?'Mac版':'iPhone版'}：{_ND_THRESH}問正解ごとに Twitter が {_ND_MIN} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next}問</span></div>
+        <div style={{fontSize:12,color:'#666',marginBottom:18}}>{_IS_MAC_APP?'Mac版':_ND_ADAPTIVE?'iPhone版':'ブラウザ版'}：{_ND_ADAPTIVE?'未使用の報酬が0〜1回分なら5問、2回分以上なら15問正解で、報酬が1回分貯まります。':`${_ND_THRESH}問正解ごとに報酬が1回分貯まります。`} 1回分で Twitter が {_ND_MIN} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next}問</span></div>
         {/* ── 保留中の報酬を受け取る ── */}
         {pendingN>0&&(
           <>
@@ -5850,7 +5870,7 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
           <div style={{color:'#888',fontWeight:700,marginBottom:6}}>状態</div>
           <div style={lbl}><span>origin</span><span style={val}>{(typeof location!=='undefined'&&location.origin)||'?'}</span></div>
           <div style={lbl}><span>環境</span><span style={val}>{_IS_MAC_APP?'Mac (quizBridge あり)':'iPhone / ブラウザ'}</span></div>
-          <div style={lbl}><span>しきい値</span><span style={val}>{`通常${_ND_THRESH} / 新問${_ND_THRESH_ATT} / 百人一首${_ND_THRESH/_ND_KARUTA_PTS}`}</span></div>
+          <div style={lbl}><span>しきい値</span><span style={val}>{_ND_ADAPTIVE?`全モード：現在${ndRequired()}問正解（未使用2回未満：5問／2回以上：15問）`:`通常${_ND_THRESH} / 新問${_ND_THRESH_ATT} / 百人一首${_ND_THRESH/_ND_KARUTA_PTS}`}</span></div>
           <div style={lbl}><span>設定</span><span style={val}>{ndGetConfig()?'保存済み':'未保存'}</span></div>
           <div style={lbl}><span>nd_total_correct</span><span style={val}>{total}</span></div>
           <div style={lbl}><span>nd_attempt_count</span><span style={val}>{attempts}</span></div>
@@ -5876,6 +5896,26 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
       </div>
     </div>
   );
+}
+
+/* Answer review: model answer, historical image and credit, then explanation. */
+function ReviewExplanation({q}){
+  const images=[
+    ...(q.explanationImage?[{url:q.explanationImage,caption:q.explanationImageCaption,sourceUrl:q.explanationImageSourceUrl}]:[]),
+    ...(q.explanationImages||[])
+  ].filter(img=>img&&img.url);
+  return <>
+    {images.length>0&&<div data-review-images style={{margin:"12px 0"}}>
+      {images.map((img,i)=><figure key={i} style={{margin:"0 0 12px"}}>
+        <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",maxHeight:360,objectFit:"contain",borderRadius:8,background:"#111"}}/>
+        {(img.caption||img.sourceUrl)&&<figcaption style={{fontSize:11,color:"#aaa",textAlign:"center",lineHeight:1.6,marginTop:6,whiteSpace:"pre-line",overflowWrap:"anywhere"}}>
+          {img.caption}
+          {img.sourceUrl&&<><br/><a href={img.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>Source / 出典</a></>}
+        </figcaption>}
+      </figure>)}
+    </div>}
+    {q.explanation&&<div data-review-explanation style={S.explanationBox}>{q.explanation}</div>}
+  </>;
 }
 
 /* ── ZoomableImage：タップで全画面・ピンチズーム ── */
@@ -6460,12 +6500,13 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
   // 報酬進捗。以前は Mac 版だけ Swift 注入JS が更新する nd_karuta_count を
   // 読んでいたが、その注入は廃止した。両環境とも nd_total_correct から算出する。
   // 百人一首は1正解あたり _ND_KARUTA_PTS 点入るので、残り「問数」に直す。
-  const KARUTA_REWARD_REQUIRED=Math.ceil(_ND_THRESH/_ND_KARUTA_PTS);
+  const KARUTA_REWARD_REQUIRED=Math.ceil(ndRequired()/_ND_KARUTA_PTS);
   const ndKarutaCount=()=>{
-    const pts=parseInt(localStorage.getItem('nd_total_correct')||'0')%_ND_THRESH;
+    const pts=_ND_ADAPTIVE?ndProgress():parseInt(localStorage.getItem('nd_total_correct')||'0')%_ND_THRESH;
     return Math.floor(pts/_ND_KARUTA_PTS);
   };
   const[rewardCount,setRewardCount]=useState(ndKarutaCount);
+  const rewardRemaining=_ND_ADAPTIVE?ndRemaining():KARUTA_REWARD_REQUIRED-rewardCount;
 
   // 音声オン/オフ（穴埋りモードと共有）
   const[soundOn,setSoundOn]=useState(()=>localStorage.getItem('econ_sound')!=='0');
@@ -6715,7 +6756,7 @@ function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,set
         <div style={{flex:1,minWidth:0,fontSize:14,color:'#666',fontWeight:700,textAlign:'center',lineHeight:1.6}}>
           🎴 {lang==='ja'?`正解 ${progress}/${cards.length}枚 · 残り${remaining}`:`${progress}/${cards.length} · ${remaining} left`}
           {ndConfig&&<div style={{fontSize:13,color:'#c9a84c',marginTop:1}}>
-            🎁 {lang==='ja'?`報酬まであと${KARUTA_REWARD_REQUIRED-rewardCount}問`:`${KARUTA_REWARD_REQUIRED-rewardCount} more for reward`}
+            🎁 {lang==='ja'?`報酬まであと${rewardRemaining}問`:`${rewardRemaining} more for reward`}
           </div>}
         </div>
         <div style={{display:'flex',gap:6,flexShrink:0}}>
