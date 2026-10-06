@@ -2398,12 +2398,21 @@ function firstSentenceEnd(text){
   for(let i=0;i<text.length;i++){
     const ch=text[i];
     if(!/[。．.!?！？]/.test(ch))continue;
-    if(ch==="."){
-      if(/\d/.test(text[i-1]||"")&&/\d/.test(text[i+1]||""))continue;
-      if(/[A-Za-z]/.test(text[i+1]||""))continue;
-      const prefix=text.slice(0,i+1);
+    if(ch==="."||ch==="．"){
+      const before=text[i-1]||"",after=text[i+1]||"";
+      // Decimal numbers: 2.5, ２．５, .5 and −.5 are not sentence ends.
+      if(/[0-9０-９]/.test(after)&&
+        (/[0-9０-９]/.test(before)||i===0||/[\s(（=+−-]/.test(before)))continue;
+      if(/[A-Za-z]/.test(after))continue;
+      const prefix=text.slice(0,i+1).replace(/．/g,".");
+      const rest=text.slice(i+1);
       if(/\b(?:Mr|Mrs|Ms|Dr|Prof|St|Jr|Sr|vs|etc|e\.g|i\.e)\.$/i.test(prefix))continue;
-      if(/\b[A-Z]\.$/.test(prefix)&&/^\s+[A-Z][a-z]/.test(text.slice(i+1)))continue;
+      // Author citations: "et al. (1999)", "et al., 1999", "et al. studied".
+      // A capitalized next sentence still marks a genuine sentence boundary.
+      if(/\bet\s+al\.$/i.test(prefix)&&
+        /^(?:\s*[,;:]|\s*[(（]?\s*[0-9０-９]|\s+[a-z])/.test(rest))continue;
+      if(/\b(?:[A-Za-z]\.){2,}$/.test(prefix)&&/^\s+[a-z]/.test(rest))continue;
+      if(/(?:^|[^A-Za-z.])[A-Z]\.$/.test(prefix)&&/^\s+[A-Z][a-z]/.test(rest))continue;
     }
     let end=i+1;
     while(end<text.length&&/[。．.!?！？”’"'」』）)\]]/.test(text[end]))end++;
