@@ -1557,6 +1557,8 @@ const pad=(at=null)=>{
    ・レイヤーごとにバッファを分け、GainNode のフェードでレベルを切替
    ・ループ末尾を超える余韻は先頭へ折り返して継ぎ目を消す
 ══════════════════════════════════════════════════════════════ */
+// 効果音とのバランスを保つBGM専用の共通音量。
+const _BGM_OUTPUT_GAIN=0.65;
 // Safariブラウザのみリアルタイム予約。ネイティブアプリは従来方式。
 const _IS_NATIVE_AUDIO_APP=!!(_IS_MAC_APP||(
   window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&
@@ -1639,7 +1641,7 @@ const _buildBgmNodes=()=>{
       const spec=_bgmSpec;
       if(!Number.isFinite(spec.stepSec)||spec.stepSec<=0)throw new Error('Invalid BGM stepSec');
       const master=c.createGain();
-      const baseVolume=(spec.volume??1)*0.62;
+      const baseVolume=(spec.volume??1)*0.62*_BGM_OUTPUT_GAIN;
       master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:baseVolume;
       master.connect(_busOf(c));
       const want=spec.gainsFor(_bgmLv);
@@ -1676,7 +1678,7 @@ const _buildBgmNodes=()=>{
       return;
     }
     const master=c.createGain();
-    master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:1;
+    master.gain.value=(_bgmMuted||!_soundEnabled)?0.0001:_BGM_OUTPUT_GAIN;
     master.connect(_busOf(c));
     const t0=c.currentTime+0.08;
     const want=_bgmSpec.gainsFor(_bgmLv);
@@ -1687,7 +1689,7 @@ const _buildBgmNodes=()=>{
       src.connect(g);g.connect(master);src.start(t0);
       srcs.push(src);gains.push(g);
     });
-    _bgmNodes={srcs,gains,master,ctx:c,realtime:false,baseVolume:1};
+    _bgmNodes={srcs,gains,master,ctx:c,realtime:false,baseVolume:_BGM_OUTPUT_GAIN};
   }catch(e){try{console.warn('[BGM] build failed',e);}catch(_){}}
 };
 
@@ -1739,7 +1741,7 @@ const _setMasterMute=(mute,fade)=>{
     const g=_bgmNodes.master.gain;
     g.cancelScheduledValues(t);
     g.setValueAtTime(Math.max(g.value,0.0001),t);
-    g.linearRampToValueAtTime((_bgmMuted||!_soundEnabled)?0.0001:(_bgmNodes.baseVolume??1),t+(fade||0.12));
+    g.linearRampToValueAtTime((_bgmMuted||!_soundEnabled)?0.0001:(_bgmNodes.baseVolume??_BGM_OUTPUT_GAIN),t+(fade||0.12));
   }catch(_){}
 };
 // 音声ON/OFFトグルからマスターゲインへ反映する
