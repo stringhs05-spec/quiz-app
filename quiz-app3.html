@@ -1197,6 +1197,16 @@ const _busOf=(c)=>{
   return input;
 };
 
+// 効果音だけを抑え、BGMとは独立して音量バランスを調整する。
+const _SFX_OUTPUT_GAIN=0.50;
+const _sfxBusOf=(c)=>{
+  if(c._sfxBus)return c._sfxBus;
+  const input=c.createGain();input.gain.value=_SFX_OUTPUT_GAIN;
+  input.connect(_busOf(c));
+  c._sfxBus=input;
+  return input;
+};
+
 // iOS サイレントスイッチ対策：最初のタッチで無音バッファを再生してアンロック
 const unlockAudio=()=>{
   try{
@@ -1252,10 +1262,10 @@ window.addEventListener('focus',()=>{
 });
 // ── BGMレイヤー用ターゲット ────────────────────────────────
 // _RT は事前生成用コンテキスト、またはSafariのライブコンテキストと
-// レイヤー専用GainNodeを指定する。効果音は従来どおり共通バスへ送る。
+// レイヤー専用GainNodeを指定する。効果音は専用バスを経由して共通バスへ送る。
 let _RT=null;
 const _actxOf=()=>_RT?_RT.c:getCtx();
-const _destOf=(c)=>_RT?_RT.dest:_busOf(c);
+const _destOf=(c)=>_RT?_RT.dest:_sfxBusOf(c);
 
 const tone=(freqs,{type="triangle",vol=0.22,gap=80,dur=0.25,at=null}={})=>{
   if(!_soundEnabled&&!_RT)return;
@@ -2323,7 +2333,7 @@ const charTick=(ch)=>{
     const c=getCtx();const t=c.currentTime;
     const freq=900+Math.random()*400;
     const o=c.createOscillator(),g=c.createGain();
-    o.connect(g);g.connect(_busOf(c));
+    o.connect(g);g.connect(_sfxBusOf(c));
     o.type="sine";o.frequency.value=freq;
     g.gain.setValueAtTime(0.028,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.022);
