@@ -5616,9 +5616,9 @@ function QuizApp(){
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
               isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)}/>}
         {!showHint&&!isFB&&<button style={S.hintBtn} onClick={()=>dispatch({type:"HINT"})}>{T.hintBtn}</button>}
-        {q.type==="fill"&&!isFB&&(
-          <button style={{...S.btnG,marginTop:10,padding:"10px 28px",fontSize:14}}
-            onClick={submitFill} disabled={inputs.some(v=>!v.trim())}>{T.submitBtn}</button>
+        {q.type==="fill"&&!isFB&&!isNew&&(
+          <button type="button" style={{...S.btnG,marginTop:10,padding:"10px 28px",fontSize:14}}
+            onClick={submitFill}>{T.submitBtn}</button>
         )}
         {showHint&&<div style={S.hintBox}>💡 {q.hint}</div>}
         {q.type==="mc"&&(
