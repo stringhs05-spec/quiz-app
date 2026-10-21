@@ -2130,7 +2130,9 @@ window.__ndAudio={
    HELPERS
 ══════════════════════════════════════════════════════════════ */
 const getCA=q=>q.type==="mc"?[q.opts[q.ans]]:q.blanks.map(b=>b.ans[0]);
-const chkFill=(blanks,inputs)=>blanks.map((b,i)=>b.ans.some(a=>a.toLowerCase()===(inputs[i]||"").trim().toLowerCase()));
+// Ignore case and macrons in accepted answers; preserve other spelling differences.
+const normalizeQuizAnswer=s=>String(s||"").trim().toLowerCase().normalize("NFD").replace(/\u0304/g, "").normalize("NFC");
+const chkFill=(blanks,inputs)=>blanks.map((b,i)=>b.ans.some(a=>normalizeQuizAnswer(a)===normalizeQuizAnswer(inputs[i])));
 const emptyInputs=q=>q.type==="fill"?new Array(q.blanks.length).fill(""):[];
 function shuffleMC(q){
   const txt=q.opts[q.ans];
