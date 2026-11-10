@@ -68,7 +68,7 @@ const T_JA={
   appLogo:"経済史",appTitle:"道場クイズ",
   plays:n=>`${n}回プレイ`,bestScore:"最高得点",
   todayDeck:"今日のデッキ",
-  reviewAllDue:"一発復習",reviewAllDueSub:"全デッキの期限カードを復習",
+  reviewAllDue:"一発復習",reviewAllDueSub:"期限順に復習・ときどき新問・正解まで再挑戦",
   tryNewCards:"新問挑戦",tryNewCardsSub:"全デッキの未見カードに挑戦",
   reviewNone:"復習カードなし",newCardsNone:"新問題なし",
   todayDue:n=>`${n}問が今日の復習対象 · 間隔反復`,
@@ -595,14 +595,14 @@ const _ND_URL='https://nd-timer.stringhs05.workers.dev';
    その有無で判別する。Capacitor が登録するのは bridge であって
    quizBridge ではないため、iPhone版ではここが false になる。
 
-   iPhone : 未使用報酬が2回未満なら5問正解、2回以上なら15問正解
-   Mac    : 従来どおり（穴埋め15問・新問挑戦10回・百人一首8問）
+   iPhone : 通常は未使用報酬が2回未満なら5問正解、2回以上なら15問正解。新問挑戦は常に3問正解
+   Mac    : 穴埋め15問・百人一首8問。新問挑戦は全環境で3問正解
 
    受け取り方は両者共通で、ロビーの🐦から本人が押したときだけ解除が走る。
    解除の実行経路だけが環境で分かれる（Mac=quizBridge / iPhone=Worker）。 */
 const _IS_MAC_APP=!!(typeof window!=='undefined'&&window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.quizBridge);
 const _ND_THRESH     = _IS_MAC_APP?15:5;  // 穴埋め通常モード（正解数）
-const _ND_THRESH_ATT = _IS_MAC_APP?10:5;  // 新問挑戦モード（解答回数）
+const _ND_THRESH_ATT = 3;  // 新問挑戦モード（正解数・全環境共通）
 const _ND_KARUTA_PTS = _IS_MAC_APP? 2:1;  // 百人一首の1正解あたりの加点
 // 解放時間（分）。以前iPhoneは1分に短縮していたが、原因はラグではなく
 // 機内モード/Wi-Fi操作をしていなかったことだったため、2分に統一。
@@ -720,6 +720,22 @@ async function ndUnlockRequest(minutes,why){
       return {ok:false,reason:second};
     }
   }
+}
+
+// 新問挑戦は通常復習とは別に3問正解で報酬。旧解答回数は引き継がない。
+const ND_NEW_CORRECT_KEY='nd_new_correct_count_v1';
+function ndNewCorrectCount(){
+  const n=parseInt(localStorage.getItem(ND_NEW_CORRECT_KEY)||'0');
+  return Number.isFinite(n)?Math.max(0,n):0;
+}
+function ndRecordNewCorrect(state,action){
+  if(action.type!=="SUBMIT"||state.phase!=="question"||state.rewardNewIds!==null||action.correct!==true)return false;
+  const q=action.QS?.[state.queue[0]];
+  if(!q||state.answeredCorrectly.includes(q.id)||state.newCardIds?.includes(q.id))return false;
+  const old=ndNewCorrectCount(),next=old+1;
+  localStorage.setItem(ND_NEW_CORRECT_KEY,String(next));
+  if(Math.floor(next/_ND_THRESH_ATT)>Math.floor(old/_ND_THRESH_ATT))ndMarkPending();
+  return true;
 }
 
 async function checkNdReward(added=1){
@@ -888,6 +904,13 @@ function calcEase(totalWrong){
 }
 
 function updateSRS(srs,qId,correct){
+  const result=updateSRSCore(srs,qId,correct);
+  if(correct&&!(srs[qId]?.reps)&&result[qId]?.reps){
+    return {...result,[qId]:{...result[qId],initialCheckPending:true,firstLearnedAt:srs[qId]?.firstLearnedAt||nowISO(),lastSuccessfulRecallAt:nowISO()}};
+  }
+  return correct?{...result,[qId]:{...result[qId],lastSuccessfulRecallAt:nowISO()}}:result;
+}
+function updateSRSCore(srs,qId,correct){
   const prev=srs[qId]||{
     state:"new",step:0,streak:0,totalWrong:0,
     intervalDays:0,nextDue:nowISO(),reps:0,
@@ -977,37 +1000,113 @@ function updateSRSPause(srs,qId){
   }};
 }
 
-// 一発復習：step0最大6枚 + step1以降最大6枚 + review最大3枚（余り繰り越し）
-function buildReviewDeck(decks,srs,limit=15,qStats={}){
-  const seen=new Set();const learning=[],review=[];
+// 一発復習 v2: 期限順で広く巡回。学習途中は最大5問、同日再選出なし。
+function reviewLocalDay(value=Date.now()){
+  const d=new Date(value);
+  return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+}
+// Milestones mean successful unaided recall AFTER an actual elapsed interval,
+// not merely scheduling the next review that far away. Unknown old dates stay unknown.
+function recordLearningMilestones(prev,next,correct,now=nowISO()){
+  const milestones={...(prev.recallMilestones||{})};
+  const elapsed=prev.lastSuccessfulRecallAt?(Date.parse(now)-Date.parse(prev.lastSuccessfulRecallAt))/86400000:0;
+  if(correct)for(const days of [7,30,90]){
+    if(elapsed>=days&&!milestones[days])milestones[days]=now;
+  }
+  return {...next,recallMilestones:milestones,
+    lastSuccessfulRecallAt:now,learningRecordVersion:1};
+}
+function updateInitialLearning(srs,qId,sessionId){
+  const prev=srs[qId]||{};
+  if(sessionId&&prev.lastReviewSession===sessionId)return srs;
+  const now=nowISO();
+  const next={...prev,state:'learning',step:3,streak:0,reps:(prev.reps||0)+1,
+    totalWrong:prev.totalWrong||0,intervalDays:0,nextDue:addDaysISO(1),
+    initialCheckPending:true,firstLearnedAt:prev.firstLearnedAt||now,
+    lastReviewedAt:now,lastReviewSession:sessionId,reviewAlgorithmVersion:4};
+  return {...srs,[qId]:recordLearningMilestones(prev,next,false,now)};
+}
+function updateOneShotSRS(srs,qId,correct,sessionId){
+  const prev=srs[qId]||{state:'new',reps:0,totalWrong:0};
+  if(sessionId&&prev.lastReviewSession===sessionId)return srs;
+  if(!prev.reps)return updateInitialLearning(srs,qId,sessionId);
+  const initial=isInitialReview(prev);
+  const rememberedInterval=Math.max(prev.intervalDays||0,prev.reviewAnchorDays||0);
+  let days,state,step;
+  if(!correct){days=1;state='learning';step=3;}
+  else if(initial){days=3;state='review';step=0;}
+  else if(prev.state==='review'){
+    days=Math.min(180,Math.max(3,Math.round((prev.intervalDays||1)*2)));state='review';step=0;
+  }else{
+    const recovered=prev.reviewNeedsRecovery||rememberedInterval>0||(prev.step||0)>=3;
+    days=recovered?Math.min(14,Math.max(3,Math.round(rememberedInterval/2))):1;
+    state=recovered?'review':'learning';step=recovered?0:3;
+  }
+  const next={...prev,state,step,streak:correct?(prev.streak||0)+1:0,
+    totalWrong:(prev.totalWrong||0)+(correct?0:1),reps:(prev.reps||0)+1,
+    intervalDays:state==='review'?days:0,nextDue:addDaysISO(days),
+    reviewAnchorDays:correct?days:rememberedInterval,reviewNeedsRecovery:!correct,
+    lastReviewedAt:nowISO(),lastReviewSession:sessionId,reviewAlgorithmVersion:4,
+    initialCheckPending:initial&&!correct};
+  return {...srs,[qId]:recordLearningMilestones(prev,next,correct)};
+}
+// An unfinished first exposure is NOT a completed learning event.
+function pauseUnifiedLearning(srs,qId,sessionId){
+  const prev=srs[qId];
+  if(!prev?.reps)return srs;
+  const result=updateOneShotSRS(srs,qId,false,sessionId);
+  if(result===srs)return srs;
+  const card={...result[qId]};
+  if(prev.lastSuccessfulRecallAt)card.lastSuccessfulRecallAt=prev.lastSuccessfulRecallAt;
+  else delete card.lastSuccessfulRecallAt;
+  return {...result,[qId]:card};
+}
+// Starts, not renders or resume actions, advance the occasional-new-card cadence.
+const REVIEW_ROUND_KEY='econ_review_round_v3';
+function reviewRoundCount(){
+  try{return Math.max(0,Math.floor(Number(localStorage.getItem(REVIEW_ROUND_KEY))||0));}catch{return 0;}
+}
+function reviewMixNewNext(){return (reviewRoundCount()+1)%3===0;}
+function advanceReviewRound(){
+  try{localStorage.setItem(REVIEW_ROUND_KEY,String(reviewRoundCount()+1));}catch{}
+}
+function isInitialReview(sr){
+  if(typeof sr.initialCheckPending==='boolean')return sr.initialCheckPending;
+  // Legacy records have no explicit first-check marker: one completed learning event only.
+  return sr.reps===1&&!sr.lastReviewedAt;
+}
+function buildReviewDeck(decks,srs,limit=15,qStats={},includeNew=false){
+  const seen=new Set(),initial=[],learning=[],review=[],unseen=[];
+  const day=reviewLocalDay();
   decks.forEach(dk=>(dk.questions||[]).forEach(q=>{
     if(seen.has(q.id))return;seen.add(q.id);
     const sr=srs[q.id];
-    if(!sr||!isDue(sr))return;
-    if(sr.state==='learning')learning.push(q);
-    else review.push(q);
+    if(!sr||!sr.reps){unseen.push(q);return;}
+    if(!isDue(sr))return;
+    if(sr.lastReviewedAt&&reviewLocalDay(sr.lastReviewedAt)===day)return;
+    (isInitialReview(sr)?initial:sr.state==='learning'?learning:review).push(q);
   }));
-  // learningをstepで分類
-  const step0 =shuffle(learning.filter(q=>(srs[q.id]?.step||0)===0));
-  const step1p=Object.entries(
-    learning.filter(q=>(srs[q.id]?.step||0)>0).reduce((acc,q)=>{
-      const s=srs[q.id]?.step||0;(acc[s]=acc[s]||[]).push(q);return acc;
-    },{})
-  ).sort(([a],[b])=>a-b).flatMap(([,qs])=>shuffle(qs));
-
-  const s0 = step0.slice(0,6);
-  const s1p= step1p.slice(0, 6+(6-s0.length));
-  const lCount=s0.length+s1p.length;
-
-  // reviewはwrong多い順→lapses→通常
-  const isHard=q=>(qStats[q.id]?.wrong||0)>=7;
-  const revSorted=[
-    ...shuffle(review.filter(q=>isHard(q))),
-    ...shuffle(review.filter(q=>!isHard(q)&&(srs[q.id]?.lapses||0)>0)),
-    ...shuffle(review.filter(q=>!isHard(q)&&(srs[q.id]?.lapses||0)===0)),
-  ];
-  const revCount=Math.min(revSorted.length, limit-lCount);
-  return[...s0,...s1p,...revSorted.slice(0,revCount)];
+  const oldest=arr=>shuffle(arr).sort((a,b)=>
+    (Date.parse(srs[a.id].nextDue)||0)-(Date.parse(srs[b.id].nextDue)||0));
+  const pools={initial:oldest(initial),learning:oldest(learning),review:oldest(review)};
+  const added=includeNew&&unseen.length&&limit>0?shuffle(unseen).slice(0,1):[];
+  const room=Math.max(0,limit-added.length),picked=[];
+  const take=(key,n)=>{const items=pools[key].splice(0,Math.max(0,Math.min(n,room-picked.length)));picked.push(...items);};
+  // Eight or more DUE first checks activates 8/5/2; an incidental new card uses one first-check slot.
+  if(initial.length>=8){
+    take('review',Math.min(5,room));
+    take('learning',Math.min(2,room-picked.length));
+    take('initial',Math.max(0,8-added.length));
+    take('review',room);take('initial',room);take('learning',room);
+  }else{
+    const learningSlots=Math.min(5,Math.floor(limit/3));
+    const firstQuota=Math.min(initial.length,Math.max(0,learningSlots-Math.min(2,learning.length)));
+    take('initial',firstQuota);
+    take('learning',learningSlots-firstQuota);
+    take('initial',Math.max(0,learningSlots-picked.length));
+    take('review',room);
+  }
+  return shuffle([...picked,...added]);
 }
 // 新問挑戦：全デッキの「一度も正解していない」カード（未見 or 中断でSRSエントリだけ出来た既出問題、最大15枚）
 const NEW_PRACTICE_KEY='econ_new_practice';
@@ -1015,7 +1114,7 @@ const NEW_PRACTICE_KEY='econ_new_practice';
 const NEW_PRACTICE_COUNTS=[3,6,10,15];
 const NEW_PRACTICE_DEFAULT_COUNT=6;
 // 新問挑戦で同時に抱える未正解カードの上限（ワーキングセット）
-const NEW_PRACTICE_WORKING_SET=3;
+const NEW_PRACTICE_WORKING_SET=1;
 function loadNewPractice(){
   try{
     const value=JSON.parse(localStorage.getItem(NEW_PRACTICE_KEY)||'null');
@@ -1045,17 +1144,27 @@ function buildNewDeck(decks,srs,limit=15,options={}){
 
 // SRS習得状況を6カテゴリで集計
 function srsCategories(srs){
-  const c={seed:0,mid:0,short1:0,short2:0,medium:0,long:0};
+  const c={seed:0,mid:0,short1:0,short2:0,medium:0,long:0,uncompleted:0,cohorts:[],unknownStart:0};
+  const groups={};
   Object.values(srs||{}).forEach(v=>{
-    const state=v.state,step=v.step||0,iv=v.intervalDays||0;
-    if(state==='learning'){
-      if(step<=1)c.seed++;else c.mid++;
-    }else{
-      if(iv<=3)c.short1++;
-      else if(iv<=6)c.short2++;
-      else if(iv<=13)c.medium++;
-      else c.long++;
+    if(!v.reps){c.uncompleted++;return;}
+    if(isInitialReview(v))c.seed++;
+    else if(v.state==='learning')c.mid++;
+    else{const iv=v.intervalDays||0;
+      if(iv<=3)c.short1++;else if(iv<=6)c.short2++;else if(iv<=13)c.medium++;else c.long++;
     }
+    if(!v.firstLearnedAt){c.unknownStart++;return;}
+    const date=new Date(v.firstLearnedAt);
+    if(!Number.isFinite(date.getTime())){c.unknownStart++;return;}
+    const month=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+    const row=groups[month]||(groups[month]={month,learned:0,d7:0,d30:0,d90:0,days30:[]});
+    row.learned++;
+    for(const n of [7,30,90])if(v.recallMilestones?.[n])row['d'+n]++;
+    if(v.recallMilestones?.[30])row.days30.push((Date.parse(v.recallMilestones[30])-date.getTime())/86400000);
+  });
+  c.cohorts=Object.values(groups).sort((a,b)=>b.month.localeCompare(a.month)).map(row=>{
+    const a=row.days30.sort((x,y)=>x-y),m=Math.floor(a.length/2);
+    return {...row,median30:a.length?Math.round(a.length%2?a[m]:(a[m-1]+a[m])/2):null};
   });
   return c;
 }
@@ -2162,10 +2271,11 @@ function reducer(s,a){
   switch(a.type){
     case"START":case"RESTART":{
       const q=a.QS[0];
-      const base=makeInit(a.QS);
+      const base={...makeInit(a.QS),oneShotReview:!!a.oneShotReview,
+        reviewSessionId:(a.oneShotReview||a.rewardNewIds===null)?`${Date.now()}-${Math.random()}`:null};
       // newCardIds: SRSデータなしのカードID群（自動入力対象）
       const nids=a.newCardIds||[];
-      // rewardNewIds: 報酬カウント用（null=全試行カウント、配列=指定IDのみカウント）
+      // rewardNewIds: 報酬カウント用（null=新問挑戦の正解カウント、配列=指定IDのみカウント）
       const rids=a.rewardNewIds!==undefined?a.rewardNewIds:[];
       // pendingStart: 最初のキューに含めるカード数（残りはpendingQueue）
       // workingSet: 未正解カードを同時にこの枚数までに抑える（新問挑戦）。残りはreserveに控え、正解で1枚ずつ補充
@@ -2217,7 +2327,7 @@ function reducer(s,a){
                feedback:{correct:true,qId:cq.id,correctAns:getCA(cq),blankResults,isFirst}};
       }else{
         return{...s,phase:"feedback",
-               queue:[...s.queue.slice(1),qIdx],
+               queue:s.rewardNewIds===null?[qIdx,...s.queue.slice(1)]:[...s.queue.slice(1),qIdx],
                attemptedIds:isFirst?[...s.attemptedIds,cq.id]:s.attemptedIds,
                combo:0,maxCombo:Math.max(s.maxCombo,s.combo),
                wrongCounts:{...s.wrongCounts,[cq.id]:(s.wrongCounts[cq.id]||0)+1},
@@ -3143,12 +3253,13 @@ function QManagePanel({QS,setQS,onClose}){
 }
 
 const SRS_CAT_ROWS=[
-  {key:"seed",  icon:"🌱", label:"学習中（〜1時間）"},
-  {key:"mid",   icon:"🔄", label:"定着中（6h〜3日）"},
-  {key:"short1",icon:"🟡", label:"復習（2〜3日）"},
-  {key:"short2",icon:"📅", label:"復習（4〜6日）"},
-  {key:"medium",icon:"📘", label:"復習（7〜13日）"},
-  {key:"long",  icon:"⭐", label:"定着（14日以上）"},
+  {key:"uncompleted",icon:"📝",label:"初回学習未完了"},
+  {key:"seed",  icon:"🌱", label:"初回確認待ち"},
+  {key:"mid",   icon:"🔄", label:"覚え直し中"},
+  {key:"short1",icon:"🟡", label:"復習間隔：1〜3日"},
+  {key:"short2",icon:"📅", label:"復習間隔：4〜6日"},
+  {key:"medium",icon:"📘", label:"復習間隔：7〜13日"},
+  {key:"long",  icon:"⭐", label:"復習間隔：14日以上"},
 ];
 function SrsCmpTable({left,right}){
   return(
@@ -3184,6 +3295,22 @@ function SrsCmpTable({left,right}){
           </div>
         </div>
       ))}
+      <div style={{marginTop:14,fontSize:11,color:'#aaa'}}>初回学習月別の到達記録</div>
+      <div style={{fontSize:10,color:'#777',margin:'4px 0 8px'}}>7・30・90日以上空けて一発正解できた累計枚数です。次回の予定間隔とは異なり、記憶の永久的な定着を保証するものではありません。</div>
+      {[left,right].map(side=>(
+        <div key={side.label} style={{marginBottom:12,fontSize:10,color:'#aaa'}}>
+          <strong style={{color:side.color}}>{side.label}</strong>
+          <div style={{maxHeight:180,overflow:'auto'}}>
+            <table style={{width:'100%',textAlign:'right',fontSize:10}}>
+              <thead><tr><th>学習月</th><th>学習済</th><th>7日</th><th>30日</th><th>90日</th><th>30日到達まで*</th></tr></thead>
+              <tbody>{(side.cats?.cohorts||[]).map(r=>(<tr key={r.month}><td>{r.month}</td><td>{r.learned}</td><td>{r.d7}</td><td>{r.d30}</td><td>{r.d90}</td><td>{r.median30==null?'—':r.median30+'日'}</td></tr>))}</tbody>
+            </table>
+          </div>
+          {!(side.cats?.cohorts||[]).length&&<div>新しい方式での初回学習記録はまだありません。</div>}
+          <div>初回学習日が不明な既存カード：{side.cats?.unknownStart||0}枚</div>
+        </div>
+      ))}
+      <div style={{fontSize:10,color:'#777'}}>* 初回学習から30日以上間隔での想起成功までの日数（到達したカードの中央値）。未到達は含みません。到達後に忘れても過去の記録は保持します。</div>
     </div>
   );
 }
@@ -4070,7 +4197,7 @@ function Lobby({decks,srs,gSt,onPlayDeck,onPlayKaruta,onPlayKarutaGame,karutaCou
   const[tpFolderPicking,setTpFolderPicking]=useState(false);
   const freshSRSForLobby=loadSRS();
   const {review:_rev,newCards:_new}=buildTodaysDeck(decks,freshSRSForLobby);const todayCount=_rev.length+_new.length;
-  const reviewCount=buildReviewDeck(decks,freshSRSForLobby,15,gSt?.questionStats||{}).length;
+  const reviewCount=buildReviewDeck(decks,freshSRSForLobby,15,gSt?.questionStats||{},reviewMixNewNext()).length;
   const newPracticeDialogRef=useRef(null);
   const[newPractice,setNewPractice]=useState(loadNewPractice);
   const changeNewPractice=patch=>{
@@ -4595,18 +4722,13 @@ function QuizApp(){
   const[QS,setQS]=useState(DEFAULT_QS);
   const[typingDone,setTypingDone]=useState(false);
   const[s,rawDispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
-  // 新問挑戦中（rewardNewIds===null）の全SUBMIT（再試行含む）をnd_attempt_countに反映するdispatchラッパー
+  // 同じ描画状態での連続送信は1回のみ加算。誤答・空欄送信は報酬にしない。
+  const newRewardSubmissionRef=useRef(null);
   const dispatch=(action)=>{
-    if(!_ND_ADAPTIVE&&action.type==="SUBMIT"&&s.rewardNewIds===null){
-      // _ND_THRESH_ATT回SUBMIT = Chrome開放 + iPhone(NextDNS)解放
-      const old=parseInt(localStorage.getItem('nd_attempt_count')||'0');
-      const nw=old+1;
-      localStorage.setItem('nd_attempt_count',String(nw));
-      // しきい値の倍数で保留フラグを立てる（実際の解除はロビーで本人が受け取る）
-      if(Math.floor(nw/_ND_THRESH_ATT)>Math.floor(old/_ND_THRESH_ATT)){
-        ndMarkPending();
-        setNdPending(ndPendingCount());
-      }
+    if(newRewardSubmissionRef.current!==s&&ndRecordNewCorrect(s,action)){
+      newRewardSubmissionRef.current=s;
+      setNdPending(ndPendingCount());
+      refreshRewardProgress(v=>v+1);
     }
     rawDispatch(action);
   };
@@ -4654,11 +4776,8 @@ function QuizApp(){
   // 駆動しているカウンタから計算する。
   const ndRemain=(()=>{
     try{
+      if(rewardNewIds===null)return _ND_THRESH_ATT-(ndNewCorrectCount()%_ND_THRESH_ATT);
       if(_ND_ADAPTIVE)return ndRemaining();
-      if(rewardNewIds===null){
-        const a=parseInt(localStorage.getItem('nd_attempt_count')||'0');
-        return _ND_THRESH_ATT-(a%_ND_THRESH_ATT);
-      }
       const c=parseInt(localStorage.getItem('nd_total_correct')||'0');
       return _ND_THRESH-(c%_ND_THRESH);
     }catch(_){return 10;}
@@ -4671,8 +4790,8 @@ function QuizApp(){
     if(curr<prev){prevCorrectLenRef.current=curr;return;}
     if(curr>prev){
       const added=curr-prev;
-      // iPhoneは新問挑戦も正解数で加算。他環境は従来の解答回数方式を維持。
-      if(_ND_ADAPTIVE||rewardNewIds!==null){
+      // 新問挑戦はdispatchで正解数を加算済み。通常の復習のみここで加算。
+      if(rewardNewIds!==null){
         checkNdReward(added).then(()=>{setNdPending(ndPendingCount());refreshRewardProgress(v=>v+1);});
       }
     }
@@ -4680,7 +4799,7 @@ function QuizApp(){
   },[answeredCorrectly.length]);
 
   // attemptedIds の増減を追跡（prevAttemptedLenRef のリセット検知のみ）
-  // nd_attempt_count の更新は dispatch ラッパーが担当（新問挑戦の全SUBMIT時）
+  // 新問挑戦の正解数は dispatch ラッパーが担当。attemptedIdsは成績用。
   useEffect(()=>{
     const curr=attemptedIds.length;
     const prev=prevAttemptedLenRef.current;
@@ -4762,10 +4881,12 @@ function QuizApp(){
       const wc=wrongCounts[qId]||0;
 
       // SRS即保存（正解時のみ）
-      if(isCorrect&&!lastSavedSRSRef.current[qId]){
+      if(isCorrect&&(s.oneShotReview||s.rewardNewIds===null||!lastSavedSRSRef.current[qId])){
         lastSavedSRSRef.current[qId]=true;
         setSRS(prevSRS=>{
-          const updated=updateSRS(prevSRS,qId,true);
+          const updated=(s.oneShotReview||s.rewardNewIds===null)
+            ?updateOneShotSRS(prevSRS,qId,isCorrect&&wc===0,s.reviewSessionId)
+            :updateSRS(prevSRS,qId,true);
           saveSRS(updated);
           return updated;
         });
@@ -4962,13 +5083,14 @@ function QuizApp(){
   const playReview=()=>{
     const freshSRS=loadSRS();
     const qStats=gSt?.questionStats||{};
-    const cards=buildReviewDeck(decks,freshSRS,15,qStats);
+    const cards=buildReviewDeck(decks,freshSRS,15,qStats,reviewMixNewNext());
     if(cards.length===0)return;
+    advanceReviewRound();
     setSRS(freshSRS);setQS(cards);setIsToday(true);
     setRankUp(null);setXpInfo(null);clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:cards,pendingStart:cards.length,newCardIds:[]});
+    dispatch({type:"START",QS:cards,pendingStart:cards.length,newCardIds:[],oneShotReview:true});
   };
   // 新問挑戦
   const playNew=(options=loadNewPractice())=>{
@@ -5113,7 +5235,7 @@ function QuizApp(){
       const wasAnswered=answeredCorrectly.includes(q.id);
       if(!wasAnswered&&wc>0){
         // 最後まで正解できなかった → 10分後に再出題
-        newSRS=updateSRSPause(newSRS,q.id);
+        newSRS=(s.oneShotReview||s.rewardNewIds===null)?pauseUnifiedLearning(newSRS,q.id,s.reviewSessionId):updateSRSPause(newSRS,q.id);
       }
       // 正解済みはfeedback時に既に保存済みなのでスキップ
     });
@@ -5301,10 +5423,10 @@ function QuizApp(){
       QS.forEach(q=>{
         const wc=wrongCounts[q.id]||0;
         if(answeredCorrectly.includes(q.id)){
-          newSRS=updateSRS(newSRS,q.id,wc===0);
+          newSRS=(s.oneShotReview||s.rewardNewIds===null)?updateOneShotSRS(newSRS,q.id,wc===0,s.reviewSessionId):updateSRS(newSRS,q.id,wc===0);
         }else if(wc>0){
           // 間違えたが未正解で中断 → 今日再出題
-          newSRS=updateSRSPause(newSRS,q.id);
+          newSRS=(s.oneShotReview||s.rewardNewIds===null)?pauseUnifiedLearning(newSRS,q.id,s.reviewSessionId):updateSRSPause(newSRS,q.id);
         }
       });
       setSRS(newSRS);saveSRS(newSRS);
@@ -5816,7 +5938,7 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
   const[device,setDevice]=useState(localStorage.getItem('nd_reward_device')||'quest');
   const total=parseInt(localStorage.getItem('nd_total_correct')||'0');
   const next=ndRemaining();
-  const attempts=parseInt(localStorage.getItem('nd_attempt_count')||'0');
+  const newCorrect=ndNewCorrectCount();
   const until=parseInt(localStorage.getItem('nd_reward_until')||'0');
   const log=ndGetLog();
   const[claiming,setClaiming]=useState(false);
@@ -5840,7 +5962,7 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
     <div style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{background:'#13132a',border:'1px solid #2a2a48',borderRadius:20,padding:24,width:'100%',maxWidth:400}}>
         <div style={{fontWeight:900,fontSize:16,color:'#c9a84c',marginBottom:4}}>🐦 報酬タイマー設定</div>
-        <div style={{fontSize:12,color:'#666',marginBottom:18}}>{_IS_MAC_APP?'Mac版':_ND_ADAPTIVE?'iPhone版':'ブラウザ版'}：{_ND_ADAPTIVE?'未使用の報酬が0〜1回分なら5問、2回分以上なら15問正解で、報酬が1回分貯まります。':`${_ND_THRESH}問正解ごとに報酬が1回分貯まります。`} 1回分で Twitter が {_ND_MIN} 分解放されます<br/>現在の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　次の報酬まで: <span style={{color:'#4ade80'}}>{next}問</span></div>
+        <div style={{fontSize:12,color:'#666',marginBottom:18}}>{_IS_MAC_APP?'Mac版':_ND_ADAPTIVE?'iPhone版':'ブラウザ版'}：{_ND_ADAPTIVE?'通常復習は未使用の報酬が0〜1回分なら5問、2回分以上なら15問正解で報酬1回分。新問挑戦は未使用数にかかわらず3問正解で報酬1回分。不正解は直後に再出題され、カウントしません。':`通常は${_ND_THRESH}問正解、新問挑戦は${_ND_THRESH_ATT}問正解で報酬1回分。不正解は直後に再出題され、カウントしません。`} 1回分で Twitter が {_ND_MIN} 分解放されます<br/>通常の累計: <span style={{color:'#c9a84c'}}>{total}問</span>　通常の次の報酬まで: <span style={{color:'#4ade80'}}>{next}問</span><br/>新問挑戦の次の報酬まで: <span style={{color:'#4ade80'}}>{_ND_THRESH_ATT-(newCorrect%_ND_THRESH_ATT)}問正解</span></div>
         {/* ── 保留中の報酬を受け取る ── */}
         {pendingN>0&&(
           <>
@@ -5893,10 +6015,10 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
           <div style={{color:'#888',fontWeight:700,marginBottom:6}}>状態</div>
           <div style={lbl}><span>origin</span><span style={val}>{(typeof location!=='undefined'&&location.origin)||'?'}</span></div>
           <div style={lbl}><span>環境</span><span style={val}>{_IS_MAC_APP?'Mac (quizBridge あり)':'iPhone / ブラウザ'}</span></div>
-          <div style={lbl}><span>しきい値</span><span style={val}>{_ND_ADAPTIVE?`全モード：現在${ndRequired()}問正解（未使用2回未満：5問／2回以上：15問）`:`通常${_ND_THRESH} / 新問${_ND_THRESH_ATT} / 百人一首${_ND_THRESH/_ND_KARUTA_PTS}`}</span></div>
+          <div style={lbl}><span>しきい値</span><span style={val}>{_ND_ADAPTIVE?`通常復習：現在${ndRequired()}問正解／新問挑戦：常に${_ND_THRESH_ATT}問正解`:`通常${_ND_THRESH} / 新問${_ND_THRESH_ATT} / 百人一首${_ND_THRESH/_ND_KARUTA_PTS}`}</span></div>
           <div style={lbl}><span>設定</span><span style={val}>{ndGetConfig()?'保存済み':'未保存'}</span></div>
           <div style={lbl}><span>nd_total_correct</span><span style={val}>{total}</span></div>
-          <div style={lbl}><span>nd_attempt_count</span><span style={val}>{attempts}</span></div>
+          <div style={lbl}><span>新問挑戦の累計正解数</span><span style={val}>{newCorrect}</span></div>
           <div style={lbl}><span>解放期限</span><span style={val}>{until?(until>Date.now()?`残り ${Math.max(0,Math.floor((until-Date.now())/1000))}秒`:'期限切れ'):'なし'}</span></div>
         </div>
 
