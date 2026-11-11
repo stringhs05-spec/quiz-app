@@ -6103,74 +6103,66 @@ function ReviewExplanation({q}){
 /* ── ZoomableImage：タップで全画面・ピンチズーム ── */
 function ZoomableImage({src,alt,style}){
   const[open,setOpen]=useState(false);
-  const[scale,setScale]=useState(1);
-  const[pos,setPos]=useState({x:0,y:0});
-  const lastDist=useRef(null);
-  const lastPos=useRef(null);
-  const isDragging=useRef(false);
-
-  const dist=(t)=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
-  const mid=(t)=>({x:(t[0].clientX+t[1].clientX)/2,y:(t[0].clientY+t[1].clientY)/2});
-
-  const onTouchStart=e=>{
-    if(e.touches.length===2){
-      lastDist.current=dist(e.touches);
-      lastPos.current=mid(e.touches);
-      isDragging.current=false;
-    } else if(e.touches.length===1){
-      lastPos.current={x:e.touches[0].clientX,y:e.touches[0].clientY};
-      isDragging.current=true;
-    }
-  };
-  const onTouchMove=e=>{
-    e.preventDefault();
-    if(e.touches.length===2){
-      const d=dist(e.touches);
-      const m=mid(e.touches);
-      if(lastDist.current){
-        const ratio=d/lastDist.current;
-        setScale(s=>Math.min(Math.max(s*ratio,1),5));
-        if(lastPos.current){
-          setPos(p=>({x:p.x+(m.x-lastPos.current.x),y:p.y+(m.y-lastPos.current.y)}));
-        }
+  const[view,setView]=useState({scale:1,x:0,y:0});
+  const viewport=useRef(null);
+  const current=useRef({scale:1,x:0,y:0});
+  const reset=()=>{current.current={scale:1,x:0,y:0};setView(current.current);};
+  const close=()=>{setOpen(false);reset();};
+  useEffect(()=>{
+    if(!open||!viewport.current)return;
+    const el=viewport.current;
+    let touch=null,mouse=null,gestureScale=null;
+    const apply=v=>{current.current=v;setView(v);};
+    const zoom=(ratio,x,y)=>{
+      const v=current.current,s=Math.max(1,Math.min(5,v.scale*ratio));
+      const r=el.getBoundingClientRect(),px=x-r.left-r.width/2,py=y-r.top-r.height/2;
+      apply(s===1?{scale:1,x:0,y:0}:{scale:s,x:px-(px-v.x)*s/v.scale,y:py-(py-v.y)*s/v.scale});
+    };
+    const pan=(dx,dy)=>{const v=current.current;if(v.scale>1)apply({...v,x:v.x+dx,y:v.y+dy});};
+    const sample=ts=>ts.length>=2?{x:(ts[0].clientX+ts[1].clientX)/2,y:(ts[0].clientY+ts[1].clientY)/2,d:Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY),n:2}:ts.length?{x:ts[0].clientX,y:ts[0].clientY,n:1}:null;
+    const start=e=>{touch=sample(e.touches);};
+    const move=e=>{
+      e.preventDefault();const next=sample(e.touches);
+      if(touch&&next&&touch.n===next.n){
+        if(next.n===2&&touch.d>0)zoom(next.d/touch.d,touch.x,touch.y);
+        pan(next.x-touch.x,next.y-touch.y);
       }
-      lastDist.current=d;
-      lastPos.current=m;
-      isDragging.current=false;
-    } else if(e.touches.length===1&&isDragging.current&&scale>1){
-      const dx=e.touches[0].clientX-lastPos.current.x;
-      const dy=e.touches[0].clientY-lastPos.current.y;
-      setPos(p=>({x:p.x+dx,y:p.y+dy}));
-      lastPos.current={x:e.touches[0].clientX,y:e.touches[0].clientY};
-    }
-  };
-  const onTouchEnd=()=>{lastDist.current=null;};
-  const close=()=>{setOpen(false);setScale(1);setPos({x:0,y:0});};
-
+      touch=next;
+    };
+    const end=e=>{touch=sample(e.touches);};
+    const wheel=e=>{e.preventDefault();if(gestureScale!==null)return;
+      if(e.ctrlKey||e.metaKey)zoom(Math.exp(-e.deltaY*0.01),e.clientX,e.clientY);
+      else pan(-e.deltaX,-e.deltaY);
+    };
+    // Safari/WKWebView trackpad pinch uses GestureEvent instead of ctrl-wheel.
+    const gs=e=>{e.preventDefault();gestureScale=e.scale||1;};
+    const gc=e=>{e.preventDefault();const r=el.getBoundingClientRect();zoom((e.scale||1)/(gestureScale||1),Number.isFinite(e.clientX)?e.clientX:r.left+r.width/2,Number.isFinite(e.clientY)?e.clientY:r.top+r.height/2);gestureScale=e.scale||1;};
+    const ge=e=>{e.preventDefault();gestureScale=null;};
+    const down=e=>{if(e.button!==0)return;e.preventDefault();mouse={x:e.clientX,y:e.clientY};};
+    const drag=e=>{if(!mouse)return;pan(e.clientX-mouse.x,e.clientY-mouse.y);mouse={x:e.clientX,y:e.clientY};};
+    const up=()=>{mouse=null;};
+    const key=e=>{if(e.key==='Escape'){e.preventDefault();close();}};
+    const events={touchstart:start,touchmove:move,touchend:end,touchcancel:end,wheel,gesturestart:gs,gesturechange:gc,gestureend:ge,mousedown:down};
+    Object.entries(events).forEach(([name,fn])=>el.addEventListener(name,fn,{passive:false}));
+    window.addEventListener('mousemove',drag);window.addEventListener('mouseup',up);window.addEventListener('keydown',key);
+    return()=>{Object.entries(events).forEach(([name,fn])=>el.removeEventListener(name,fn));window.removeEventListener('mousemove',drag);window.removeEventListener('mouseup',up);window.removeEventListener('keydown',key);};
+  },[open]);
+  const step=factor=>{const v=current.current,s=Math.max(1,Math.min(5,v.scale*factor));current.current=s===1?{scale:1,x:0,y:0}:{scale:s,x:v.x*s/v.scale,y:v.y*s/v.scale};setView(current.current);};
   return(<>
-    <img src={src} alt={alt||""} style={{...style,cursor:"zoom-in"}} onClick={()=>setOpen(true)}/>
-    {open&&(
-      <div onClick={close}
-        style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(0,0,0,0.92)",
-          display:"flex",alignItems:"center",justifyContent:"center",touchAction:"none"}}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-        <img src={src} alt={alt||""}
-          style={{maxWidth:"100vw",maxHeight:"100vh",objectFit:"contain",
-            transform:`scale(${scale}) translate(${pos.x/scale}px,${pos.y/scale}px)`,
-            transformOrigin:"center",userSelect:"none",pointerEvents:"none"}}
-          onClick={e=>e.stopPropagation()}/>
-        <div style={{position:"fixed",top:16,right:16,color:"#fff",fontSize:24,cursor:"pointer",
-          background:"rgba(0,0,0,0.5)",borderRadius:"50%",width:36,height:36,
-          display:"flex",alignItems:"center",justifyContent:"center"}}
-          onClick={close}>✕</div>
-        {scale>1&&(
-          <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",
-            color:"#888",fontSize:11,background:"rgba(0,0,0,0.5)",padding:"4px 10px",borderRadius:8}}>
-            ダブルタップでリセット
-          </div>
-        )}
+    <img src={src} alt={alt||""} style={{...style,cursor:"zoom-in"}} onClick={()=>{reset();setOpen(true);}}/>
+    {open&&<div role="dialog" aria-label="Image viewer" aria-modal="true" data-image-viewer style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(0,0,0,0.94)"}}>
+      <div ref={viewport} data-image-viewport onDoubleClick={reset} style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",touchAction:"none",overscrollBehavior:"contain",cursor:view.scale>1?"grab":"default"}}>
+        <img src={src} alt={alt||""} draggable={false} style={{maxWidth:"96vw",maxHeight:"90vh",objectFit:"contain",transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`,transformOrigin:"center",userSelect:"none",WebkitUserSelect:"none",pointerEvents:"none"}}/>
       </div>
-    )}
+      <div style={{position:"absolute",top:16,right:16,display:"flex",alignItems:"center",gap:8,background:"#222",padding:8,borderRadius:10,color:"white"}}>
+        <button type="button" aria-label="Zoom out" onClick={()=>step(1/1.25)}>−</button>
+        <output aria-label="Image zoom">{Math.round(view.scale*100)}%</output>
+        <button type="button" aria-label="Zoom in" onClick={()=>step(1.25)}>＋</button>
+        <button type="button" onClick={reset}>リセット</button>
+        <button type="button" aria-label="Close image" onClick={close}>✕</button>
+      </div>
+      <div style={{position:"absolute",bottom:16,left:0,right:0,textAlign:"center",color:"#ddd",fontSize:13,pointerEvents:"none"}}>ピンチで拡大・縮小 ／ 拡大後はドラッグで移動</div>
+    </div>}
   </>);
 }
 
