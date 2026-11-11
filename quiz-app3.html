@@ -46,15 +46,19 @@ input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !importa
 @keyframes tweetBird{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(8deg) scale(1.12)}}
 
 /* Keep the portrait flow; only roomy landscape windows use a media column. */
-.quiz-columns__main{min-width:0}
+.quiz-columns__main{min-width:0;overflow-wrap:anywhere}
 .quiz-columns__media{display:none;min-width:0;overflow-wrap:anywhere}
 @media (min-width:1100px) and (orientation:landscape){
   .quiz-columns--media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:28px;align-items:start}
-  .quiz-columns--media>.quiz-columns__media{display:block}
+  .quiz-columns--media>.quiz-columns__media{display:block;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding-left:20px;border-left:1px solid #292940;scrollbar-width:thin}
+  .quiz-columns__media [data-image-description]{font-size:clamp(16px,calc(var(--quiz-font-size,22px) * .8),24px)!important;line-height:1.65!important;color:#c7c8d2!important;margin:16px 0!important}
+  .quiz-columns__media figcaption{font-size:14px!important;text-align:left!important;line-height:1.6!important}
+  .quiz-columns__media details{border-top:1px solid #303047;padding-top:12px;margin-top:14px}
+  .quiz-columns__media summary{cursor:pointer;color:#9da8bd;font:14px/1.5 system-ui,sans-serif;margin-bottom:8px}
   .quiz-columns--media>.quiz-columns__main .quiz-inline-images{display:none}
   .quiz-columns__media [data-review-images]{margin-top:0!important}
   .quiz-columns__media figure>img,.quiz-columns__media [data-question-images]>img,
-  .quiz-columns__media [data-question-images]>div>img{max-height:60vh!important}
+  .quiz-columns__media [data-question-images]>div>img{max-height:48vh!important}
 }
 </style>
 </head>
@@ -2283,7 +2287,7 @@ function reducer(s,a){
   switch(a.type){
     case"START":case"RESTART":{
       const q=a.QS[0];
-      const base={...makeInit(a.QS),oneShotReview:!!a.oneShotReview,
+      const base={...makeInit(a.QS),previewMode:!!a.previewMode,oneShotReview:!!a.oneShotReview,
         reviewSessionId:(a.oneShotReview||a.rewardNewIds===null)?`${Date.now()}-${Math.random()}`:null};
       // newCardIds: SRSデータなしのカードID群（自動入力対象）
       const nids=a.newCardIds||[];
@@ -2884,7 +2888,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
 
   return(
     <div onClick={e=>{if(introPaused&&!e.target.closest("button,textarea"))focusPreviewKeyboard();}}
-      style={{fontSize:DK?22:18,lineHeight:2.4,fontWeight:700,
+      style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",lineHeight:2.4,fontWeight:700,
       color:"#ece8d8",marginBottom:12,minWidth:0,maxWidth:"100%",wordBreak:"normal",overflowWrap:"anywhere"}}> 
       {segments.map(({text,showBlank,blankIdx},segIdx)=>{
         const isLastSeg=segIdx===segments.length-1;
@@ -2930,7 +2934,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
                     background:br===true?"rgba(34,197,94,0.18)":br===false?"rgba(239,68,68,0.18)":(ghostedBlanks.has(blankIdx)||ghosting)?"rgba(34,197,94,0.18)":isActive?"rgba(201,168,76,0.15)":"#1e1e3a",
                     border:`1.5px solid ${br===true?"#22c55e":br===false?"#ef4444":(ghostedBlanks.has(blankIdx)||ghosting)?"#22c55e":isActive?"#c9a84c":"#4a4a72"}`,
                     borderRadius:7,padding:"2px 8px",
-                    color:(ghostedBlanks.has(blankIdx)||ghosting)?"#4ade80":"#ece8d8",fontSize:20,
+                    color:(ghostedBlanks.has(blankIdx)||ghosting)?"#4ade80":"#ece8d8",fontSize:"var(--quiz-font-size, 20px)",
                     fontFamily:"inherit",
                     width:"100%",minWidth:0,maxWidth:"100%",boxSizing:"border-box",
                     textAlign:"center",
@@ -4732,6 +4736,8 @@ function QuizApp(){
     }
   };
   const[QS,setQS]=useState(DEFAULT_QS);
+  const[previewFontSize,setPreviewFontSize]=useState(()=>{try{const n=Number(localStorage.getItem("econ_preview_font_size"));return n>=16&&n<=40?n:22;}catch(_){return 22;}});
+  const changePreviewFontSize=n=>{const size=Math.min(40,Math.max(16,n));setPreviewFontSize(size);try{localStorage.setItem("econ_preview_font_size",String(size));}catch(_){}};
   const[typingDone,setTypingDone]=useState(false);
   const[s,rawDispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
   // 同じ描画状態での連続送信は1回のみ加算。誤答・空欄送信は報酬にしない。
@@ -5089,7 +5095,7 @@ function QuizApp(){
     clearGame();setSavedGame(null);
     try{getCtx().resume().catch(()=>{});}catch(_){}
     SFX.start();
-    dispatch({type:"START",QS:qs,newCardIds:newIds,rewardNewIds});
+    dispatch({type:"START",QS:qs,newCardIds:newIds,rewardNewIds,previewMode:introMode});
   };
   // 一発復習
   const playReview=()=>{
@@ -5693,9 +5699,14 @@ function QuizApp(){
         <div style={S.topRow}>
           <span style={S.qnum}>✓{answeredCorrectly.length}<span style={{color:"#444",fontSize:10}}>/{QS.length}</span></span>
           {combo>0&&<span className="comboPop" style={S.comboTag}>{"🔥".repeat(Math.min(combo,5))} ×{combo}</span>}
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap",gap:10}}>
             {ndConfig&&<span style={{fontSize:11,color:'#c9a84c',background:'rgba(201,168,76,0.1)',border:'1px solid rgba(201,168,76,0.25)',borderRadius:6,padding:'2px 6px',lineHeight:1.4,whiteSpace:'nowrap'}}>🎁{ndRemain}問</span>}
             <span style={S.scorePill}>{score}<span style={{color:"#444",fontSize:10}}>pt</span></span>
+        {s.previewMode&&<div role="group" aria-label={lang==="en"?"Text size":"文字サイズ"} style={{display:"flex",gap:6,alignItems:"center",whiteSpace:"nowrap"}}>
+          <button type="button" style={{background:"none",border:"1px solid #555",borderRadius:7,padding:"4px 7px",fontSize:13,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit",lineHeight:1}} aria-label="Smaller text" disabled={previewFontSize<=16} onClick={()=>changePreviewFontSize(previewFontSize-2)}>A−</button>
+          <output style={{fontSize:14,color:"#aaa"}}>{previewFontSize}px</output>
+          <button type="button" style={{background:"none",border:"1px solid #555",borderRadius:7,padding:"4px 7px",fontSize:13,color:"#c9a84c",cursor:"pointer",fontFamily:"inherit",lineHeight:1}} aria-label="Larger text" disabled={previewFontSize>=40} onClick={()=>changePreviewFontSize(previewFontSize+2)}>A＋</button>
+        </div>}
             <BgmPicker compact lang={lang} currentTheme={s.bgmThemeId} onChangeTheme={themeId=>dispatch({type:"SET_BGM_THEME",themeId})}/>
             <button onClick={toggleSound}
               style={{background:"none",border:`1px solid ${soundOn?"#c9a84c":"#555"}`,borderRadius:7,
@@ -5740,7 +5751,7 @@ function QuizApp(){
             return <span style={{marginLeft:8,fontSize:10,color,fontWeight:600}}>{label}</span>;
           })()}
         </div>
-        <div className={"quiz-columns"+(hasQuestionMedia(q)||(isFB&&reviewImages(q).length)?" quiz-columns--media":"")}>
+        <div style={s.previewMode?{"--quiz-font-size":previewFontSize+"px"}:undefined} className={"quiz-columns"+(s.previewMode&&(hasQuestionMedia(q)||reviewImages(q).length)?" quiz-columns--media":"")}>
         <div className="quiz-columns__main">
           <div className="quiz-inline-images"><QuestionImages q={q}/></div>
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
@@ -5855,8 +5866,8 @@ function QuizApp(){
         )}
         </div>
         <aside className="quiz-columns__media" aria-label={lang==="en"?"Question images":"問題の画像"}>
-          <QuestionImages key={questionKey} q={q}/>
-          {isFB&&<ReviewImages key={questionKey+"-review"} q={q}/>}
+          <QuestionImages key={questionKey} q={q} showDetails={isFB}/>
+          {s.previewMode&&<ReviewImages key={questionKey+"-review"} q={q} showDetails={isFB} compact/>}
         </aside>
         </div>
       </div>
@@ -5893,7 +5904,7 @@ const S={
   timerN:{position:"absolute",right:0,top:DK?-22:-18,fontSize:DK?13:10,fontWeight:700},
   qcard:{margin:DK?"16px 24px 0":"12px 14px 0",background:"#13132a",border:"1px solid #252542",borderRadius:DK?20:16,padding:DK?"28px 28px":"18px 16px",animation:"slideUp 0.3s ease"},
   qmeta:{fontSize:DK?14:11,color:"#555",marginBottom:DK?14:10,letterSpacing:0.5},
-  qtxt:{fontSize:DK?21:16,lineHeight:DK?1.8:1.9,fontWeight:700,marginBottom:DK?18:12,color:"#ece8d8"},
+  qtxt:{fontSize:"var(--quiz-font-size, "+(DK?21:16)+"px)",lineHeight:DK?1.8:1.9,fontWeight:700,marginBottom:DK?18:12,color:"#ece8d8"},
   hintBtn:{background:"none",border:"1px solid #2a2a42",color:"#666",borderRadius:8,padding:DK?"7px 16px":"5px 12px",fontSize:DK?14:11,cursor:"pointer",marginBottom:DK?16:12},
   hintBox:{background:"#1a1a36",border:"1px solid #353558",borderRadius:8,padding:DK?"10px 16px":"8px 12px",fontSize:DK?15:12,color:"#aaa",marginBottom:DK?16:12},
   optG:{display:"flex",flexDirection:"column",gap:DK?10:7},
@@ -5908,7 +5919,7 @@ const S={
   correctAnsRow:{display:"flex",alignItems:"center",gap:DK?10:6},
   correctAns:{fontSize:DK?38:28,fontWeight:900,color:"#f0c060",lineHeight:1.4},
   retryMsg:{fontSize:DK?15:12,color:"#aaa",borderTop:"1px solid #2a2a3a",paddingTop:DK?14:10},
-  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:DK?22:18,color:"#93c5fd",lineHeight:1.8,whiteSpace:"pre-wrap"},
+  explanationBox:{marginTop:10,padding:DK?"14px 16px":"11px 13px",background:"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.25)",borderRadius:10,fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#93c5fd",lineHeight:1.8,whiteSpace:"pre-wrap"},
 };
 
 /* ── NextDNS 報酬オーバーレイ ── */
@@ -6057,14 +6068,14 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
 }
 
 function hasQuestionMedia(q){return Boolean(q.image||(q.images||[]).some(img=>img&&img.url));}
-function QuestionImages({q}){
+function QuestionImages({q,showDetails=true}){
   return <div data-question-images>
         {q.image&&<ZoomableImage src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
-        {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
+        {showDetails&&q.imageCaption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
         {q.images&&q.images.map((img,i)=>(
           <div key={i} style={{marginBottom:8}}>
             <img src={img.url} alt={img.caption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-            {img.caption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{img.caption}</p>}
+            {showDetails&&img.caption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{img.caption}</p>}
           </div>
         ))}
   </div>;
@@ -6075,17 +6086,22 @@ function reviewImages(q){
     ...(q.explanationImages||[]).map(img=>({...img,caption:img.credit||img.caption}))
   ].filter(img=>img&&img.url);
 }
-function ReviewImages({q}){
+function ReviewImages({q,showDetails=true,compact=false}){
   const images=reviewImages(q);
   return <>
     {images.length>0&&<div data-review-images style={{margin:"12px 0"}}>
       {images.map((img,i)=><figure key={i} style={{margin:"0 0 12px"}}>
         <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",maxHeight:360,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-        {img.description&&<p data-image-description style={{fontSize:DK?22:18,color:"#ddd",lineHeight:1.7,margin:"10px 0 8px",whiteSpace:"pre-line"}}>{img.description}</p>}
-        {(img.caption||img.sourceUrl)&&<figcaption style={{fontSize:DK?22:18,color:"#aaa",textAlign:"center",lineHeight:1.6,marginTop:6,whiteSpace:"pre-line",overflowWrap:"anywhere"}}>
+        {showDetails&&img.description&&<p data-image-description style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#ddd",lineHeight:1.7,margin:"10px 0 8px",whiteSpace:"pre-line"}}>{img.description}</p>}
+        {showDetails&&(img.caption||img.sourceUrl)&&(compact?
+          <details><summary>Credit &amp; source / クレジット・出典</summary><figcaption style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#aaa",textAlign:"center",lineHeight:1.6,marginTop:6,whiteSpace:"pre-line",overflowWrap:"anywhere"}}>
           {img.caption}
           {img.sourceUrl&&<><br/><a href={img.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>Source / 出典</a></>}
-        </figcaption>}
+        </figcaption></details>:
+          <figcaption style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#aaa",textAlign:"center",lineHeight:1.6,marginTop:6,whiteSpace:"pre-line",overflowWrap:"anywhere"}}>
+          {img.caption}
+          {img.sourceUrl&&<><br/><a href={img.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>Source / 出典</a></>}
+        </figcaption>)}
       </figure>)}
     </div>}
   </>;
@@ -6650,7 +6666,7 @@ function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
           </div>
           {q.explanation&&(
             <div style={{background:'#0d0d1a',border:'1px solid #252542',borderRadius:10,
-              padding:'14px 16px',fontSize:DK?22:18,color:'#aaa',lineHeight:1.8,maxHeight:240,overflowY:'auto'}}>
+              padding:'14px 16px',fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:'#aaa',lineHeight:1.8,maxHeight:240,overflowY:'auto'}}>
               {q.explanation}
             </div>
           )}
