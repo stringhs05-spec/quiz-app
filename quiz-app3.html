@@ -44,6 +44,18 @@ input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !importa
 @keyframes rewardPulse{0%,100%{box-shadow:0 0 0 0 rgba(29,161,242,0.5)}50%{box-shadow:0 0 0 10px rgba(29,161,242,0)}}@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rewardIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes tweetBird{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(8deg) scale(1.12)}}
+
+/* Keep the portrait flow; only roomy landscape windows use a media column. */
+.quiz-columns__main{min-width:0}
+.quiz-columns__media{display:none;min-width:0;overflow-wrap:anywhere}
+@media (min-width:1100px) and (orientation:landscape){
+  .quiz-columns--media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:28px;align-items:start}
+  .quiz-columns--media>.quiz-columns__media{display:block}
+  .quiz-columns--media>.quiz-columns__main .quiz-inline-images{display:none}
+  .quiz-columns__media [data-review-images]{margin-top:0!important}
+  .quiz-columns__media figure>img,.quiz-columns__media [data-question-images]>img,
+  .quiz-columns__media [data-question-images]>div>img{max-height:60vh!important}
+}
 </style>
 </head>
 <body>
@@ -5728,14 +5740,9 @@ function QuizApp(){
             return <span style={{marginLeft:8,fontSize:10,color,fontWeight:600}}>{label}</span>;
           })()}
         </div>
-        {q.image&&<ZoomableImage src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
-        {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
-        {q.images&&q.images.map((img,i)=>(
-          <div key={i} style={{marginBottom:8}}>
-            <img src={img.url} alt={img.caption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-            {img.caption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{img.caption}</p>}
-          </div>
-        ))}
+        <div className={"quiz-columns"+(hasQuestionMedia(q)||(isFB&&reviewImages(q).length)?" quiz-columns--media":"")}>
+        <div className="quiz-columns__main">
+          <div className="quiz-inline-images"><QuestionImages q={q}/></div>
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
               isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)}/>}
@@ -5846,6 +5853,12 @@ function QuizApp(){
             </button>
           </div>
         )}
+        </div>
+        <aside className="quiz-columns__media" aria-label={lang==="en"?"Question images":"問題の画像"}>
+          <QuestionImages key={questionKey} q={q}/>
+          {isFB&&<ReviewImages key={questionKey+"-review"} q={q}/>}
+        </aside>
+        </div>
       </div>
 
     </div>
@@ -6043,12 +6056,27 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
   );
 }
 
-/* Answer review: model answer, historical image and credit, then explanation. */
-function ReviewExplanation({q}){
-  const images=[
+function hasQuestionMedia(q){return Boolean(q.image||(q.images||[]).some(img=>img&&img.url));}
+function QuestionImages({q}){
+  return <div data-question-images>
+        {q.image&&<ZoomableImage src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
+        {q.imageCaption&&q.image&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
+        {q.images&&q.images.map((img,i)=>(
+          <div key={i} style={{marginBottom:8}}>
+            <img src={img.url} alt={img.caption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
+            {img.caption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{img.caption}</p>}
+          </div>
+        ))}
+  </div>;
+}
+function reviewImages(q){
+  return [
     ...(q.explanationImage?[{url:q.explanationImage,caption:q.explanationImageCredit||q.explanationImageCaption,sourceUrl:q.explanationImageSourceUrl,description:q.explanationImageDescription}]:[]),
     ...(q.explanationImages||[]).map(img=>({...img,caption:img.credit||img.caption}))
   ].filter(img=>img&&img.url);
+}
+function ReviewImages({q}){
+  const images=reviewImages(q);
   return <>
     {images.length>0&&<div data-review-images style={{margin:"12px 0"}}>
       {images.map((img,i)=><figure key={i} style={{margin:"0 0 12px"}}>
@@ -6060,6 +6088,12 @@ function ReviewExplanation({q}){
         </figcaption>}
       </figure>)}
     </div>}
+  </>;
+}
+/* Images retain their original position and reveal timing in portrait. */
+function ReviewExplanation({q}){
+  return <>
+    <div className="quiz-inline-images"><ReviewImages q={q}/></div>
     {q.explanation&&<div data-review-explanation style={S.explanationBox}>{q.explanation}</div>}
   </>;
 }
