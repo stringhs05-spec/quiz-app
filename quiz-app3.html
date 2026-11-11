@@ -13,8 +13,6 @@
 html,body{min-height:100%;background:#0d0d18;overflow-y:auto;-webkit-overflow-scrolling:touch;}#root{min-height:100%;background:#0d0d18;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
 button:hover:not(:disabled){filter:brightness(1.14);cursor:pointer}
 input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !important;box-shadow:0 0 0 2px rgba(201,168,76,0.2) !important}
-.flashFade{animation:flashFade 3s ease forwards}
-@keyframes flashFade{0%{opacity:1}100%{opacity:0}}
 @keyframes timerPulse{0%,100%{opacity:1}50%{opacity:0.3}}
 @keyframes comboPop{0%{transform:scale(1.6)}100%{transform:scale(1)}}
 @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
@@ -28,7 +26,6 @@ input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !importa
 @keyframes blankWobble{0%,100%{transform:rotate(-2.5deg) scale(1.04)}25%{transform:rotate(2.5deg) scale(1.0)}75%{transform:rotate(-2deg) scale(1.02)}}
 @keyframes blankPop{0%{transform:scale(1)}35%{transform:scale(1.35)}65%{transform:scale(0.88)}100%{transform:scale(1)}}
 @keyframes correctRing{0%{transform:scale(0.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
-@keyframes wrongFlash{0%,100%{opacity:0}20%,60%{opacity:1}}
 @keyframes comboFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-80px) scale(1.4)}}
 @keyframes edgePulse{0%,100%{box-shadow:inset 0 0 0px rgba(239,68,68,0)}50%{box-shadow:inset 0 0 40px rgba(239,68,68,0.5)}}
 @keyframes rankBurst{0%{transform:scale(0.2);opacity:0}50%{transform:scale(1.3);opacity:1}80%{transform:scale(1.0);opacity:1}100%{transform:scale(1.6);opacity:0}}
@@ -5637,10 +5634,6 @@ function QuizApp(){
   return(
     <LangCtx.Provider value={lang}>
     <div style={S.root}>
-      {/* 既存フィードバックフラッシュ */}
-      {isFB&&<div className="flashFade" style={{...S.flashOverlay,
-        background:isNew?"rgba(201,168,76,0.12)":feedback?.correct?"rgba(34,197,94,0.18)":"rgba(239,68,68,0.42)",
-        animationDuration:"1.9s"}}/>}
       {/* 新カードフェーズ開始通知 */}
       {newPhaseStart&&(
         <div style={{position:"fixed",top:"30%",left:0,right:0,
@@ -5663,12 +5656,6 @@ function QuizApp(){
       )}
       {/* NextDNS 報酬オーバーレイ（ゲーム中） */}
       {ndConfig&&(rewardActive||rewardStatus==='error')&&<RewardOverlay rewardStatus={rewardStatus} rewardSecs={rewardSecs} fmtSecs={fmtSecs} onClose={()=>{setRewardActive(false);setRewardStatus('');}}/>}
-      {/* 不正解：画面縁が赤く光る */}
-      {wrongAnim&&(
-        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:60,
-          boxShadow:"inset 0 0 70px rgba(239,68,68,0.75)",
-          animation:"wrongFlash 0.5s ease forwards"}}/>
-      )}
       {/* コンボ：数字が上に飛ぶ */}
       {comboAnim&&(
         <div style={{position:"fixed",top:"38%",left:0,right:0,textAlign:"center",
@@ -5880,7 +5867,6 @@ function QuizApp(){
 const S={
   root:{minHeight:"100vh",background:"#0d0d18",fontFamily:"'Noto Serif JP',serif",color:"#e8dcc8",position:"relative",paddingBottom:32},
   center:{display:"flex",justifyContent:"center",alignItems:"center",minHeight:"100vh",padding:DK?32:16},
-  flashOverlay:{position:"fixed",inset:0,pointerEvents:"none",zIndex:50},
   card:{background:"#13132a",border:"1px solid #252542",borderRadius:DK?26:22,padding:DK?"40px 40px":"26px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:DK?18:13,maxWidth:DK?680:400,width:"100%",textAlign:"center"},
   logo:{fontSize:DK?46:32,letterSpacing:4,color:"#c9a84c",fontWeight:900,borderBottom:"2px solid #c9a84c",paddingBottom:DK?8:5},
   title:{fontSize:DK?34:24,fontWeight:900,color:"#ece8d8"},
@@ -6578,339 +6564,6 @@ function CramGamePlay({allCards,folderKey,initialGraduated,onClose}){
             textShadow:'0 0 20px rgba(74,222,128,0.5)',
             animation:'bounceIn 0.5s ease forwards'}}>◯</div>
         </div>
-      )}
-      {wrongAnim&&(
-        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',
-          justifyContent:'center',pointerEvents:'none',zIndex:60}}>
-          <div style={{fontSize:140,color:'#f87171',fontWeight:900,
-            textShadow:'0 0 20px rgba(248,113,113,0.5)',
-            animation:'bounceIn 0.5s ease forwards'}}>✕</div>
-        </div>
-      )}
-
-      {/* ヘッダー */}
-      <div style={{width:'100%',maxWidth:520,display:'flex',
-        alignItems:'center',justifyContent:'space-between',marginBottom:10,gap:6}}>
-        <button onClick={onClose}
-          style={{background:'none',border:'1px solid #333',borderRadius:8,flexShrink:0,
-            padding:'5px 12px',color:'#888',fontSize:14,cursor:'pointer',fontFamily:'inherit'}}>
-          ← {lang==='ja'?'中断':'Pause'}
-        </button>
-        <div style={{flex:1,minWidth:0,fontSize:14,color:'#666',fontWeight:700,textAlign:'center',lineHeight:1.6}}>
-          🔥 {lang==='ja'?`卒業 ${progress}/${totalCount}問`:`${progress}/${totalCount} mastered`}
-          <div style={{fontSize:11,color:'#555',marginTop:1}}>
-            {lang==='ja'?`このバッチ残り${remainingInQueue}問`:`${remainingInQueue} left in batch`}
-          </div>
-        </div>
-        <button onClick={toggleSound}
-          style={{background:'none',border:'1px solid #555',borderRadius:8,flexShrink:0,
-            padding:'5px 10px',color:'#888',fontSize:15,cursor:'pointer',lineHeight:1}}>
-          {soundOn?'🔊':'🔇'}
-        </button>
-      </div>
-
-      {/* 進捗バー */}
-      <div style={{width:'100%',maxWidth:520,height:6,background:'#1e1e32',
-        borderRadius:4,overflow:'hidden',marginBottom:16}}>
-        <div style={{height:'100%',width:`${totalCount>0?(progress/totalCount*100):0}%`,
-          background:'#ef8a4c',borderRadius:4,transition:'width 0.4s ease'}}/>
-      </div>
-
-      {/* 問題カード */}
-      <div style={{width:'100%',maxWidth:520,background:'#13132a',
-        border:'2px solid #252542',
-        borderRadius:16,padding:DK?'26px 24px':'20px 16px',
-        marginBottom:16}}>
-        <div style={{fontSize:DK?21:18,lineHeight:2.1,color:'#ece8d8'}}>
-          {phase==='feedback'?renderFullQ():(()=>{
-            const parts=(q.q||'').split('___');
-            return parts.map((part,i)=>(
-              <React.Fragment key={i}>
-                <span>{part}</span>
-                {i<parts.length-1&&(
-                  <input
-                    ref={el=>inputRefs.current[i]=el}
-                    value={inputs[i]||''}
-                    onChange={e=>{const ni=[...inputs];ni[i]=e.target.value;setInputs(ni);}}
-                    onCompositionStart={()=>{composingRef.current=true;}}
-                    onCompositionEnd={()=>{setTimeout(()=>{composingRef.current=false;},100);}}
-                    onKeyDown={e=>handleKey(i,e)}
-                    style={{display:'inline-block',
-                      width:`${Math.max(8,(inputs[i]||'').length+2,(blanks[i]?.ans[0]||'').length+2)}ch`,
-                      background:'#0d0d1a',border:'1px solid #3a3a5a',borderRadius:5,
-                      padding:'3px 8px',margin:'0 3px',color:'#ece8d8',fontSize:'inherit',
-                      fontFamily:'inherit',textAlign:'center'}}/>
-                )}
-              </React.Fragment>
-            ));
-          })()}
-        </div>
-      </div>
-
-      {/* フィードバック / 送信 */}
-      {phase==='feedback'?(
-        <div style={{width:'100%',maxWidth:520,display:'flex',flexDirection:'column',gap:12}}>
-          <div style={{textAlign:'center',fontSize:17,fontWeight:800,
-            color:isCorrect?(justGraduated?'#4ade80':'#c9a84c'):'#f87171'}}>
-            {cramLabel()}
-          </div>
-          {/* 正解語の大表示（正解・不正解問わず） */}
-          <div style={{display:'flex',flexWrap:'wrap',justifyContent:'center',gap:10}}>
-            {blanks.map((b,i)=>(
-              <span key={i} style={{fontSize:DK?26:22,fontWeight:900,color:'#4ade80',
-                background:'rgba(74,222,128,0.1)',border:'1.5px solid rgba(74,222,128,0.4)',
-                borderRadius:10,padding:'6px 16px',fontFamily:'inherit'}}>
-                {b.ans[0]}
-              </span>
-            ))}
-          </div>
-          {q.explanation&&(
-            <div style={{background:'#0d0d1a',border:'1px solid #252542',borderRadius:10,
-              padding:'14px 16px',fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:'#aaa',lineHeight:1.8,maxHeight:240,overflowY:'auto'}}>
-              {q.explanation}
-            </div>
-          )}
-          <button onClick={next}
-            style={{background:'#ef8a4c',border:'none',borderRadius:12,padding:'14px',
-              fontSize:16,fontWeight:800,color:'#0d0d18',cursor:'pointer',fontFamily:'inherit'}}>
-            {lang==='ja'?'次へ →':'Next →'}
-          </button>
-        </div>
-      ):(
-        <button onClick={submit}
-          style={{width:'100%',maxWidth:520,background:'#c9a84c',border:'none',
-            borderRadius:12,padding:'14px',fontSize:16,fontWeight:800,color:'#0d0d18',
-            cursor:'pointer',fontFamily:'inherit'}}>
-          {lang==='ja'?'答え合わせ':'Check'}
-        </button>
-      )}
-    </div>
-    </LangCtx.Provider>
-  );
-}
-
-function KarutaGamePlay({cards,initialQueue,initialAnsweredCount=0,karutaSRS,setKarutaSRS,onMainCorrect,onClose,onPause}){
-  const T=useT();
-  const lang=React.useContext(LangCtx);
-
-  // 報酬進捗。以前は Mac 版だけ Swift 注入JS が更新する nd_karuta_count を
-  // 読んでいたが、その注入は廃止した。両環境とも nd_total_correct から算出する。
-  // 百人一首は1正解あたり _ND_KARUTA_PTS 点入るので、残り「問数」に直す。
-  const KARUTA_REWARD_REQUIRED=Math.ceil(ndRequired()/_ND_KARUTA_PTS);
-  const ndKarutaCount=()=>{
-    const pts=_ND_ADAPTIVE?ndProgress():parseInt(localStorage.getItem('nd_total_correct')||'0')%_ND_THRESH;
-    return Math.floor(pts/_ND_KARUTA_PTS);
-  };
-  const[rewardCount,setRewardCount]=useState(ndKarutaCount);
-  const rewardRemaining=_ND_ADAPTIVE?ndRemaining():KARUTA_REWARD_REQUIRED-rewardCount;
-
-  // 音声オン/オフ（穴埋りモードと共有）
-  const[soundOn,setSoundOn]=useState(()=>localStorage.getItem('econ_sound')!=='0');
-  const toggleSound=()=>{
-    const next=!soundOn;
-    _soundEnabled=next;
-    try{_syncSoundGain();}catch(_){}
-    localStorage.setItem('econ_sound',next?'1':'0');
-    setSoundOn(next);
-  };
-
-  // キュー：カードのインデックス配列。不正解は末尾に戻す
-  const[queue,setQueue]=useState(()=>initialQueue||cards.map((_,i)=>i));
-  const[answeredCount,setAnsweredCount]=useState(initialAnsweredCount);
-  const[phase,setPhase]=useState('fill');
-  const[inputs,setInputs]=useState([]);
-  const[results,setResults]=useState(null);
-  const[isCorrect,setIsCorrect]=useState(null);
-  const[correctAnim,setCorrectAnim]=useState(false);
-  const[wrongAnim,setWrongAnim]=useState(false);
-  const[flash,setFlash]=useState(null);
-  const[ndUnlocked,setNdUnlocked]=useState(false);
-  const[takeAnim,setTakeAnim]=useState(false);
-  const[karutaCombo,setKarutaCombo]=useState(0);
-  const[comboAnim,setComboAnim]=useState(null);
-  const inputRefs=useRef([]);
-  const composingRef=useRef(false);      // IME変換中フラグ
-  const feedbackTsRef=useRef(0);         // feedbackになった時刻
-
-  const q=queue.length>0?cards[queue[0]]:null;
-  const blanks=q?.blanks||[];
-
-  const initCard=()=>{
-    if(!q)return;
-    setPhase('fill');
-    setInputs(new Array(blanks.length).fill(''));
-    setResults(null);setIsCorrect(null);
-    setTimeout(()=>inputRefs.current[0]?.focus(),80);
-  };
-
-  // フィードバック中のEnterキー → 次へ
-  useEffect(()=>{
-    const onKey=(e)=>{
-      if(e.key==='Enter'&&phase==='feedback'&&!composingRef.current){
-        // feedbackになってから400ms以上経過していれば進む
-        if(Date.now()-feedbackTsRef.current>400){
-          e.preventDefault();next();
-        }
-      }
-    };
-    window.addEventListener('keyup',onKey);
-    return()=>window.removeEventListener('keyup',onKey);
-  },[phase,isCorrect]);
-
-  // feedbackになった時刻を記録（Enter誤作動防止）
-  useEffect(()=>{
-    if(phase==='feedback') feedbackTsRef.current=Date.now();
-  },[phase]);
-
-  // BGM（全hookをearly return前に）
-  useEffect(()=>{
-    KBGM.start();
-    if(initialAnsweredCount>0){
-      const r=initialAnsweredCount/cards.length;
-      KBGM.setLevel(r>=0.75?3:r>=0.5?2:r>=0.25?1:0);
-    }
-    return()=>{KBGM.stop();};
-  },[]);
-
-  // フェーズ変更後エフェクト
-  useEffect(()=>{
-    if(phase!=='feedback'||isCorrect===null)return;
-    if(isCorrect){
-      const nc=answeredCount+1;setAnsweredCount(nc);
-      const ratio=nc/cards.length;
-      KBGM.setLevel(ratio>=0.75?3:ratio>=0.5?2:ratio>=0.25?1:0);
-      // 穴埋りSRSにもボーナス記録
-      if(onMainCorrect&&q)onMainCorrect(q.id);
-      // NextDNS報酬カウント（Mac:1正解=+2で8問 / iPhone:1正解=+1で5問）
-      checkNdReward(_ND_KARUTA_PTS).then(unlocked=>{
-        if(unlocked){setNdUnlocked(true);setTimeout(()=>setNdUnlocked(false),4000);}
-        setRewardCount(ndKarutaCount());
-      });
-      karutaTakeSound();SFX.correct();
-      Hap.impact('Light');
-      setTimeout(()=>Hap.impact('Light'),150);
-      setTimeout(()=>Hap.impact('Medium'),300);
-      setTimeout(()=>Hap.impact('Heavy'),550);
-      setCorrectAnim(true);setTimeout(()=>setCorrectAnim(false),700);
-      setFlash('correct');setTimeout(()=>setFlash(null),1900);
-      setTakeAnim(true);setTimeout(()=>setTakeAnim(false),650);
-      const newCombo=karutaCombo+1;setKarutaCombo(newCombo);
-      if(newCombo>=2){setComboAnim(newCombo);setTimeout(()=>setComboAnim(null),950);}
-    }else{
-      SFX.wrong();Hap.notification('Error');
-      setWrongAnim(true);setTimeout(()=>setWrongAnim(false),500);
-      setFlash('wrong');setTimeout(()=>setFlash(null),1900);
-      setKarutaCombo(0);
-    }
-  },[phase,isCorrect]);
-
-  // 問題切り替え時に初期化（q?.id を依存に）
-  useEffect(()=>{initCard();},[q?.id]);
-
-  // ── 全カード正解で終了（early return は全hook後） ─────────────────
-  if(queue.length===0) return(
-    <div style={{minHeight:'100vh',background:'#0d0d18',display:'flex',
-      flexDirection:'column',alignItems:'center',justifyContent:'center',
-      fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',gap:20,padding:24}}>
-      <div style={{fontSize:52,animation:'bounceIn 0.6s ease'}}>🎴</div>
-      <div style={{fontSize:23,fontWeight:900,color:'#c9a84c'}}>
-        {lang==='ja'?'全問正解！':'All correct!'}
-      </div>
-      <div style={{fontSize:14,color:'#555',marginBottom:8}}>
-        {cards.length}{lang==='ja'?'枚コンプリート':'cards complete'}
-      </div>
-      <button onClick={onClose}
-        style={{background:'#c9a84c',border:'none',borderRadius:12,
-          padding:'14px 32px',fontSize:16,fontWeight:800,color:'#0d0d18',
-          cursor:'pointer',fontFamily:'inherit'}}>
-        {lang==='ja'?'ロビーへ戻る':'Back to Lobby'}
-      </button>
-    </div>
-  );
-
-  // ── submit / next ────────────────────────────────────────────────
-  const submit=()=>{
-    if(phase!=='fill')return;
-    const res=chkFill(blanks,inputs);
-    const ok=res.every(Boolean);
-    const newKSRS=updateKarutaSRS(karutaSRS,q.id,ok);
-    setKarutaSRS(newKSRS);saveKarutaSRS(newKSRS);
-    setResults(res);setIsCorrect(ok);setPhase('feedback');
-  };
-
-  const next=()=>{
-    setQueue(prev=>{
-      const rest=prev.slice(1);
-      if(isCorrect) return rest; // 正解：除去
-      // 不正解：末尾に追加（全問出題後に再出題）
-      return[...rest,prev[0]];
-    });
-    setPhase('fill');setInputs([]);setResults(null);setIsCorrect(null);
-  };
-
-  const handleKey=(i,e)=>{
-    if(e.key==='Enter'&&!composingRef.current){
-      if(i<blanks.length-1)inputRefs.current[i+1]?.focus();
-      else submit();
-    }
-  };
-
-  const renderFullQ=()=>{
-    const parts=(q.q||'').split('___');
-    return parts.map((part,i)=>(
-      <React.Fragment key={i}>
-        <span>{part}</span>
-        {i<parts.length-1&&(()=>{
-          const correctAns=blanks[i]?.ans[0]||'';
-          const userVal=(inputs[i]||'').trim();
-          const ok=results?results[i]:null;
-          const color=ok?'#4ade80':'#f87171';
-          return(
-            <span style={{background:`rgba(${ok?'34,197,94':'239,68,68'},0.15)`,
-              border:`1px solid ${color}`,borderRadius:5,
-              padding:'1px 8px',margin:'0 2px',fontWeight:700,color,whiteSpace:'nowrap'}}>
-              {!ok&&userVal&&<span style={{textDecoration:'line-through',opacity:0.5,marginRight:5,color:'#888'}}>{userVal}</span>}
-              {correctAns}
-            </span>
-          );
-        })()}
-      </React.Fragment>
-    ));
-  };
-
-  const srsLabel=()=>{
-    const ks=karutaSRS[q.id];
-    if(!ks||ks.state==='new') return isCorrect?T.karutaFirstOk:T.karutaFirstNg;
-    if(isCorrect) return`✅ ${ks.intervalDays}日後`;
-    return`❌ ${lang==='ja'?'再学習':'Re-learning'}`;
-  };
-
-  // 進捗：正解済み枚数
-  const progress=answeredCount;
-  const remaining=queue.length;
-
-  return(
-    <LangCtx.Provider value={lang}>
-    <div style={{minHeight:'100vh',background:'#0d0d18',
-      fontFamily:"'Noto Serif JP',serif",color:'#e8dcc8',
-      display:'flex',flexDirection:'column',alignItems:'center',
-      padding:DK?'28px 16px':'12px 16px'}}>
-
-      {/* エフェクトオーバーレイ */}
-      {flash&&<div className='flashFade' style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:50,
-        background:flash==='correct'?'rgba(34,197,94,0.18)':'rgba(239,68,68,0.42)',
-        animationDuration:'1.9s'}}/>}
-      {correctAnim&&(
-        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',
-          justifyContent:'center',pointerEvents:'none',zIndex:60}}>
-          <div style={{width:150,height:150,borderRadius:'50%',
-            border:'5px solid #4ade80',animation:'correctRing 0.65s ease-out forwards'}}/>
-        </div>
-      )}
-      {wrongAnim&&(
-        <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:60,
-          boxShadow:'inset 0 0 70px rgba(239,68,68,0.75)',
-          animation:'wrongFlash 0.5s ease forwards'}}/>
       )}
       {takeAnim&&(
         <div style={{position:'fixed',top:'42%',left:'50%',
