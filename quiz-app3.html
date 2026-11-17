@@ -2766,7 +2766,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       SFX.blankOk();
       setPoppingBlank(target);
       setTimeout(()=>setPoppingBlank(null),400);
-      setTimeout(()=>refs.current[target]?.focus(),80);
+      if(!isNew)setTimeout(()=>refs.current[target]?.focus(),80);
     } else if(!isNew&&activeBlank!==null){
       // 次の空欄がまだ表示されていない途中停止 → 自動再開（通常モードのみ）
       setTimeout(()=>setPaused(false),150);
@@ -2815,7 +2815,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
           setWaitingResume(false);
           setActiveBlank(nextUnghosted);
           SFX.blankOk();
-          setTimeout(()=>refs.current[nextUnghosted]?.focus(),30);
+          // Preview advances internally without moving keyboard focus or the viewport.
           ghostOneBlank(nextUnghosted);
         }else{
           // 全可視空欄入力済み → テキスト続きを再開
@@ -2875,6 +2875,19 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
       }
     }
   };
+
+  // Preview keyboard actions do not require focusing an answer field.
+  useEffect(()=>{
+    if(!isNew||isFB||introPaused||previewReady)return;
+    const handler=e=>{
+      if(!["Enter","Tab"].includes(e.key)||e.isComposing||isComposingRef.current||e.keyCode===229)return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if(!e.repeat)handleKeyDown(activeBlank??0,e);
+    };
+    window.addEventListener("keydown",handler,true);
+    return()=>window.removeEventListener("keydown",handler,true);
+  },[isNew,isFB,introPaused,previewReady,ghosting,waitingResume,paused,activeBlank,shown]);
 
   const parts=fullText.split("___");
   let cursor=0;
@@ -5369,7 +5382,7 @@ function QuizApp(){
   },[phase]);
   // 穴埋め問題中、どの空欄にもフォーカスしていない時にEnterで1つ目にフォーカス
   useEffect(()=>{
-    if(phase!=="question"||isFB||q?.type!=="fill")return;
+    if(phase!=="question"||isFB||isNew||q?.type!=="fill")return;
     const handler=(e)=>{
       if(e.key!=="Enter")return;
       if(e.isComposing||e.keyCode===229)return; // IME変換中は無視
@@ -5382,7 +5395,7 @@ function QuizApp(){
     };
     window.addEventListener("keydown",handler);
     return()=>window.removeEventListener("keydown",handler);
-  },[phase,isFB,questionKey]);
+  },[phase,isFB,isNew,questionKey]);
   // 新規カード・MC：3秒後に自動で正解を送信
   useEffect(()=>{
     if(!isNew||isFB||q?.type!=="mc"||phase!=="question")return;
