@@ -42,6 +42,10 @@ input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !importa
 @keyframes rewardIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes tweetBird{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(8deg) scale(1.12)}}
 
+/* Reserve media and closed caption geometry before revealing either. */
+.quiz-media-reveal{opacity:1;visibility:visible;transition:opacity .65s ease}
+.quiz-media-reveal[data-media-hidden="true"]{opacity:0;visibility:hidden;pointer-events:none;transition:none}
+@media (prefers-reduced-motion:reduce){.quiz-media-reveal{transition:none}}
 /* In roomy lecture windows, text continues beneath the photo. */
 .quiz-columns__main{min-width:0;overflow-wrap:anywhere}
 .quiz-columns__media{display:none;min-width:0;overflow-wrap:anywhere}
@@ -56,7 +60,7 @@ input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !importa
   .quiz-columns--media>.quiz-columns__main .quiz-inline-images{display:none}
   .quiz-columns--media .quiz-question-actions{clear:both;padding-top:4px}
   .quiz-columns__media [data-review-images]{margin-top:0!important}
-  .quiz-columns__media figure>img{max-height:42vh!important}
+  .quiz-columns__media figure>img{height:42vh!important;max-height:42vh!important}
 }
 </style>
 </head>
@@ -5760,13 +5764,13 @@ function QuizApp(){
             return <span style={{marginLeft:8,fontSize:10,color,fontWeight:600}}>{label}</span>;
           })()}
         </div>
-        <div style={s.previewMode?{"--quiz-font-size":previewFontSize+"px"}:undefined} className={"quiz-columns"+(!hideIntroMedia&&s.previewMode&&(hasQuestionMedia(q)||reviewImages(q).length)?" quiz-columns--media":"")}>
-        {!hideIntroMedia&&<aside className="quiz-columns__media" aria-label={lang==="en"?"Question images":"問題の画像"}>
+        <div style={s.previewMode?{"--quiz-font-size":previewFontSize+"px"}:undefined} className={"quiz-columns"+(s.previewMode&&(hasQuestionMedia(q)||reviewImages(q).length)?" quiz-columns--media":"")}>
+        <aside className="quiz-columns__media quiz-media-reveal" data-media-hidden={hideIntroMedia?"true":"false"} aria-hidden={hideIntroMedia} aria-label={lang==="en"?"Question images":"問題の画像"}>
           <QuestionImages key={questionKey} q={q} showDetails={isFB} compact/>
           {s.previewMode&&<ReviewImages key={questionKey+"-review"} q={q} showDetails={isFB} compact/>}
-        </aside>}
+        </aside>
         <div className="quiz-columns__main">
-          {!hideIntroMedia&&<div className="quiz-inline-images"><QuestionImages q={q}/></div>}
+          <div className="quiz-inline-images quiz-media-reveal" data-media-hidden={hideIntroMedia?"true":"false"} aria-hidden={hideIntroMedia}><QuestionImages q={q}/></div>
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
               isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)} onIntroResume={()=>setMediaRevealedKey(questionKey)}/>}
@@ -6081,7 +6085,7 @@ function shouldHideIntroMedia(q,isNew,isFB,questionKey,revealedKey){
   return Boolean(q&&q.type==="fill"&&isNew&&!isFB&&firstSentenceEnd(q.q)<q.q.length&&revealedKey!==questionKey);
 }
 function hasQuestionMedia(q){return Boolean(q.image||(q.images||[]).some(img=>img&&img.url));}
-function PhotoDetails({description,caption,sourceUrl,compact=false}){
+function PhotoDetails({description,caption,sourceUrl,compact=false,revealed=true}){
   const lang=React.useContext(LangCtx);
   if(!description&&!caption&&!sourceUrl)return null;
   const content=<>
@@ -6091,7 +6095,7 @@ function PhotoDetails({description,caption,sourceUrl,compact=false}){
       {sourceUrl&&<><br/><a href={sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>{lang==="en"?"Source":"出典"}</a></>}
     </div>}
   </>;
-  return <figcaption>{compact?
+  return <figcaption style={revealed?undefined:{visibility:"hidden",pointerEvents:"none"}} aria-hidden={!revealed}>{compact?
     <details className="quiz-photo-details"><summary>{lang==="en"?"About this image":"写真の説明"}</summary>{content}</details>
     :content}</figcaption>;
 }
@@ -6102,8 +6106,8 @@ function QuestionImages({q,showDetails=true,compact=false}){
   ].filter(img=>img&&img.url);
   return <div data-question-images>
     {images.map((img,i)=><figure key={img.url+"-"+i} style={{margin:"0 0 12px"}}>
-      <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-      {showDetails&&<PhotoDetails description={img.description} caption={img.credit||img.caption} sourceUrl={img.sourceUrl} compact={compact}/>}
+      <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",height:240,maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
+      {(showDetails||compact)&&<PhotoDetails description={img.description} caption={img.credit||img.caption} sourceUrl={img.sourceUrl} compact={compact} revealed={showDetails}/>}
     </figure>)}
   </div>;
 }
@@ -6118,8 +6122,8 @@ function ReviewImages({q,showDetails=true,compact=false}){
   return <>
     {images.length>0&&<div data-review-images style={{margin:"12px 0"}}>
       {images.map((img,i)=><figure key={img.url+"-"+i} style={{margin:"0 0 12px"}}>
-        <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",maxHeight:360,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-        {showDetails&&<PhotoDetails description={img.description} caption={img.caption} sourceUrl={img.sourceUrl} compact={compact}/>}
+        <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",height:360,maxHeight:360,objectFit:"contain",borderRadius:8,background:"#111"}}/>
+        {(showDetails||compact)&&<PhotoDetails description={img.description} caption={img.caption} sourceUrl={img.sourceUrl} compact={compact} revealed={showDetails}/>}
       </figure>)}
     </div>}
   </>;
