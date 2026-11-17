@@ -42,20 +42,21 @@ input:focus,textarea:focus{outline:none !important;border-color:#c9a84c !importa
 @keyframes rewardIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes tweetBird{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(8deg) scale(1.12)}}
 
-/* Keep the portrait flow; only roomy landscape windows use a media column. */
+/* In roomy lecture windows, text continues beneath the photo. */
 .quiz-columns__main{min-width:0;overflow-wrap:anywhere}
 .quiz-columns__media{display:none;min-width:0;overflow-wrap:anywhere}
+.quiz-photo-details{border-top:1px solid #303047;margin-top:8px;padding-top:8px;text-align:left}
+.quiz-photo-details summary{cursor:pointer;color:#c7c8d2;font:clamp(16px,calc(var(--quiz-font-size,22px) * .8),22px)/1.5 system-ui,sans-serif;padding:4px 0}
+.quiz-photo-details summary:focus-visible{outline:2px solid #c9a84c;outline-offset:4px}
+.quiz-photo-details [data-image-description]{font-size:clamp(16px,calc(var(--quiz-font-size,22px) * .8),24px)!important;line-height:1.65!important;color:#ddd!important;margin:10px 0!important}
+.quiz-photo-credit{font:14px/1.6 system-ui,sans-serif;color:#aaa;white-space:pre-line;overflow-wrap:anywhere}
 @media (min-width:1100px) and (orientation:landscape){
-  .quiz-columns--media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:28px;align-items:start}
-  .quiz-columns--media>.quiz-columns__media{display:block;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding-left:20px;border-left:1px solid #292940;scrollbar-width:thin}
-  .quiz-columns__media [data-image-description]{font-size:clamp(16px,calc(var(--quiz-font-size,22px) * .8),24px)!important;line-height:1.65!important;color:#c7c8d2!important;margin:16px 0!important}
-  .quiz-columns__media figcaption{font-size:14px!important;text-align:left!important;line-height:1.6!important}
-  .quiz-columns__media details{border-top:1px solid #303047;padding-top:12px;margin-top:14px}
-  .quiz-columns__media summary{cursor:pointer;color:#9da8bd;font:14px/1.5 system-ui,sans-serif;margin-bottom:8px}
+  .quiz-columns--media{display:flow-root}
+  .quiz-columns--media>.quiz-columns__media{display:block;float:right;width:38%;margin:0 0 20px 28px}
   .quiz-columns--media>.quiz-columns__main .quiz-inline-images{display:none}
+  .quiz-columns--media .quiz-question-actions{clear:both;padding-top:4px}
   .quiz-columns__media [data-review-images]{margin-top:0!important}
-  .quiz-columns__media figure>img,.quiz-columns__media [data-question-images]>img,
-  .quiz-columns__media [data-question-images]>div>img{max-height:48vh!important}
+  .quiz-columns__media figure>img{max-height:42vh!important}
 }
 </style>
 </head>
@@ -2569,18 +2570,23 @@ function WrappingAnswer({inputRef,style,...props}){
   useEffect(()=>{
     const el=fieldRef.current;
     let previousWidth=-1;
+    let fitFrame=0;
     const observer=new ResizeObserver(()=>{
-      if(el&&el.clientWidth!==previousWidth){previousWidth=el.clientWidth;fit();}
+      if(el&&el.clientWidth!==previousWidth){
+        previousWidth=el.clientWidth;
+        cancelAnimationFrame(fitFrame);
+        fitFrame=requestAnimationFrame(fit);
+      }
     });
     if(el)observer.observe(el);
-    return()=>observer.disconnect();
+    return()=>{observer.disconnect();cancelAnimationFrame(fitFrame);};
   },[]);
   return <textarea {...props} enterKeyHint="next" rows={1} ref={el=>{fieldRef.current=el;inputRef(el);}}
     style={{...style,resize:"none",overflow:"hidden",whiteSpace:"pre-wrap",
       overflowWrap:"anywhere",wordBreak:"normal",lineHeight:1.5}}/>;
 }
 
-function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,ghostingRef,onDone}){
+function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,ghostingRef,onDone,onIntroResume}){
   const lang=React.useContext(LangCtx);
   const[introPaused,setIntroPaused]=useState(false);
   const introPassedRef=useRef(false);
@@ -2652,6 +2658,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
   },[isNew,isFB,previewReady,ghostedBlanks,shown]);
 
   const resumeIntro=()=>{
+    onIntroResume?.();
     focusPreviewKeyboard();
     setIntroPaused(false);
     const firstBlank=fullText.indexOf("___");
@@ -2920,7 +2927,7 @@ function FillInline({q,qkey,isNew,inputs,dispatch,isFB,feedback,refs,onSubmit,gh
             {blank&&showBlank&&(
               <span style={{
                 display:"inline-block",verticalAlign:"middle",
-                margin:"0 3px",width:w,maxWidth:"calc(100% - 6px)",minWidth:0,
+                margin:"0 3px",width:"max("+w+"px, calc(var(--quiz-font-size, 0px) * "+Array.from(val).reduce((n,c)=>n+(charDisplayWidth(c)>1?1:0.7),0)+" + 32px))",maxWidth:"calc(100% - 6px)",minWidth:0,
                 animation:isPopping?"blankPop 0.35s ease":isWobbling?"blankWobble 0.5s ease infinite":"none",
                 transformOrigin:"center",
               }}>
@@ -4736,6 +4743,7 @@ function QuizApp(){
   const[previewFontSize,setPreviewFontSize]=useState(()=>{try{const n=Number(localStorage.getItem("econ_preview_font_size"));return n>=16&&n<=40?n:22;}catch(_){return 22;}});
   const changePreviewFontSize=n=>{const size=Math.min(40,Math.max(16,n));setPreviewFontSize(size);try{localStorage.setItem("econ_preview_font_size",String(size));}catch(_){}};
   const[typingDone,setTypingDone]=useState(false);
+  const[mediaRevealedKey,setMediaRevealedKey]=useState(null);
   const[s,rawDispatch]=useReducer(reducer,makeInit(DEFAULT_QS));
   // 同じ描画状態での連続送信は1回のみ加算。誤答・空欄送信は報酬にしない。
   const newRewardSubmissionRef=useRef(null);
@@ -5269,6 +5277,7 @@ function QuizApp(){
   const wrongCount=q?(wrongCounts[q.id]||0):0;
   const isFB=phase==="feedback";
   const isNew=q&&Array.isArray(newCardIds)?newCardIds.includes(q.id):false;
+  const hideIntroMedia=shouldHideIntroMedia(q,isNew,isFB,questionKey,mediaRevealedKey);
   const maxT=qTimer(q||QS[0]);
   const timerPct=typingDone?Math.min(100,timeLeft/maxT*100):100;
   const timerColor=!typingDone?"#3a3a58":timeLeft<=5?"#ef4444":timeLeft<=10?"#f97316":"#c9a84c";
@@ -5738,12 +5747,17 @@ function QuizApp(){
             return <span style={{marginLeft:8,fontSize:10,color,fontWeight:600}}>{label}</span>;
           })()}
         </div>
-        <div style={s.previewMode?{"--quiz-font-size":previewFontSize+"px"}:undefined} className={"quiz-columns"+(s.previewMode&&(hasQuestionMedia(q)||reviewImages(q).length)?" quiz-columns--media":"")}>
+        <div style={s.previewMode?{"--quiz-font-size":previewFontSize+"px"}:undefined} className={"quiz-columns"+(!hideIntroMedia&&s.previewMode&&(hasQuestionMedia(q)||reviewImages(q).length)?" quiz-columns--media":"")}>
+        {!hideIntroMedia&&<aside className="quiz-columns__media" aria-label={lang==="en"?"Question images":"問題の画像"}>
+          <QuestionImages key={questionKey} q={q} showDetails={isFB} compact/>
+          {s.previewMode&&<ReviewImages key={questionKey+"-review"} q={q} showDetails={isFB} compact/>}
+        </aside>}
         <div className="quiz-columns__main">
-          <div className="quiz-inline-images"><QuestionImages q={q}/></div>
+          {!hideIntroMedia&&<div className="quiz-inline-images"><QuestionImages q={q}/></div>}
         {q.type==="mc"?<TypewriterText text={dq.q} qkey={questionKey} style={S.qtxt} onDone={()=>setTypingDone(true)}/>
           :<FillInline key={questionKey} q={q} qkey={questionKey} isNew={isNew&&!isFB} inputs={inputs} dispatch={dispatch}
-              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)}/>}
+              isFB={isFB} feedback={feedback} refs={refs} onSubmit={submitFill} ghostingRef={ghostingRef} onDone={()=>setTypingDone(true)} onIntroResume={()=>setMediaRevealedKey(questionKey)}/>}
+        <div className="quiz-question-actions">
         {!showHint&&!isFB&&<button style={S.hintBtn} onClick={()=>dispatch({type:"HINT"})}>{T.hintBtn}</button>}
         {q.type==="fill"&&!isFB&&!isNew&&(
           <button type="button" style={{...S.btnG,marginTop:10,padding:"10px 28px",fontSize:14}}
@@ -5852,10 +5866,7 @@ function QuizApp(){
           </div>
         )}
         </div>
-        <aside className="quiz-columns__media" aria-label={lang==="en"?"Question images":"問題の画像"}>
-          <QuestionImages key={questionKey} q={q} showDetails={isFB}/>
-          {s.previewMode&&<ReviewImages key={questionKey+"-review"} q={q} showDetails={isFB} compact/>}
-        </aside>
+        </div>
         </div>
       </div>
 
@@ -6053,17 +6064,34 @@ function NdSettingsModal({onClose,onSave,initKey,initId,pending,claimReward}){
   );
 }
 
+function shouldHideIntroMedia(q,isNew,isFB,questionKey,revealedKey){
+  return Boolean(q&&q.type==="fill"&&isNew&&!isFB&&firstSentenceEnd(q.q)<q.q.length&&revealedKey!==questionKey);
+}
 function hasQuestionMedia(q){return Boolean(q.image||(q.images||[]).some(img=>img&&img.url));}
-function QuestionImages({q,showDetails=true}){
+function PhotoDetails({description,caption,sourceUrl,compact=false}){
+  const lang=React.useContext(LangCtx);
+  if(!description&&!caption&&!sourceUrl)return null;
+  const content=<>
+    {description&&<p data-image-description style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#ddd",lineHeight:1.7,margin:"10px 0 8px",whiteSpace:"pre-line"}}>{description}</p>}
+    {(caption||sourceUrl)&&<div className="quiz-photo-credit">
+      {caption}
+      {sourceUrl&&<><br/><a href={sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>{lang==="en"?"Source":"出典"}</a></>}
+    </div>}
+  </>;
+  return <figcaption>{compact?
+    <details className="quiz-photo-details"><summary>{lang==="en"?"About this image":"写真の説明"}</summary>{content}</details>
+    :content}</figcaption>;
+}
+function QuestionImages({q,showDetails=true,compact=false}){
+  const images=[
+    ...(q.image?[{url:q.image,caption:q.imageCaption,description:q.imageDescription,sourceUrl:q.imageSourceUrl}]:[]),
+    ...(q.images||[])
+  ].filter(img=>img&&img.url);
   return <div data-question-images>
-        {q.image&&<ZoomableImage src={q.image} alt={q.imageCaption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,marginBottom:10,background:"#111"}}/>}
-        {showDetails&&q.imageCaption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:8,marginTop:-6}}>{q.imageCaption}</p>}
-        {q.images&&q.images.map((img,i)=>(
-          <div key={i} style={{marginBottom:8}}>
-            <img src={img.url} alt={img.caption||""} style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-            {showDetails&&img.caption&&<p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:4}}>{img.caption}</p>}
-          </div>
-        ))}
+    {images.map((img,i)=><figure key={img.url+"-"+i} style={{margin:"0 0 12px"}}>
+      <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,background:"#111"}}/>
+      {showDetails&&<PhotoDetails description={img.description} caption={img.credit||img.caption} sourceUrl={img.sourceUrl} compact={compact}/>}
+    </figure>)}
   </div>;
 }
 function reviewImages(q){
@@ -6076,18 +6104,9 @@ function ReviewImages({q,showDetails=true,compact=false}){
   const images=reviewImages(q);
   return <>
     {images.length>0&&<div data-review-images style={{margin:"12px 0"}}>
-      {images.map((img,i)=><figure key={i} style={{margin:"0 0 12px"}}>
+      {images.map((img,i)=><figure key={img.url+"-"+i} style={{margin:"0 0 12px"}}>
         <ZoomableImage src={img.url} alt={img.caption||""} style={{display:"block",width:"100%",maxHeight:360,objectFit:"contain",borderRadius:8,background:"#111"}}/>
-        {showDetails&&img.description&&<p data-image-description style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#ddd",lineHeight:1.7,margin:"10px 0 8px",whiteSpace:"pre-line"}}>{img.description}</p>}
-        {showDetails&&(img.caption||img.sourceUrl)&&(compact?
-          <details><summary>Credit &amp; source / クレジット・出典</summary><figcaption style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#aaa",textAlign:"center",lineHeight:1.6,marginTop:6,whiteSpace:"pre-line",overflowWrap:"anywhere"}}>
-          {img.caption}
-          {img.sourceUrl&&<><br/><a href={img.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>Source / 出典</a></>}
-        </figcaption></details>:
-          <figcaption style={{fontSize:"var(--quiz-font-size, "+(DK?22:18)+"px)",color:"#aaa",textAlign:"center",lineHeight:1.6,marginTop:6,whiteSpace:"pre-line",overflowWrap:"anywhere"}}>
-          {img.caption}
-          {img.sourceUrl&&<><br/><a href={img.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"#9eb9df"}}>Source / 出典</a></>}
-        </figcaption>)}
+        {showDetails&&<PhotoDetails description={img.description} caption={img.caption} sourceUrl={img.sourceUrl} compact={compact}/>}
       </figure>)}
     </div>}
   </>;
@@ -6105,13 +6124,15 @@ function ZoomableImage({src,alt,style}){
   const[open,setOpen]=useState(false);
   const[view,setView]=useState({scale:1,x:0,y:0});
   const viewport=useRef(null);
+  const image=useRef(null);
   const current=useRef({scale:1,x:0,y:0});
   const reset=()=>{current.current={scale:1,x:0,y:0};setView(current.current);};
   const close=()=>{setOpen(false);reset();};
   useEffect(()=>{
     if(!open||!viewport.current)return;
     const el=viewport.current;
-    let touch=null,mouse=null,gestureScale=null;
+    let touch=null,mouse=null,gestureScale=null,tap=null,lastTouch=0;
+    const outside=(x,y)=>{const r=image.current?.getBoundingClientRect();return !!r&&(x<r.left||x>r.right||y<r.top||y>r.bottom);};
     const apply=v=>{current.current=v;setView(v);};
     const zoom=(ratio,x,y)=>{
       const v=current.current,s=Math.max(1,Math.min(5,v.scale*ratio));
@@ -6120,48 +6141,52 @@ function ZoomableImage({src,alt,style}){
     };
     const pan=(dx,dy)=>{const v=current.current;if(v.scale>1)apply({...v,x:v.x+dx,y:v.y+dy});};
     const sample=ts=>ts.length>=2?{x:(ts[0].clientX+ts[1].clientX)/2,y:(ts[0].clientY+ts[1].clientY)/2,d:Math.hypot(ts[0].clientX-ts[1].clientX,ts[0].clientY-ts[1].clientY),n:2}:ts.length?{x:ts[0].clientX,y:ts[0].clientY,n:1}:null;
-    const start=e=>{touch=sample(e.touches);};
+    const start=e=>{
+      lastTouch=Date.now();touch=sample(e.touches);
+      if(e.touches.length!==1){tap=null;return;}
+      tap=touch?{x:touch.x,y:touch.y,outside:outside(touch.x,touch.y),moved:false}:null;
+    };
     const move=e=>{
       e.preventDefault();const next=sample(e.touches);
+      if(tap&&next&&(next.n!==1||Math.hypot(next.x-tap.x,next.y-tap.y)>8))tap.moved=true;
       if(touch&&next&&touch.n===next.n){
         if(next.n===2&&touch.d>0)zoom(next.d/touch.d,touch.x,touch.y);
         pan(next.x-touch.x,next.y-touch.y);
       }
       touch=next;
     };
-    const end=e=>{touch=sample(e.touches);};
+    const end=e=>{
+      lastTouch=Date.now();
+      const released=e.changedTouches&&e.changedTouches[0];
+      if(e.type==='touchend'&&!e.touches.length&&tap&&!tap.moved&&tap.outside&&released&&Math.hypot(released.clientX-tap.x,released.clientY-tap.y)<=8&&outside(released.clientX,released.clientY)){
+        e.preventDefault();close();
+      }
+      tap=null;touch=sample(e.touches);
+    };
     const wheel=e=>{e.preventDefault();if(gestureScale!==null)return;
       if(e.ctrlKey||e.metaKey)zoom(Math.exp(-e.deltaY*0.01),e.clientX,e.clientY);
       else pan(-e.deltaX,-e.deltaY);
     };
     // Safari/WKWebView trackpad pinch uses GestureEvent instead of ctrl-wheel.
-    const gs=e=>{e.preventDefault();gestureScale=e.scale||1;};
+    const gs=e=>{e.preventDefault();tap=null;mouse=null;gestureScale=e.scale||1;};
     const gc=e=>{e.preventDefault();const r=el.getBoundingClientRect();zoom((e.scale||1)/(gestureScale||1),Number.isFinite(e.clientX)?e.clientX:r.left+r.width/2,Number.isFinite(e.clientY)?e.clientY:r.top+r.height/2);gestureScale=e.scale||1;};
     const ge=e=>{e.preventDefault();gestureScale=null;};
-    const down=e=>{if(e.button!==0)return;e.preventDefault();mouse={x:e.clientX,y:e.clientY};};
-    const drag=e=>{if(!mouse)return;pan(e.clientX-mouse.x,e.clientY-mouse.y);mouse={x:e.clientX,y:e.clientY};};
-    const up=()=>{mouse=null;};
+    const down=e=>{if(e.button!==0||Date.now()-lastTouch<800)return;e.preventDefault();mouse={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,outside:outside(e.clientX,e.clientY),moved:false};};
+    const drag=e=>{if(!mouse)return;if(Math.hypot(e.clientX-mouse.startX,e.clientY-mouse.startY)>8)mouse.moved=true;pan(e.clientX-mouse.x,e.clientY-mouse.y);mouse.x=e.clientX;mouse.y=e.clientY;};
+    const up=e=>{const m=mouse;mouse=null;if(m&&!m.moved&&m.outside&&Math.hypot(e.clientX-m.startX,e.clientY-m.startY)<=8&&outside(e.clientX,e.clientY))close();};
     const key=e=>{if(e.key==='Escape'){e.preventDefault();close();}};
     const events={touchstart:start,touchmove:move,touchend:end,touchcancel:end,wheel,gesturestart:gs,gesturechange:gc,gestureend:ge,mousedown:down};
     Object.entries(events).forEach(([name,fn])=>el.addEventListener(name,fn,{passive:false}));
     window.addEventListener('mousemove',drag);window.addEventListener('mouseup',up);window.addEventListener('keydown',key);
     return()=>{Object.entries(events).forEach(([name,fn])=>el.removeEventListener(name,fn));window.removeEventListener('mousemove',drag);window.removeEventListener('mouseup',up);window.removeEventListener('keydown',key);};
   },[open]);
-  const step=factor=>{const v=current.current,s=Math.max(1,Math.min(5,v.scale*factor));current.current=s===1?{scale:1,x:0,y:0}:{scale:s,x:v.x*s/v.scale,y:v.y*s/v.scale};setView(current.current);};
   return(<>
     <img src={src} alt={alt||""} style={{...style,cursor:"zoom-in"}} onClick={()=>{reset();setOpen(true);}}/>
     {open&&<div role="dialog" aria-label="Image viewer" aria-modal="true" data-image-viewer style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(0,0,0,0.94)"}}>
       <div ref={viewport} data-image-viewport onDoubleClick={reset} style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",touchAction:"none",overscrollBehavior:"contain",cursor:view.scale>1?"grab":"default"}}>
-        <img src={src} alt={alt||""} draggable={false} style={{maxWidth:"96vw",maxHeight:"90vh",objectFit:"contain",transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`,transformOrigin:"center",userSelect:"none",WebkitUserSelect:"none",pointerEvents:"none"}}/>
+        <img ref={image} src={src} alt={alt||""} draggable={false} style={{maxWidth:"96vw",maxHeight:"90vh",objectFit:"contain",transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`,transformOrigin:"center",userSelect:"none",WebkitUserSelect:"none",pointerEvents:"none"}}/>
       </div>
-      <div style={{position:"absolute",top:16,right:16,display:"flex",alignItems:"center",gap:8,background:"#222",padding:8,borderRadius:10,color:"white"}}>
-        <button type="button" aria-label="Zoom out" onClick={()=>step(1/1.25)}>−</button>
-        <output aria-label="Image zoom">{Math.round(view.scale*100)}%</output>
-        <button type="button" aria-label="Zoom in" onClick={()=>step(1.25)}>＋</button>
-        <button type="button" onClick={reset}>リセット</button>
-        <button type="button" aria-label="Close image" onClick={close}>✕</button>
-      </div>
-      <div style={{position:"absolute",bottom:16,left:0,right:0,textAlign:"center",color:"#ddd",fontSize:13,pointerEvents:"none"}}>ピンチで拡大・縮小 ／ 拡大後はドラッグで移動</div>
+      <div style={{position:"absolute",bottom:16,left:0,right:0,textAlign:"center",color:"#ddd",fontSize:13,pointerEvents:"none"}}>ピンチで拡大・縮小 ／ 画像の外側をタップして閉じる</div>
     </div>}
   </>);
 }
